@@ -1,0 +1,997 @@
+package handlers
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"device-management/internal/middleware"
+	"device-management/internal/models"
+	"device-management/internal/repository"
+	"device-management/internal/services"
+	"device-management/pkg/response"
+
+	"github.com/gin-gonic/gin"
+)
+
+type DeviceHandler struct {
+	deviceRepo          *repository.DeviceRepository
+	userRepo            *repository.UserRepository
+	notificationService *services.NotificationService
+}
+
+func NewDeviceHandler(deviceRepo *repository.DeviceRepository, userRepo *repository.UserRepository, notificationService *services.NotificationService) *DeviceHandler {
+	return &DeviceHandler{
+		deviceRepo:          deviceRepo,
+		userRepo:            userRepo,
+		notificationService: notificationService,
+	}
+}
+
+type SetOccupancyRequest struct {
+	MerchantID string `json:"merchant_id" binding:"required"`
+	Purpose    string `json:"purpose"`
+	StartTime  string `json:"start_time"`
+	EndTime    string `json:"end_time" binding:"required"`
+}
+
+type SubmitClaimRequest struct {
+	MerchantID string `json:"merchant_id" binding:"required"`
+}
+
+// GetDevices returns paginated device list
+func (h *DeviceHandler) GetDevices(c *gin.Context) {
+	// Cleanup expired occupancies first
+	h.deviceRepo.CleanupExpiredOccupancies()
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+	search := c.Query("search")
+
+	if pageSize > 200 {
+		pageSize = 200
+	}
+
+	results, total, totalPages, err := h.deviceRepo.ListScanResults(page, pageSize, search)
+	if err != nil {
+		response.InternalError(c, "获取设备列表失败")
+		return
+	}
+
+	// Get scan session
+	session, _ := h.deviceRepo.GetScanSession()
+
+	// Get merchant IDs and owner IDs
+	merchantIDs := make([]string, 0)
+	ownerIDs := make([]uint, 0)
+	for _, r := range results {
+		if r.MerchantID != nil && *r.MerchantID != "" {
+			merchantIDs = append(merchantIDs, *r.MerchantID)
+		}
+		if r.OwnerID != nil {
+			ownerIDs = append(ownerIDs, *r.OwnerID)
+		}
+	}
+
+	// Get properties
+	properties, _ := h.deviceRepo.ListPropertiesByMerchantIDs(merchantIDs)
+	propertyMap := make(map[string]string)
+	for _, p := range properties {
+		propertyMap[p.MerchantID] = p.Property
+	}
+
+	// Get occupancies
+	occupancies, _ := h.deviceRepo.ListOccupanciesByMerchantIDs(merchantIDs)
+	occupancyMap := make(map[string]*models.DeviceOccupancy)
+	occupierIDs := make([]uint, 0)
+	for i := range occupancies {
+		occupancyMap[occupancies[i].MerchantID] = &occupancies[i]
+		// 收集借用人的ID
+		occupierIDs = append(occupierIDs, occupancies[i].UserID)
+	}
+
+	// Get users (包括设备负责人和借用人)
+	allUserIDs := append(ownerIDs, occupierIDs...)
+	users, _ := h.deviceRepo.GetUsersByIDs(allUserIDs)
+	userMap := make(map[uint]*models.User)
+	for i := range users {
+		userMap[users[i].ID] = &users[i]
+	}
+
+	// Build device list
+	devices := make([]map[string]interface{}, 0)
+	now := time.Now()
+	for _, r := range results {
+		device := r.ToDict()
+
+		merchantID := ""
+		if r.MerchantID != nil {
+			merchantID = *r.MerchantID
+		}
+
+		// Add property
+		if prop, ok := propertyMap[merchantID]; ok {
+			device["property"] = prop
+		} else {
+			device["property"] = "PC"
+		}
+
+		// Add occupancy
+		if occupancy, ok := occupancyMap[merchantID]; ok {
+			if occupancy.EndTime.After(now) {
+				// 手动构建 occupancy 信息，确保使用正确的借用人
+				occDict := map[string]interface{}{
+					"merchantId": occupancy.MerchantID,
+					"userId":     occupancy.UserID,
+					"purpose":    occupancy.Purpose,
+					"startTime":  occupancy.StartTime.Format(time.RFC3339),
+					"endTime":    occupancy.EndTime.Format(time.RFC3339),
+					"createdAt":  occupancy.CreatedAt.Format(time.RFC3339),
+				}
+				// 从 userMap 获取借用人信息
+				if occupier, ok := userMap[occupancy.UserID]; ok {
+					username := occupier.Username
+					if occupier.Name != nil && *occupier.Name != "" {
+						username = *occupier.Name
+					}
+					occDict["username"] = username
+				} else {
+					occDict["username"] = ""
+				}
+				device["occupancy"] = occDict
+				device["isOccupied"] = true
+			} else {
+				device["occupancy"] = nil
+				device["isOccupied"] = false
+			}
+		} else {
+			device["occupancy"] = nil
+			device["isOccupied"] = false
+		}
+
+		// Add owner
+		if r.OwnerID != nil {
+			if owner, ok := userMap[*r.OwnerID]; ok {
+				username := owner.Username
+				if owner.Name != nil && *owner.Name != "" {
+					username = *owner.Name
+				}
+				device["owner"] = map[string]interface{}{
+					"id":       owner.ID,
+					"username": username,
+				}
+			} else {
+				device["owner"] = nil
+			}
+		} else {
+			device["owner"] = nil
+		}
+
+		devices = append(devices, device)
+	}
+
+	lastScanAt := ""
+	if session != nil {
+		lastScanAt = session.LastScanAt.Format(time.RFC3339)
+	}
+
+	response.Success(c, gin.H{
+		"devices":    devices,
+		"total":      total,
+		"page":       page,
+		"pageSize":   pageSize,
+		"totalPages": totalPages,
+		"lastScanAt": lastScanAt,
+	})
+}
+
+// GetOccupancies returns all device occupancies
+func (h *DeviceHandler) GetOccupancies(c *gin.Context) {
+	occupancies, err := h.deviceRepo.ListOccupancies()
+	if err != nil {
+		response.InternalError(c, "获取借用信息失败")
+		return
+	}
+
+	occDicts := make([]map[string]interface{}, len(occupancies))
+	for i, o := range occupancies {
+		occDicts[i] = o.ToDict()
+	}
+
+	response.Success(c, gin.H{"occupancies": occDicts})
+}
+
+// SetOccupancy sets device occupancy
+func (h *DeviceHandler) SetOccupancy(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+
+	var req SetOccupancyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "请求格式无效")
+		return
+	}
+
+	if req.MerchantID == "" {
+		response.BadRequest(c, "商家ID不能为空")
+		return
+	}
+
+	if req.EndTime == "" {
+		response.BadRequest(c, "归还时间不能为空")
+		return
+	}
+
+	// Parse times
+	startTime := time.Now()
+	if req.StartTime != "" {
+		if t, err := parseDateTime(req.StartTime); err == nil {
+			startTime = t
+		}
+	}
+
+	endTime, err := parseDateTime(req.EndTime)
+	if err != nil {
+		response.BadRequest(c, "归还时间格式无效")
+		return
+	}
+
+	if endTime.Before(startTime) || endTime.Equal(startTime) {
+		response.BadRequest(c, "归还时间必须大于当前时间")
+		return
+	}
+
+	// Check for existing occupancy (including soft-deleted)
+	occupancy, _ := h.deviceRepo.GetOccupancyByMerchantIDUnscoped(req.MerchantID)
+	if occupancy != nil {
+		// 如果记录被软删除，先恢复
+		if occupancy.DeletedAt.Valid {
+			if err := h.deviceRepo.RestoreOccupancy(occupancy); err != nil {
+				response.InternalError(c, "恢复借用记录失败")
+				return
+			}
+		}
+		occupancy.UserID = userID
+		occupancy.Purpose = &req.Purpose
+		occupancy.StartTime = startTime
+		occupancy.EndTime = endTime
+		if err := h.deviceRepo.UpdateOccupancy(occupancy); err != nil {
+			response.InternalError(c, "更新借用信息失败")
+			return
+		}
+	} else {
+		occupancy = &models.DeviceOccupancy{
+			MerchantID: req.MerchantID,
+			UserID:     userID,
+			Purpose:    &req.Purpose,
+			StartTime:  startTime,
+			EndTime:    endTime,
+		}
+		if err := h.deviceRepo.CreateOccupancy(occupancy); err != nil {
+			response.InternalError(c, "创建借用信息失败")
+			return
+		}
+	}
+
+	// Reload with user
+	occupancy, _ = h.deviceRepo.GetOccupancyByMerchantID(req.MerchantID)
+
+	response.SuccessWithMessage(c, "借用信息已更新", gin.H{"occupancy": occupancy.ToDict()})
+}
+
+// ReleaseOccupancy releases device occupancy
+func (h *DeviceHandler) ReleaseOccupancy(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	merchantID := c.Param("merchant_id")
+
+	occupancy, err := h.deviceRepo.GetOccupancyByMerchantID(merchantID)
+	if err != nil {
+		response.NotFound(c, "借用记录不存在")
+		return
+	}
+
+	// Check permission
+	user, _ := h.userRepo.GetByID(userID)
+	isAdmin := user != nil && user.Role == "admin"
+	isOccupier := occupancy.UserID == userID
+
+	// 检查是否是设备负责人
+	isOwner := false
+	device, _ := h.deviceRepo.GetScanResultByMerchantID(merchantID)
+	if device != nil && device.OwnerID != nil && *device.OwnerID == userID {
+		isOwner = true
+	}
+
+	if !isAdmin && !isOccupier && !isOwner {
+		response.Forbidden(c, "无权释放此设备")
+		return
+	}
+
+	if err := h.deviceRepo.DeleteOccupancy(merchantID); err != nil {
+		response.InternalError(c, "释放设备失败")
+		return
+	}
+
+	response.SuccessWithMessage(c, "设备已释放", nil)
+}
+
+// DeleteDevice deletes a device (admin only)
+// Supports both merchantID and IP (for devices without merchantID)
+func (h *DeviceHandler) DeleteDevice(c *gin.Context) {
+	idParam := c.Param("merchant_id")
+
+	// Try to find by merchantID first
+	device, err := h.deviceRepo.GetScanResultByMerchantID(idParam)
+	if err != nil {
+		// If not found by merchantID, try by IP (for devices without merchantID)
+		device, err = h.deviceRepo.GetScanResultByIPAndEmptyMerchant(idParam)
+		if err != nil {
+			response.NotFound(c, "设备不存在")
+			return
+		}
+
+		// Delete by IP
+		if err := h.deviceRepo.DeleteScanResultByIP(idParam); err != nil {
+			response.InternalError(c, "删除设备失败")
+			return
+		}
+		response.SuccessWithMessage(c, "设备已删除", nil)
+		return
+	}
+
+	// Delete related records
+	if device.MerchantID != nil && *device.MerchantID != "" {
+		h.deviceRepo.DeleteOccupancy(*device.MerchantID)
+		h.deviceRepo.DeleteClaimsByMerchantID(*device.MerchantID)
+	}
+
+	// Delete device
+	if err := h.deviceRepo.DeleteScanResult(*device.MerchantID); err != nil {
+		response.InternalError(c, "删除设备失败")
+		return
+	}
+
+	response.SuccessWithMessage(c, "设备已删除", nil)
+}
+
+// SubmitClaim submits a device claim
+func (h *DeviceHandler) SubmitClaim(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+
+	var req SubmitClaimRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "请求格式无效")
+		return
+	}
+
+	if req.MerchantID == "" {
+		response.BadRequest(c, "商家ID不能为空")
+		return
+	}
+
+	// Check device exists
+	device, err := h.deviceRepo.GetScanResultByMerchantID(req.MerchantID)
+	if err != nil {
+		response.NotFound(c, "设备不存在")
+		return
+	}
+
+	// Check if already claimed
+	if device.OwnerID != nil {
+		response.BadRequest(c, "设备已被认领")
+		return
+	}
+
+	// Check for pending claim
+	if _, err := h.deviceRepo.GetPendingClaimByMerchantID(req.MerchantID); err == nil {
+		response.BadRequest(c, "该设备已有待审核的认领申请")
+		return
+	}
+
+	// Check if user already claimed
+	if _, err := h.deviceRepo.GetPendingClaimByUserAndMerchant(userID, req.MerchantID); err == nil {
+		response.BadRequest(c, "您已提交过该设备的认领申请")
+		return
+	}
+
+	// Create claim
+	claim := &models.DeviceClaim{
+		MerchantID: req.MerchantID,
+		UserID:     userID,
+		Status:     "pending",
+	}
+
+	if err := h.deviceRepo.CreateClaim(claim); err != nil {
+		response.InternalError(c, "提交认领申请失败")
+		return
+	}
+
+	// 发送通知给所有管理员
+	applicant, _ := h.userRepo.GetByID(userID)
+	applicantName := "用户"
+	if applicant != nil {
+		if applicant.Name != nil && *applicant.Name != "" {
+			applicantName = *applicant.Name
+		} else {
+			applicantName = applicant.Username
+		}
+	}
+
+	deviceName := "设备"
+	if device.Name != nil {
+		deviceName = *device.Name
+	}
+
+	if h.notificationService != nil {
+		admins, _ := h.userRepo.GetAdmins()
+		for _, admin := range admins {
+			if err := h.notificationService.SendNewClaimRequest(admin.ID, applicantName, deviceName); err != nil {
+				fmt.Printf("[WARN] 发送认领申请通知给管理员失败: %v\n", err)
+			}
+		}
+	}
+
+	response.SuccessWithMessage(c, "认领申请已提交，请等待管理员审核", nil)
+}
+
+// GetClaims returns device claims
+func (h *DeviceHandler) GetClaims(c *gin.Context) {
+	status := c.DefaultQuery("status", "pending")
+
+	claims, err := h.deviceRepo.ListClaims(status)
+	if err != nil {
+		response.InternalError(c, "获取认领申请列表失败")
+		return
+	}
+
+	// Build result with user and device info
+	result := make([]map[string]interface{}, 0)
+	for _, claim := range claims {
+		user, _ := h.userRepo.GetByID(claim.UserID)
+		device, _ := h.deviceRepo.GetScanResultByMerchantID(claim.MerchantID)
+
+		username := "未知用户"
+		if user != nil {
+			if user.Name != nil && *user.Name != "" {
+				username = *user.Name
+			} else {
+				username = user.Username
+			}
+		}
+
+		deviceName := "未知设备"
+		if device != nil && device.Name != nil {
+			deviceName = *device.Name
+		}
+
+		claimDict := map[string]interface{}{
+			"id":          claim.ID,
+			"merchantId":  claim.MerchantID,
+			"deviceName":  deviceName,
+			"userId":      claim.UserID,
+			"username":    username,
+			"status":      claim.Status,
+			"createdAt":   claim.CreatedAt.Format(time.RFC3339),
+			"processedAt": nil,
+		}
+		if claim.ProcessedAt != nil {
+			claimDict["processedAt"] = claim.ProcessedAt.Format(time.RFC3339)
+		}
+
+		result = append(result, claimDict)
+	}
+
+	response.Success(c, gin.H{"claims": result})
+}
+
+// ApproveClaim approves a device claim
+func (h *DeviceHandler) ApproveClaim(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	claimID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(c, "认领申请ID无效")
+		return
+	}
+
+	claim, err := h.deviceRepo.GetClaimByID(uint(claimID))
+	if err != nil {
+		response.NotFound(c, "认领申请不存在")
+		return
+	}
+
+	if claim.Status != "pending" {
+		response.BadRequest(c, "该认领申请已处理")
+		return
+	}
+
+	// Check device exists and not claimed
+	device, err := h.deviceRepo.GetScanResultByMerchantID(claim.MerchantID)
+	if err != nil {
+		response.NotFound(c, "设备不存在")
+		return
+	}
+
+	if device.OwnerID != nil {
+		response.BadRequest(c, "设备已被认领")
+		return
+	}
+
+	// Update claim
+	now := time.Now()
+	claim.Status = "approved"
+	claim.ProcessedAt = &now
+	claim.ProcessedBy = &userID
+
+	// Set device owner
+	device.OwnerID = &claim.UserID
+
+	// Update in transaction
+	if err := h.deviceRepo.UpdateClaim(claim); err != nil {
+		response.InternalError(c, "审批认领申请失败")
+		return
+	}
+	if err := h.deviceRepo.UpdateScanResult(device); err != nil {
+		response.InternalError(c, "更新设备信息失败")
+		return
+	}
+
+	// Reject other pending claims
+	h.deviceRepo.RejectOtherPendingClaims(claim.MerchantID, uint(claimID), userID)
+
+	// 发送通知给申请人
+	deviceName := "设备"
+	if device.Name != nil {
+		deviceName = *device.Name
+	}
+	if h.notificationService != nil {
+		if err := h.notificationService.SendClaimApproved(claim.UserID, deviceName); err != nil {
+			fmt.Printf("[WARN] 发送认领通过通知失败: %v\n", err)
+		}
+	}
+
+	response.SuccessWithMessage(c, "认领申请已通过", nil)
+}
+
+// RejectClaim rejects a device claim
+func (h *DeviceHandler) RejectClaim(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	claimID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(c, "认领申请ID无效")
+		return
+	}
+
+	claim, err := h.deviceRepo.GetClaimByID(uint(claimID))
+	if err != nil {
+		response.NotFound(c, "认领申请不存在")
+		return
+	}
+
+	if claim.Status != "pending" {
+		response.BadRequest(c, "该认领申请已处理")
+		return
+	}
+
+	// 获取设备名称用于通知
+	deviceName := "设备"
+	device, err := h.deviceRepo.GetScanResultByMerchantID(claim.MerchantID)
+	if err == nil && device.Name != nil {
+		deviceName = *device.Name
+	}
+
+	now := time.Now()
+	claim.Status = "rejected"
+	claim.ProcessedAt = &now
+	claim.ProcessedBy = &userID
+
+	if err := h.deviceRepo.UpdateClaim(claim); err != nil {
+		response.InternalError(c, "拒绝认领申请失败")
+		return
+	}
+
+	// 发送通知给申请人
+	if h.notificationService != nil {
+		if err := h.notificationService.SendClaimRejected(claim.UserID, deviceName); err != nil {
+			fmt.Printf("[WARN] 发送认领拒绝通知失败: %v\n", err)
+		}
+	}
+
+	response.SuccessWithMessage(c, "认领申请已拒绝", nil)
+}
+
+// ResetOwner resets device owner (admin only)
+func (h *DeviceHandler) ResetOwner(c *gin.Context) {
+	merchantID := c.Param("merchant_id")
+
+	device, err := h.deviceRepo.GetScanResultByMerchantID(merchantID)
+	if err != nil {
+		response.NotFound(c, "设备不存在")
+		return
+	}
+
+	device.OwnerID = nil
+	if err := h.deviceRepo.UpdateScanResult(device); err != nil {
+		response.InternalError(c, "重置负责人失败")
+		return
+	}
+
+	response.SuccessWithMessage(c, "负责人已重置", nil)
+}
+
+// SubmitBorrowRequest 提交POS设备借用申请
+func (h *DeviceHandler) SubmitBorrowRequest(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+
+	var req struct {
+		MerchantID string `json:"merchantId" binding:"required"`
+		Purpose    string `json:"purpose"`
+		EndTime    string `json:"endTime" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "请求格式无效")
+		return
+	}
+
+	// 检查设备是否存在
+	device, err := h.deviceRepo.GetScanResultByMerchantID(req.MerchantID)
+	if err != nil {
+		response.NotFound(c, "设备不存在")
+		return
+	}
+
+	// 检查设备是否已被借用
+	occupancy, _ := h.deviceRepo.GetOccupancyByMerchantID(req.MerchantID)
+	if occupancy != nil && occupancy.EndTime.After(time.Now()) {
+		response.BadRequest(c, "设备已被借用")
+		return
+	}
+
+	// 检查是否已有待审核的申请
+	if _, err := h.deviceRepo.GetPendingBorrowRequestByMerchantID(req.MerchantID); err == nil {
+		response.BadRequest(c, "该设备已有待审核的借用申请")
+		return
+	}
+
+	// 解析归还时间
+	endTime, err := parseDateTime(req.EndTime)
+	if err != nil {
+		response.BadRequest(c, "归还时间格式无效")
+		return
+	}
+
+	if endTime.Before(time.Now()) {
+		response.BadRequest(c, "归还时间必须大于当前时间")
+		return
+	}
+
+	// 创建借用申请
+	borrowReq := &models.DeviceBorrowRequest{
+		MerchantID: req.MerchantID,
+		UserID:     userID,
+		Purpose:    req.Purpose,
+		EndTime:    endTime,
+		Status:     "pending",
+	}
+
+	if err := h.deviceRepo.CreateBorrowRequest(borrowReq); err != nil {
+		response.InternalError(c, "提交借用申请失败")
+		return
+	}
+
+	// 发送通知给审核人（设备负责人和管理员）
+	applicant, _ := h.userRepo.GetByID(userID)
+	applicantName := "用户"
+	if applicant != nil {
+		if applicant.Name != nil && *applicant.Name != "" {
+			applicantName = *applicant.Name
+		} else {
+			applicantName = applicant.Username
+		}
+	}
+
+	deviceName := "设备"
+	if device.Name != nil {
+		deviceName = *device.Name
+	}
+
+	// 通知设备负责人
+	if h.notificationService != nil && device.OwnerID != nil {
+		if err := h.notificationService.SendNewBorrowRequest(*device.OwnerID, applicantName, deviceName); err != nil {
+			fmt.Printf("[WARN] 发送借用申请通知给负责人失败: %v\n", err)
+		}
+	}
+
+	// 通知所有管理员
+	if h.notificationService != nil {
+		admins, _ := h.userRepo.GetAdmins()
+		for _, admin := range admins {
+			// 避免重复通知（如果负责人也是管理员）
+			if device.OwnerID != nil && admin.ID == *device.OwnerID {
+				continue
+			}
+			if err := h.notificationService.SendNewBorrowRequest(admin.ID, applicantName, deviceName); err != nil {
+				fmt.Printf("[WARN] 发送借用申请通知给管理员失败: %v\n", err)
+			}
+		}
+	}
+
+	response.SuccessWithMessage(c, "借用申请已提交，请等待审核", nil)
+}
+
+// GetBorrowRequests 获取POS设备借用申请列表
+func (h *DeviceHandler) GetBorrowRequests(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	status := c.DefaultQuery("status", "pending")
+
+	user, _ := h.userRepo.GetByID(userID)
+	isAdmin := user != nil && user.Role == "admin"
+
+	var requests []models.DeviceBorrowRequest
+	var err error
+
+	if isAdmin {
+		// 管理员可以看到所有申请
+		requests, err = h.deviceRepo.ListBorrowRequests(status)
+	} else {
+		// 普通用户只能看到自己负责的设备的申请
+		requests, err = h.deviceRepo.ListBorrowRequests(status)
+		// 过滤出用户是设备负责人的申请
+		filtered := make([]models.DeviceBorrowRequest, 0)
+		for _, r := range requests {
+			if r.ScanResult != nil && r.ScanResult.OwnerID != nil && *r.ScanResult.OwnerID == userID {
+				filtered = append(filtered, r)
+			}
+		}
+		requests = filtered
+	}
+
+	if err != nil {
+		response.InternalError(c, "获取借用申请列表失败")
+		return
+	}
+
+	// 构建返回结果
+	result := make([]map[string]interface{}, 0)
+	for _, r := range requests {
+		reqDict := r.ToDict()
+
+		// 添加用户信息
+		if r.User != nil {
+			username := r.User.Username
+			if r.User.Name != nil && *r.User.Name != "" {
+				username = *r.User.Name
+			}
+			reqDict["username"] = username
+		} else {
+			reqDict["username"] = "未知用户"
+		}
+
+		// 添加设备信息
+		if r.ScanResult != nil {
+			deviceName := "未知设备"
+			if r.ScanResult.Name != nil {
+				deviceName = *r.ScanResult.Name
+			}
+			reqDict["deviceName"] = deviceName
+			reqDict["ip"] = r.ScanResult.IP
+
+			// 添加负责人信息
+			if r.ScanResult.Owner != nil {
+				ownerName := r.ScanResult.Owner.Username
+				if r.ScanResult.Owner.Name != nil && *r.ScanResult.Owner.Name != "" {
+					ownerName = *r.ScanResult.Owner.Name
+				}
+				reqDict["ownerName"] = ownerName
+			} else if r.ScanResult.OwnerID != nil {
+				reqDict["ownerName"] = "未知"
+			} else {
+				reqDict["ownerName"] = ""
+			}
+		} else {
+			reqDict["deviceName"] = "未知设备"
+			reqDict["ip"] = ""
+			reqDict["ownerName"] = ""
+		}
+
+		result = append(result, reqDict)
+	}
+
+	response.Success(c, gin.H{"requests": result})
+}
+
+// ApproveBorrowRequest 审核通过POS设备借用申请
+func (h *DeviceHandler) ApproveBorrowRequest(c *gin.Context) {
+	userID := middleware.GetUserID(c) // 审核人ID
+	reqID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(c, "申请ID无效")
+		return
+	}
+
+	borrowReq, err := h.deviceRepo.GetBorrowRequestByID(uint(reqID))
+	if err != nil {
+		response.NotFound(c, "借用申请不存在")
+		return
+	}
+
+	// 调试日志
+	fmt.Printf("[DEBUG] ApproveBorrowRequest: 审核人ID=%d, 申请人ID=%d, borrowReq.UserID=%d\n",
+		userID, borrowReq.UserID, borrowReq.UserID)
+
+	if borrowReq.Status != "pending" {
+		response.BadRequest(c, "该申请已处理")
+		return
+	}
+
+	// 获取当前用户
+	user, _ := h.userRepo.GetByID(userID)
+	isAdmin := user != nil && user.Role == "admin"
+
+	// 检查权限：管理员或设备负责人
+	if !isAdmin {
+		if borrowReq.ScanResult == nil || borrowReq.ScanResult.OwnerID == nil || *borrowReq.ScanResult.OwnerID != userID {
+			response.Forbidden(c, "无权审核此申请")
+			return
+		}
+	}
+
+	// 检查设备是否仍可用（包括软删除的记录）
+	occupancy, _ := h.deviceRepo.GetOccupancyByMerchantIDUnscoped(borrowReq.MerchantID)
+	if occupancy != nil && !occupancy.DeletedAt.Valid && occupancy.EndTime.After(time.Now()) {
+		response.BadRequest(c, "设备已被借用")
+		return
+	}
+
+	// 更新借用申请状态
+	now := time.Now()
+	borrowReq.Status = "approved"
+	borrowReq.ProcessedAt = &now
+	borrowReq.ProcessedBy = &userID
+
+	if err := h.deviceRepo.UpdateBorrowRequest(borrowReq); err != nil {
+		response.InternalError(c, "审核失败")
+		return
+	}
+
+	// 创建或更新设备占用记录
+	startTime := time.Now()
+	fmt.Printf("[DEBUG] 创建占用记录: MerchantID=%s, 申请人UserID=%d\n", borrowReq.MerchantID, borrowReq.UserID)
+	if occupancy != nil {
+		// 如果有记录（包括软删除的），恢复并更新
+		fmt.Printf("[DEBUG] 更新现有占用记录: 原UserID=%d, 新UserID=%d\n", occupancy.UserID, borrowReq.UserID)
+		occupancy.UserID = borrowReq.UserID
+		occupancy.Purpose = &borrowReq.Purpose
+		occupancy.StartTime = startTime
+		occupancy.EndTime = borrowReq.EndTime
+		if err := h.deviceRepo.UpdateOccupancy(occupancy); err != nil {
+			response.InternalError(c, "更新设备状态失败")
+			return
+		}
+		// 重新查询以加载 User 关联
+		occupancy, _ = h.deviceRepo.GetOccupancyByMerchantID(borrowReq.MerchantID)
+		if occupancy != nil {
+			fmt.Printf("[DEBUG] 更新后占用记录: UserID=%d\n", occupancy.UserID)
+		} else {
+			fmt.Printf("[DEBUG] 更新后占用记录为nil\n")
+		}
+	} else {
+		newOccupancy := &models.DeviceOccupancy{
+			MerchantID: borrowReq.MerchantID,
+			UserID:     borrowReq.UserID,
+			Purpose:    &borrowReq.Purpose,
+			StartTime:  startTime,
+			EndTime:    borrowReq.EndTime,
+		}
+		if err := h.deviceRepo.CreateOccupancy(newOccupancy); err != nil {
+			response.InternalError(c, "创建占用记录失败")
+			return
+		}
+		// 重新查询以加载 User 关联
+		occupancy, _ = h.deviceRepo.GetOccupancyByMerchantID(borrowReq.MerchantID)
+		if occupancy != nil {
+			fmt.Printf("[DEBUG] 新建占用记录: UserID=%d\n", occupancy.UserID)
+		}
+	}
+
+	// 发送通知给申请人
+	deviceName := "设备"
+	if borrowReq.ScanResult != nil && borrowReq.ScanResult.Name != nil {
+		deviceName = *borrowReq.ScanResult.Name
+	}
+	if h.notificationService != nil {
+		if err := h.notificationService.SendBorrowApproved(borrowReq.UserID, deviceName); err != nil {
+			fmt.Printf("[WARN] 发送借用通过通知失败: %v\n", err)
+		}
+	}
+
+	response.SuccessWithMessage(c, "借用申请已通过", nil)
+}
+
+// RejectBorrowRequest 审核拒绝POS设备借用申请
+func (h *DeviceHandler) RejectBorrowRequest(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	reqID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(c, "申请ID无效")
+		return
+	}
+
+	// 解析请求体获取拒绝原因
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	c.ShouldBindJSON(&req)
+
+	borrowReq, err := h.deviceRepo.GetBorrowRequestByID(uint(reqID))
+	if err != nil {
+		response.NotFound(c, "借用申请不存在")
+		return
+	}
+
+	if borrowReq.Status != "pending" {
+		response.BadRequest(c, "该申请已处理")
+		return
+	}
+
+	// 获取当前用户
+	user, _ := h.userRepo.GetByID(userID)
+	isAdmin := user != nil && user.Role == "admin"
+
+	// 检查权限：管理员或设备负责人
+	if !isAdmin {
+		if borrowReq.ScanResult == nil || borrowReq.ScanResult.OwnerID == nil || *borrowReq.ScanResult.OwnerID != userID {
+			response.Forbidden(c, "无权审核此申请")
+			return
+		}
+	}
+
+	// 更新借用申请状态
+	now := time.Now()
+	borrowReq.Status = "rejected"
+	borrowReq.ProcessedAt = &now
+	borrowReq.ProcessedBy = &userID
+
+	// 保存拒绝原因
+	if req.Reason != "" {
+		borrowReq.RejectionReason = &req.Reason
+	}
+
+	if err := h.deviceRepo.UpdateBorrowRequest(borrowReq); err != nil {
+		response.InternalError(c, "拒绝失败")
+		return
+	}
+
+	// 发送通知给申请人
+	deviceName := "设备"
+	if borrowReq.ScanResult != nil && borrowReq.ScanResult.Name != nil {
+		deviceName = *borrowReq.ScanResult.Name
+	}
+	if h.notificationService != nil {
+		if err := h.notificationService.SendBorrowRejected(borrowReq.UserID, deviceName, req.Reason); err != nil {
+			fmt.Printf("[WARN] 发送借用拒绝通知失败: %v\n", err)
+		}
+	}
+
+	response.SuccessWithMessage(c, "借用申请已拒绝", nil)
+}
+
+// parseDateTime parses various datetime formats
+func parseDateTime(s string) (time.Time, error) {
+	// Try RFC3339
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.Local(), nil
+	}
+
+	// Try ISO format without timezone
+	if t, err := time.Parse("2006-01-02T15:04:05", s); err == nil {
+		return t.Local(), nil
+	}
+
+	// Try ISO format with Z
+	s = strings.Replace(s, "Z", "", 1)
+	if t, err := time.Parse("2006-01-02T15:04:05.000", s); err == nil {
+		return t.Local(), nil
+	}
+
+	return time.Parse(time.RFC3339, s)
+}

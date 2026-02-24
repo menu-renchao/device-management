@@ -1,0 +1,1271 @@
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
+import { deviceAPI } from '../services/api';
+import axios from 'axios';
+import ConfirmDialog from '../components/ConfirmDialog';
+
+const API_BASE = '/api/mobile';
+
+const createAuthAxios = () => {
+  const token = localStorage.getItem('access_token');
+  return axios.create({
+    baseURL: API_BASE,
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+  });
+};
+
+const MobileDevicesPage = () => {
+  const { isAdmin, user } = useAuth();
+  const toast = useToast();
+  const [devices, setDevices] = useState([]);
+  const [filteredDevices, setFilteredDevices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('mobileViewMode') || 'card'); // card or list
+
+  // 确认对话框状态
+  const [confirmDialog, setConfirmDialog] = useState({ show: false, type: null, id: null });
+
+  // 保存视图模式到 localStorage
+  const handleViewModeChange = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('mobileViewMode', mode);
+  };
+
+  // 搜索条件
+  const [searchText, setSearchText] = useState('');
+
+  // 弹窗状态
+  const [showModal, setShowModal] = useState(false);
+  const [modalMode, setModalMode] = useState('create'); // create, edit, occupy
+  const [selectedDevice, setSelectedDevice] = useState(null);
+
+  // 表单数据
+  const [formData, setFormData] = useState({
+    name: '',
+    deviceType: '',
+    sn: '',
+    systemVersion: ''
+  });
+  const [occupancyData, setOccupancyData] = useState({
+    purpose: '',
+    endTime: ''
+  });
+
+  // 负责人设置
+  const [users, setUsers] = useState([]);
+  const [selectedOwnerId, setSelectedOwnerId] = useState(null);
+  const [showOwnerModal, setShowOwnerModal] = useState(false);
+  const [ownerDeviceId, setOwnerDeviceId] = useState(null);
+
+  // 图片预览
+  const [imageA, setImageA] = useState(null);
+  const [imageB, setImageB] = useState(null);
+
+  // 大图预览
+  const [previewImage, setPreviewImage] = useState(null);
+
+  const openImagePreview = (imageUrl) => {
+    setPreviewImage(imageUrl);
+  };
+
+  const closeImagePreview = () => {
+    setPreviewImage(null);
+  };
+
+  useEffect(() => {
+    fetchDevices();
+    if (isAdmin()) {
+      fetchUsers();
+    }
+  }, []);
+
+  const fetchUsers = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      const response = await axios.get('/api/admin/users', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.data.success && response.data.data) {
+        setUsers(response.data.data.users || []);
+      }
+    } catch (error) {
+      console.error('获取用户列表失败:', error);
+    }
+  };
+
+  const fetchDevices = async () => {
+    setLoading(true);
+    try {
+      const authAxios = createAuthAxios();
+      const response = await authAxios.get('/devices');
+      if (response.data.success && response.data.data) {
+        const deviceList = response.data.data.devices || [];
+        setDevices(deviceList);
+        setFilteredDevices(deviceList);
+      }
+    } catch (error) {
+      console.error('获取设备列表失败:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 搜索过滤
+  useEffect(() => {
+    if (!searchText.trim()) {
+      setFilteredDevices(devices);
+    } else {
+      const keyword = searchText.toLowerCase();
+      const filtered = devices.filter(device =>
+        (device.name || '').toLowerCase().includes(keyword) ||
+        (device.deviceType || '').toLowerCase().includes(keyword) ||
+        (device.sn || '').toLowerCase().includes(keyword) ||
+        (device.systemVersion || '').toLowerCase().includes(keyword)
+      );
+      setFilteredDevices(filtered);
+    }
+  }, [searchText, devices]);
+
+  // 打开创建弹窗
+  const openCreateModal = () => {
+    setModalMode('create');
+    setSelectedDevice(null);
+    setFormData({ name: '', deviceType: '', sn: '', systemVersion: '' });
+    setImageA(null);
+    setImageB(null);
+    setShowModal(true);
+  };
+
+  // 打开编辑弹窗
+  const openEditModal = (device) => {
+    setModalMode('edit');
+    setSelectedDevice(device);
+    setFormData({
+      name: device.name,
+      deviceType: device.deviceType || '',
+      sn: device.sn || '',
+      systemVersion: device.systemVersion || ''
+    });
+    setImageA(null);
+    setImageB(null);
+    setShowModal(true);
+  };
+
+  // 打开占用弹窗
+  const openOccupyModal = (device) => {
+    setModalMode('occupy');
+    setSelectedDevice(device);
+    const defaultEnd = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    setOccupancyData({
+      purpose: device.purpose || '',
+      endTime: defaultEnd.toISOString().slice(0, 16)
+    });
+    setShowModal(true);
+  };
+
+  // 关闭弹窗
+  const closeModal = () => {
+    setShowModal(false);
+    setSelectedDevice(null);
+  };
+
+  // 创建/更新设备
+  const handleSaveDevice = async () => {
+    if (!formData.name) {
+      toast.warning('请输入设备名称');
+      return;
+    }
+
+    try {
+      const authAxios = createAuthAxios();
+      let deviceId = selectedDevice?.id;
+
+      if (modalMode === 'create') {
+        const response = await authAxios.post('/devices', formData);
+        deviceId = response.data.device?.id;
+        toast.success('设备创建成功');
+      } else {
+        await authAxios.put(`/devices/${selectedDevice.id}`, formData);
+        toast.success('设备更新成功');
+      }
+
+      // 上传图片
+      if (imageA && deviceId) {
+        await uploadImage(deviceId, imageA, 'a');
+      }
+      if (imageB && deviceId) {
+        await uploadImage(deviceId, imageB, 'b');
+      }
+
+      fetchDevices();
+      closeModal();
+    } catch (error) {
+      toast.error(error.response?.data?.error || '操作失败');
+    }
+  };
+
+  // 上传图片
+  const uploadImage = async (deviceId, file, type) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    formData.append('type', type);
+
+    const token = localStorage.getItem('access_token');
+    await axios.post(`${API_BASE}/devices/${deviceId}/upload`, formData, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+  };
+
+  // 删除设备
+  const handleDelete = async (deviceId) => {
+    setConfirmDialog({ show: true, type: 'delete', id: deviceId });
+  };
+
+  // 归还设备
+  const handleRelease = async (deviceId) => {
+    setConfirmDialog({ show: true, type: 'release', id: deviceId });
+  };
+
+  // 确认操作
+  const confirmAction = async () => {
+    const { type, id } = confirmDialog;
+    setConfirmDialog({ show: false, type: null, id: null });
+
+    if (type === 'delete') {
+      try {
+        const authAxios = createAuthAxios();
+        await authAxios.delete(`/devices/${id}`);
+        toast.success('设备已删除');
+        fetchDevices();
+      } catch (error) {
+        toast.error(error.response?.data?.error || '删除失败');
+      }
+    } else if (type === 'release') {
+      try {
+        const authAxios = createAuthAxios();
+        await authAxios.put(`/devices/${id}/release`);
+        toast.success('设备已归还');
+        fetchDevices();
+      } catch (error) {
+        toast.error(error.response?.data?.error || '归还失败');
+      }
+    }
+  };
+
+  // 设置借用（普通用户提交申请，管理员直接借用）
+  const handleSetOccupancy = async () => {
+    if (!occupancyData.endTime) {
+      toast.warning('请选择归还时间');
+      return;
+    }
+
+    try {
+      if (isAdmin()) {
+        // 管理员直接借用
+        const authAxios = createAuthAxios();
+        await authAxios.put(`/devices/${selectedDevice.id}/occupy`, {
+          purpose: occupancyData.purpose,
+          endTime: new Date(occupancyData.endTime).toISOString()
+        });
+        toast.success('借用成功');
+      } else {
+        // 普通用户提交借用申请
+        await deviceAPI.submitBorrowRequest(
+          selectedDevice.id,
+          occupancyData.purpose,
+          new Date(occupancyData.endTime).toISOString()
+        );
+        toast.success('借用申请已提交，请等待审核');
+      }
+      fetchDevices();
+      closeModal();
+    } catch (error) {
+      toast.error(error.response?.data?.error || '操作失败');
+    }
+  };
+
+  // 打开设置负责人弹窗
+  const openOwnerModal = (device) => {
+    setOwnerDeviceId(device.id);
+    setSelectedOwnerId(device.ownerId || null);
+    setShowOwnerModal(true);
+  };
+
+  // 设置负责人
+  const handleSetOwner = async () => {
+    try {
+      const authAxios = createAuthAxios();
+      await authAxios.put(`/devices/${ownerDeviceId}/owner`, {
+        ownerId: selectedOwnerId || null
+      });
+      toast.success('负责人设置成功');
+      fetchDevices();
+      setShowOwnerModal(false);
+    } catch (error) {
+      toast.error(error.response?.data?.error || '设置失败');
+    }
+  };
+
+  // 格式化时间
+  const formatTime = (isoString) => {
+    if (!isoString) return '——';
+    return new Date(isoString).toLocaleString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <div>
+          <h1 style={styles.title}>移动设备管理</h1>
+          <p style={styles.subtitle}>管理测试用的移动设备</p>
+        </div>
+        <div style={styles.headerActions}>
+          <input
+            type="text"
+            placeholder="搜索名称/SN/类型..."
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            style={styles.searchInput}
+          />
+          <div style={styles.viewToggle}>
+            <button
+              onClick={() => handleViewModeChange('card')}
+              style={{
+                ...styles.toggleBtn,
+                ...(viewMode === 'card' ? styles.toggleBtnActive : {})
+              }}
+              title="卡片视图"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <path d="M4 4h7v7H4zM4 13h7v7H4zM13 4h7v7h-7zM13 13h7v7h-7z"/>
+              </svg>
+            </button>
+            <button
+              onClick={() => handleViewModeChange('list')}
+              style={{
+                ...styles.toggleBtn,
+                ...(viewMode === 'list' ? styles.toggleBtnActive : {})
+              }}
+              title="列表视图"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <path d="M4 6h16v2H4zM4 11h16v2H4zM4 16h16v2H4z"/>
+              </svg>
+            </button>
+          </div>
+          {isAdmin() && (
+            <button onClick={openCreateModal} style={styles.createBtn}>
+              + 添加设备
+            </button>
+          )}
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={styles.loading}>加载中...</div>
+      ) : filteredDevices.length === 0 ? (
+        <div style={styles.empty}>{searchText ? '未找到匹配设备' : '暂无设备'}</div>
+      ) : viewMode === 'card' ? (
+        <div style={styles.grid}>
+          {filteredDevices.map(device => (
+            <div key={device.id} style={styles.card}>
+              <div style={styles.cardHeader}>
+                <h3 style={styles.deviceName}>{device.name}</h3>
+                <span style={styles.deviceType}>{device.deviceType || '未分类'}</span>
+              </div>
+
+              <div style={styles.images}>
+                <div style={styles.imageBox}>
+                  {device.imageA ? (
+                    <img
+                      src={`/uploads/${device.imageA}`}
+                      alt="A面"
+                      style={{ ...styles.image, cursor: 'pointer' }}
+                      onClick={() => openImagePreview(`/uploads/${device.imageA}`)}
+                    />
+                  ) : (
+                    <span style={styles.noImage}>A面</span>
+                  )}
+                </div>
+                <div style={styles.imageBox}>
+                  {device.imageB ? (
+                    <img
+                      src={`/uploads/${device.imageB}`}
+                      alt="B面"
+                      style={{ ...styles.image, cursor: 'pointer' }}
+                      onClick={() => openImagePreview(`/uploads/${device.imageB}`)}
+                    />
+                  ) : (
+                    <span style={styles.noImage}>B面</span>
+                  )}
+                </div>
+              </div>
+
+              <div style={styles.cardInfo}>
+                <p>
+                  <span style={styles.label}>SN号:</span>{' '}
+                  <span style={styles.snValue} title={device.sn || ''}>{device.sn || '——'}</span>
+                </p>
+                <p><span style={styles.label}>系统版本:</span> {device.systemVersion || '——'}</p>
+                <p>
+                  <span style={styles.label}>负责人:</span>{' '}
+                  {device.owner ? (
+                    <span style={styles.ownerName}>{device.owner}</span>
+                  ) : (
+                    <span style={styles.noOwner}>未指定</span>
+                  )}
+                </p>
+                <p>
+                  <span style={styles.label}>借用状态:</span>{' '}
+                  {device.isOccupied ? (
+                    <span style={styles.occupied}>{device.occupier}</span>
+                  ) : (
+                    <span style={styles.free}>可借用</span>
+                  )}
+                </p>
+                {device.isOccupied && (
+                  <p><span style={styles.label}>归还时间:</span> {formatTime(device.endTime)}</p>
+                )}
+              </div>
+
+              <div style={styles.cardActions}>
+                {device.isOccupied ? (
+                  (isAdmin() || device.occupierId === user?.id || device.ownerId === user?.id) ? (
+                    <button
+                      onClick={() => handleRelease(device.id)}
+                      style={styles.releaseBtn}
+                    >
+                      归还
+                    </button>
+                  ) : (
+                    <span style={styles.occupiedLabel}>已被 {device.occupier} 借用</span>
+                  )
+                ) : (
+                  <button
+                    onClick={() => openOccupyModal(device)}
+                    style={styles.occupyBtn}
+                  >
+                    借用
+                  </button>
+                )}
+                {isAdmin() && (
+                  <>
+                    <button onClick={() => openOwnerModal(device)} style={styles.ownerBtn} title="设置负责人">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                      </svg>
+                    </button>
+                    <button onClick={() => openEditModal(device)} style={styles.editBtn}>编辑</button>
+                    <button onClick={() => handleDelete(device.id)} style={styles.deleteBtn}>删除</button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={styles.listContainer}>
+          <div style={styles.listHeader}>
+            <div style={styles.listHeaderImages}>图片</div>
+            <div style={styles.listHeaderName}>设备名称</div>
+            <div style={styles.listHeaderType}>类型</div>
+            <div style={styles.listHeaderSN}>SN号</div>
+            <div style={styles.listHeaderVersion}>系统版本</div>
+            <div style={styles.listHeaderOwner}>负责人</div>
+            <div style={styles.listHeaderStatus}>借用状态</div>
+            <div style={styles.listHeaderEndTime}>归还时间</div>
+            <div style={styles.listHeaderActions}>操作</div>
+          </div>
+          {filteredDevices.map(device => (
+            <div key={device.id} style={styles.listRow}>
+              <div style={styles.listImages}>
+                {device.imageA ? (
+                  <img
+                    src={`/uploads/${device.imageA}`}
+                    alt="A面"
+                    style={{ ...styles.listImage, cursor: 'pointer' }}
+                    onClick={() => openImagePreview(`/uploads/${device.imageA}`)}
+                  />
+                ) : (
+                  <div style={styles.listNoImage}>A</div>
+                )}
+                {device.imageB ? (
+                  <img
+                    src={`/uploads/${device.imageB}`}
+                    alt="B面"
+                    style={{ ...styles.listImage, cursor: 'pointer' }}
+                    onClick={() => openImagePreview(`/uploads/${device.imageB}`)}
+                  />
+                ) : (
+                  <div style={styles.listNoImage}>B</div>
+                )}
+              </div>
+              <div style={styles.listName}>{device.name}</div>
+              <div style={styles.listType}>{device.deviceType || '未分类'}</div>
+              <div style={styles.listSN} title={device.sn || ''}>{device.sn || '——'}</div>
+              <div style={styles.listVersion}>{device.systemVersion || '——'}</div>
+              <div style={styles.listOwner}>
+                {device.owner ? (
+                  <span style={styles.ownerName}>{device.owner}</span>
+                ) : (
+                  <span style={styles.noOwner}>——</span>
+                )}
+              </div>
+              <div style={styles.listStatus}>
+                {device.isOccupied ? (
+                  <span style={styles.occupied}>{device.occupier}</span>
+                ) : (
+                  <span style={styles.free}>可借用</span>
+                )}
+              </div>
+              <div style={styles.listEndTime}>
+                {device.isOccupied ? formatTime(device.endTime) : '——'}
+              </div>
+              <div style={styles.listActions}>
+                {device.isOccupied ? (
+                  (isAdmin() || device.occupierId === user?.id || device.ownerId === user?.id) ? (
+                    <button onClick={() => handleRelease(device.id)} style={styles.listReleaseBtn}>归还</button>
+                  ) : null
+                ) : (
+                  <button onClick={() => openOccupyModal(device)} style={styles.listOccupyBtn}>借用</button>
+                )}
+                {isAdmin() && (
+                  <>
+                    <button onClick={() => openOwnerModal(device)} style={styles.listOwnerBtn} title="设置负责人">
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+                        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                      </svg>
+                    </button>
+                    <button onClick={() => openEditModal(device)} style={styles.listEditBtn}>编辑</button>
+                    <button onClick={() => handleDelete(device.id)} style={styles.listDeleteBtn}>删除</button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 弹窗 */}
+      {showModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalHeader}>
+              <h3>
+                {modalMode === 'create' && '添加设备'}
+                {modalMode === 'edit' && '编辑设备'}
+                {modalMode === 'occupy' && '借用设备'}
+              </h3>
+              <button onClick={closeModal} style={styles.closeBtn}>×</button>
+            </div>
+
+            <div style={styles.modalBody}>
+              {(modalMode === 'create' || modalMode === 'edit') && (
+                <>
+                  <div style={styles.field}>
+                    <label>设备名称 *</label>
+                    <input
+                      type="text"
+                      value={formData.name}
+                      onChange={e => setFormData({ ...formData, name: e.target.value })}
+                      style={styles.input}
+                    />
+                  </div>
+                  <div style={styles.field}>
+                    <label>设备类型</label>
+                    <input
+                      type="text"
+                      value={formData.deviceType}
+                      onChange={e => setFormData({ ...formData, deviceType: e.target.value })}
+                      style={styles.input}
+                      placeholder="如：手机、平板等"
+                    />
+                  </div>
+                  <div style={styles.field}>
+                    <label>SN号</label>
+                    <input
+                      type="text"
+                      value={formData.sn}
+                      onChange={e => setFormData({ ...formData, sn: e.target.value })}
+                      style={styles.input}
+                      placeholder="设备序列号"
+                    />
+                  </div>
+                  <div style={styles.field}>
+                    <label>系统版本</label>
+                    <input
+                      type="text"
+                      value={formData.systemVersion}
+                      onChange={e => setFormData({ ...formData, systemVersion: e.target.value })}
+                      style={styles.input}
+                      placeholder="如：iOS 17.0, Android 14"
+                    />
+                  </div>
+                  <div style={styles.field}>
+                    <label>A面图片</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={e => setImageA(e.target.files[0])}
+                      style={styles.fileInput}
+                    />
+                  </div>
+                  <div style={styles.field}>
+                    <label>B面图片</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={e => setImageB(e.target.files[0])}
+                      style={styles.fileInput}
+                    />
+                  </div>
+                </>
+              )}
+
+              {modalMode === 'occupy' && (
+                <>
+                  <p style={styles.modalInfo}>
+                    设备: <strong>{selectedDevice?.name}</strong>
+                  </p>
+                  <p style={styles.modalInfo}>
+                    借用人: <strong style={{ color: '#007AFF' }}>{user?.name || user?.username}</strong>
+                  </p>
+                  <div style={styles.field}>
+                    <label>用途</label>
+                    <input
+                      type="text"
+                      value={occupancyData.purpose}
+                      onChange={e => setOccupancyData({ ...occupancyData, purpose: e.target.value })}
+                      style={styles.input}
+                      placeholder="请输入用途"
+                    />
+                  </div>
+                  <div style={styles.field}>
+                    <label>归还时间</label>
+                    <input
+                      type="datetime-local"
+                      value={occupancyData.endTime}
+                      onChange={e => setOccupancyData({ ...occupancyData, endTime: e.target.value })}
+                      style={styles.input}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div style={styles.modalActions}>
+              <button onClick={closeModal} style={styles.cancelBtn}>取消</button>
+              <button
+                onClick={modalMode === 'occupy' ? handleSetOccupancy : handleSaveDevice}
+                style={styles.saveBtn}
+              >
+                {modalMode === 'create' ? '创建' : modalMode === 'edit' ? '保存' : '借用'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 图片预览弹窗 */}
+      {previewImage && (
+        <div style={styles.previewOverlay} onClick={closeImagePreview}>
+          <button style={styles.previewCloseBtn} onClick={closeImagePreview}>×</button>
+          <img src={previewImage} alt="预览" style={styles.previewImage} onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+
+      {/* 设置负责人弹窗 */}
+      {showOwnerModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalHeader}>
+              <h3>设置负责人</h3>
+              <button onClick={() => setShowOwnerModal(false)} style={styles.closeBtn}>×</button>
+            </div>
+            <div style={styles.modalBody}>
+              <div style={styles.field}>
+                <label>选择负责人</label>
+                <select
+                  value={selectedOwnerId || ''}
+                  onChange={(e) => setSelectedOwnerId(e.target.value ? parseInt(e.target.value) : null)}
+                  style={styles.select}
+                >
+                  <option value="">-- 不指定负责人 --</option>
+                  {users.map(u => (
+                    <option key={u.id} value={u.id}>
+                      {u.name || u.username}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div style={styles.modalActions}>
+              <button onClick={() => setShowOwnerModal(false)} style={styles.cancelBtn}>取消</button>
+              <button onClick={handleSetOwner} style={styles.saveBtn}>确定</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 确认对话框 */}
+      <ConfirmDialog
+        isOpen={confirmDialog.show}
+        title={confirmDialog.type === 'delete' ? '确认删除' : '确认归还'}
+        message={confirmDialog.type === 'delete' ? '确定要删除此设备吗？' : '确定要归还此设备吗？'}
+        onConfirm={confirmAction}
+        onCancel={() => setConfirmDialog({ show: false, type: null, id: null })}
+        confirmText={confirmDialog.type === 'delete' ? '删除' : '归还'}
+      />
+    </div>
+  );
+};
+
+const styles = {
+  container: {
+    padding: '16px',
+    maxWidth: '1200px',
+    margin: '0 auto',
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '20px',
+  },
+  title: {
+    fontSize: '20px',
+    fontWeight: '600',
+    color: '#1D1D1F',
+    marginBottom: '2px',
+  },
+  subtitle: {
+    fontSize: '13px',
+    color: '#86868B',
+  },
+  headerActions: {
+    display: 'flex',
+    gap: '10px',
+    alignItems: 'center',
+  },
+  searchInput: {
+    padding: '8px 12px',
+    border: '1px solid #D1D1D6',
+    borderRadius: '8px',
+    fontSize: '14px',
+    width: '200px',
+    outline: 'none',
+  },
+  viewToggle: {
+    display: 'flex',
+    backgroundColor: '#F2F2F7',
+    borderRadius: '6px',
+    padding: '2px',
+  },
+  toggleBtn: {
+    padding: '6px 10px',
+    backgroundColor: 'transparent',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    color: '#86868B',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toggleBtnActive: {
+    backgroundColor: 'white',
+    color: '#1D1D1F',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+  },
+  createBtn: {
+    padding: '8px 16px',
+    backgroundColor: '#007AFF',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '14px',
+    fontWeight: '500',
+    cursor: 'pointer',
+  },
+  backButton: {
+    padding: '8px 16px',
+    backgroundColor: '#F2F2F7',
+    color: '#1D1D1F',
+    borderRadius: '8px',
+    textDecoration: 'none',
+    fontSize: '14px',
+    fontWeight: '500',
+  },
+  loading: {
+    textAlign: 'center',
+    padding: '40px',
+    color: '#86868B',
+  },
+  empty: {
+    textAlign: 'center',
+    padding: '40px',
+    color: '#86868B',
+  },
+  grid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+    gap: '16px',
+    alignItems: 'stretch',
+  },
+  card: {
+    backgroundColor: 'white',
+    borderRadius: '12px',
+    padding: '16px',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
+    display: 'flex',
+    flexDirection: 'column',
+    height: '100%',
+  },
+  cardHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '12px',
+    flexShrink: 0,
+  },
+  deviceName: {
+    fontSize: '16px',
+    fontWeight: '600',
+    color: '#1D1D1F',
+    margin: 0,
+  },
+  deviceType: {
+    fontSize: '12px',
+    color: '#86868B',
+    backgroundColor: '#F2F2F7',
+    padding: '2px 8px',
+    borderRadius: '4px',
+  },
+  images: {
+    display: 'flex',
+    gap: '8px',
+    marginBottom: '12px',
+    flexShrink: 0,
+  },
+  imageBox: {
+    flex: 1,
+    height: '100px',
+    backgroundColor: '#F2F2F7',
+    borderRadius: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  image: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  noImage: {
+    fontSize: '12px',
+    color: '#86868B',
+  },
+  cardInfo: {
+    marginBottom: '12px',
+  },
+  label: {
+    color: '#86868B',
+    fontSize: '13px',
+  },
+  snValue: {
+    fontSize: '12px',
+    fontFeatureSettings: "'tnum'",
+    wordBreak: 'break-all',
+  },
+  occupied: {
+    color: '#FF9500',
+    fontWeight: '500',
+  },
+  free: {
+    color: '#34C759',
+    fontWeight: '500',
+  },
+  ownerName: {
+    color: '#5856D6',
+    fontWeight: '500',
+  },
+  noOwner: {
+    color: '#86868B',
+  },
+  ownerBtn: {
+    minHeight: '36px',
+    padding: '0 10px',
+    backgroundColor: '#F2F2F7',
+    color: '#5856D6',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '13px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  occupiedLabel: {
+    flex: 1,
+    padding: '8px',
+    color: '#86868B',
+    fontSize: '12px',
+    textAlign: 'center',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '36px',
+  },
+  cardActions: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap',
+    alignItems: 'stretch',
+    marginTop: 'auto',
+  },
+  occupyBtn: {
+    flex: 1,
+    minHeight: '36px',
+    backgroundColor: '#007AFF',
+    color: 'white',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '13px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  releaseBtn: {
+    flex: 1,
+    minHeight: '36px',
+    backgroundColor: '#FF9500',
+    color: 'white',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '13px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editBtn: {
+    minHeight: '36px',
+    padding: '0 12px',
+    backgroundColor: '#F2F2F7',
+    color: '#1D1D1F',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '13px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteBtn: {
+    minHeight: '36px',
+    padding: '0 12px',
+    backgroundColor: '#FFEBE9',
+    color: '#FF3B30',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '13px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  modal: {
+    backgroundColor: 'white',
+    borderRadius: '12px',
+    width: '400px',
+    maxWidth: '90%',
+  },
+  modalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '16px 20px',
+    borderBottom: '1px solid #E5E5EA',
+  },
+  closeBtn: {
+    background: 'none',
+    border: 'none',
+    fontSize: '20px',
+    cursor: 'pointer',
+    color: '#86868B',
+  },
+  modalBody: {
+    padding: '20px',
+  },
+  modalInfo: {
+    fontSize: '13px',
+    color: '#86868B',
+    marginBottom: '8px',
+  },
+  field: {
+    marginBottom: '16px',
+  },
+  input: {
+    width: '100%',
+    padding: '10px 12px',
+    border: '1px solid #D1D1D6',
+    borderRadius: '8px',
+    fontSize: '14px',
+    outline: 'none',
+    marginTop: '6px',
+    boxSizing: 'border-box',
+  },
+  fileInput: {
+    marginTop: '6px',
+    fontSize: '13px',
+  },
+  modalActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '10px',
+    padding: '16px 20px',
+    borderTop: '1px solid #E5E5EA',
+  },
+  cancelBtn: {
+    padding: '8px 16px',
+    backgroundColor: '#F2F2F7',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '14px',
+    cursor: 'pointer',
+  },
+  saveBtn: {
+    padding: '8px 16px',
+    backgroundColor: '#007AFF',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '14px',
+    cursor: 'pointer',
+  },
+  previewOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2000,
+    cursor: 'pointer',
+  },
+  previewImage: {
+    maxWidth: '90%',
+    maxHeight: '90%',
+    objectFit: 'contain',
+    borderRadius: '8px',
+  },
+  previewCloseBtn: {
+    position: 'absolute',
+    top: '20px',
+    right: '20px',
+    width: '40px',
+    height: '40px',
+    borderRadius: '50%',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    border: 'none',
+    color: 'white',
+    fontSize: '24px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // 列表视图样式
+  listContainer: {
+    backgroundColor: 'white',
+    borderRadius: '12px',
+    overflowX: 'auto',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
+  },
+  listHeader: {
+    display: 'grid',
+    gridTemplateColumns: '80px minmax(100px, 1fr) 80px 100px 100px 70px 80px 110px 150px',
+    padding: '10px 16px',
+    backgroundColor: '#F9F9F9',
+    borderBottom: '1px solid #E5E5EA',
+    gap: '10px',
+    fontSize: '12px',
+    fontWeight: '500',
+    color: '#86868B',
+    minWidth: '880px',
+  },
+  listHeaderImages: {},
+  listHeaderName: {},
+  listHeaderType: {},
+  listHeaderSN: {},
+  listHeaderVersion: {},
+  listHeaderOwner: {},
+  listHeaderStatus: {},
+  listHeaderEndTime: {},
+  listHeaderActions: {
+    textAlign: 'right',
+  },
+  listRow: {
+    display: 'grid',
+    gridTemplateColumns: '80px minmax(100px, 1fr) 80px 100px 100px 70px 80px 110px 150px',
+    alignItems: 'center',
+    padding: '12px 16px',
+    borderBottom: '1px solid #F2F2F7',
+    gap: '10px',
+    minWidth: '880px',
+  },
+  listImages: {
+    display: 'flex',
+    gap: '6px',
+  },
+  listImage: {
+    width: '40px',
+    height: '40px',
+    objectFit: 'cover',
+    borderRadius: '4px',
+  },
+  listNoImage: {
+    width: '40px',
+    height: '40px',
+    backgroundColor: '#F2F2F7',
+    borderRadius: '4px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '12px',
+    color: '#86868B',
+  },
+  listName: {
+    fontWeight: '500',
+    color: '#1D1D1F',
+    fontSize: '14px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  listType: {
+    fontSize: '12px',
+    color: '#86868B',
+  },
+  listSN: {
+    fontSize: '12px',
+    color: '#1D1D1F',
+    fontFeatureSettings: "'tnum'",
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  listVersion: {
+    fontSize: '13px',
+    color: '#1D1D1F',
+  },
+  listOwner: {
+    fontSize: '13px',
+    color: '#1D1D1F',
+  },
+  listStatus: {
+    fontSize: '13px',
+  },
+  listEndTime: {
+    fontSize: '13px',
+    color: '#86868B',
+  },
+  listActions: {
+    display: 'flex',
+    gap: '6px',
+    justifyContent: 'flex-end',
+    flexWrap: 'nowrap',
+  },
+  listOccupyBtn: {
+    padding: '5px 12px',
+    backgroundColor: '#007AFF',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  listReleaseBtn: {
+    padding: '5px 12px',
+    backgroundColor: '#FF9500',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  listEditBtn: {
+    padding: '5px 12px',
+    backgroundColor: '#F2F2F7',
+    color: '#1D1D1F',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  listDeleteBtn: {
+    padding: '5px 12px',
+    backgroundColor: '#FFEBE9',
+    color: '#FF3B30',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  listOwnerBtn: {
+    padding: '5px 8px',
+    backgroundColor: '#F2F2F7',
+    color: '#5856D6',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  select: {
+    width: '100%',
+    padding: '10px 12px',
+    border: '1px solid #D1D1D6',
+    borderRadius: '8px',
+    fontSize: '14px',
+    outline: 'none',
+    marginTop: '6px',
+    boxSizing: 'border-box',
+    backgroundColor: 'white',
+  },
+};
+
+export default MobileDevicesPage;
