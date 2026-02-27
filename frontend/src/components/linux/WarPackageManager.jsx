@@ -332,10 +332,10 @@ const WarPackageManager = ({ merchantId }) => {
             )}
             <div style={styles.progressStats}>
               <span>
-                {formatSize(downloadProgress.downloaded || 0)}
+                已下载：{formatSize(downloadProgress.downloaded || 0)}
                 {downloadProgress.total > 0 && ` / ${formatSize(downloadProgress.total)}`}
+                {downloadProgress.speed && ` · 当前速度：${downloadProgress.speed}`}
               </span>
-              <span>{downloadProgress.speed || ''}</span>
             </div>
           </div>
         )}
@@ -749,8 +749,6 @@ const styles = {
     transition: 'width 0.3s ease',
   },
   progressStats: {
-    display: 'flex',
-    justifyContent: 'space-between',
     marginTop: '8px',
     fontSize: '11px',
     color: '#86868B',

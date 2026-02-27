@@ -305,8 +305,9 @@ func (s *WarDownloadService) doDownload(task *DownloadTask, downloadURL, cookie 
 
 	// 新增：匹配格式 Pos_-_Package_-_War_18.0.30.16.7.1-supreme_712_artifacts.zip
 	// 版本号格式：X.X.X.X.X[-build]_artifacts 或 X.X.X.X.X.X[-build]_artifacts
-	// 支持 4 到 7 组数字的版本号格式
-	posWarPattern := regexp.MustCompile(`(\d+(?:\.\d+){4,6}(?:-[a-zA-Z0-9_]+)?)_artifacts`)
+	// 或 X.X.X.X.X_buildNum_artifacts（如 18.0.30.16.6_595_artifacts.zip）
+	// 支持 4 到 7 组数字的版本号格式，构建信息可以是 -xxx 或 _数字
+	posWarPattern := regexp.MustCompile(`(\d+(?:\.\d+){4,6}(?:[-_]\w+)?)_artifacts`)
 	if m := posWarPattern.FindStringSubmatch(filename); len(m) > 1 {
 		version = m[1] // 提取第一个分组，即版本号部分
 	}

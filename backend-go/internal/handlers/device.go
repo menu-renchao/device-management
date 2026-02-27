@@ -375,6 +375,12 @@ func (h *DeviceHandler) DeleteDevice(c *gin.Context) {
 			response.InternalError(c, "删除设备认领记录失败")
 			return
 		}
+		// 删除设备分类属性
+		if err := tx.DeleteProperty(*device.MerchantID); err != nil {
+			tx.Rollback()
+			response.InternalError(c, "删除设备分类属性失败")
+			return
+		}
 	}
 
 	// Delete device

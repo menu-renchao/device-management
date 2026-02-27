@@ -342,7 +342,7 @@ const UpgradeTab = ({ merchantId }) => {
     }, 1000);
   };
 
-  // MD5 comparison helper
+  // MD5 comparison helper - 仅比对，不自动上传
   const compareMD5WithRemote = async (localMd5Value, source = 'local') => {
     if (!merchantId || !localMd5Value) return;
 
@@ -357,29 +357,14 @@ const UpgradeTab = ({ merchantId }) => {
       if (remoteMd5Value && localMd5Value) {
         const isMatch = localMd5Value.toLowerCase() === remoteMd5Value.toLowerCase();
         setMd5Match(isMatch);
-        if (isMatch) {
-          // MD5 匹配，显示确认弹窗，等待用户决定
-          setShowMd5Confirm(true);
-        } else {
-          // MD5 不匹配，自动开始上传
-          if (source === 'local' && file) {
-            handleUpload(file);
-          }
-        }
       } else {
-        // 远程文件不存在，直接上传
+        // 远程文件不存在
         setMd5Match(false);
-        if (source === 'local' && file) {
-          handleUpload(file);
-        }
       }
     } catch (error) {
       console.error('获取远程 MD5 失败:', error);
-      // 远程文件可能不存在，直接上传
+      // 远程文件可能不存在
       setMd5Match(false);
-      if (source === 'local' && file) {
-        handleUpload(file);
-      }
     } finally {
       setMd5Comparing(false);
     }
@@ -409,13 +394,12 @@ const UpgradeTab = ({ merchantId }) => {
     }
   };
 
-  // 用户确认继续上传（MD5 匹配时）
+  // 用户确认继续（MD5 匹配时，仅关闭弹窗）
   const handleConfirmUpload = () => {
     setShowMd5Confirm(false);
-    handleUpload(file);
   };
 
-  // 用户取消上传
+  // 用户取消选择文件
   const handleCancelUpload = () => {
     setShowMd5Confirm(false);
     setFile(null);
@@ -543,85 +527,121 @@ const UpgradeTab = ({ merchantId }) => {
 
   // Execute upgrade
   const handleExecute = async () => {
-    // Determine war path based on selectMode
     let warPath = '';
-    let needUpload = false;
-    let localFilePath = '';
 
-    if (selectMode === 'local' && uploadComplete && file) {
-      warPath = `/opt/tomcat7/webapps/${file.name}`;
+    // 确定 WAR 包路径
+    if (selectMode === 'local' && file) {
+      // 本地上传模式：根据升级模式决定目标路径
+      if (upgradeMode === 'direct') {
+        warPath = '/opt/tomcat7/webapps/kpos.war';
+      } else {
+        warPath = `/home/menu/${selectedPackage}/kpos.war`;
+      }
     } else if (selectMode === 'history' && selectedHistoryPackage) {
-      // 使用选中时保存的完整包信息
       const pkg = historyPackages.find(p => p.name === selectedHistoryPackage);
       if (pkg && pkg.file_name) {
         warPath = `downloads/${selectedHistoryPackage}/${pkg.file_name}`;
-        localFilePath = warPath;
-        needUpload = true;
       } else {
         toast.error('无法获取包文件信息，请重新选择历史包');
         return;
       }
     }
 
-    if (upgradeMode === 'direct') {
-      // Direct WAR replace mode
-      if (!warPath) {
-        toast.warning('请先上传 WAR 包或选择历史包');
-        return;
-      }
+    if (!warPath) {
+      toast.warning('请先选择 WAR 包');
+      return;
+    }
 
+    // 确认对话框
+    if (upgradeMode === 'direct') {
       if (!confirm('确定要执行直接替换 WAR 升级吗？这将停止服务、替换 WAR 包并重启服务。')) {
         return;
       }
+    } else {
+      if (!selectedPackage) {
+        toast.warning('请选择升级包');
+        return;
+      }
+      if (!confirm(`确定要使用升级包 ${selectedPackage} 执行升级吗？`)) {
+        return;
+      }
+    }
 
-      setExecuting(true);
-      setExecuteProgress(0);
-      setExecuteMessage('正在执行升级...');
-      setExecuteResult(null);
-      setExecuteError('');
+    setExecuting(true);
+    setExecuteProgress(0);
+    setExecuteResult(null);
+    setExecuteError('');
 
-      try {
+    try {
+      // 如果是本地上传模式，需要先上传文件
+      if (selectMode === 'local' && file) {
+        setExecuteMessage('正在上传 WAR 包...');
+        setExecuteProgress(10);
+
+        const uploadResult = await linuxAPI.uploadWAR(merchantId, file, (progress) => {
+          // 上传进度 10-50%
+          setExecuteProgress(10 + progress * 0.4);
+        }, warPath);
+
+        // 等待上传完成
+        if (uploadResult.data?.task_id) {
+          setExecuteMessage('正在写入远程文件...');
+          await pollUploadCompletion(uploadResult.data.task_id);
+        }
+      }
+
+      // 执行升级
+      if (upgradeMode === 'direct') {
+        setExecuteMessage('正在执行升级...');
+        setExecuteProgress(60);
+
+        // 本地文件已上传到目标位置，或者历史包由后端处理
         const result = await linuxAPI.oneClickUpgrade(merchantId, warPath, env);
         setExecuteProgress(100);
         setExecuteMessage('升级完成！');
         setExecuteResult('success');
-      } catch (error) {
-        setExecuteResult('error');
-        setExecuteError(error.response?.data?.error || error.response?.data?.message || error.message);
-      }
-    } else {
-      // Package upgrade mode
-      if (!selectedPackage) {
-        toast.warning('请选择或上传升级包');
-        return;
-      }
+      } else {
+        setExecuteMessage('正在执行升级包升级...');
+        setExecuteProgress(60);
 
-      if (!warPath) {
-        toast.warning('请先上传 WAR 包或选择历史包');
-        return;
-      }
-
-      if (!confirm(`确定要使用升级包 ${selectedPackage} 执行升级吗？`)) {
-        return;
-      }
-
-      setExecuting(true);
-      setExecuteProgress(0);
-      setExecuteMessage('正在执行升级包升级...');
-      setExecuteResult(null);
-      setExecuteError('');
-
-      try {
         const packageDir = `/home/menu/${selectedPackage}`;
-        const result = await linuxAPI.executePackageUpgrade(merchantId, packageDir, warPath, selectMode === 'history' ? 'history' : 'local', env);
+        // 本地上传时 warPath 已经是目标路径，历史包时 warPath 是 downloads/ 开头
+        const result = await linuxAPI.executePackageUpgrade(
+          merchantId,
+          packageDir,
+          warPath,
+          selectMode === 'history' ? 'history' : 'local',
+          env
+        );
         setExecuteProgress(100);
         setExecuteMessage('升级完成！');
         setExecuteResult('success');
-      } catch (error) {
-        setExecuteResult('error');
-        setExecuteError(error.response?.data?.error || error.response?.data?.message || error.message);
       }
+    } catch (error) {
+      setExecuteResult('error');
+      setExecuteError(error.response?.data?.error || error.response?.data?.message || error.message);
     }
+  };
+
+  // 轮询上传完成状态
+  const pollUploadCompletion = async (taskId) => {
+    return new Promise((resolve, reject) => {
+      const interval = setInterval(async () => {
+        try {
+          const result = await linuxAPI.getUploadProgress(taskId);
+          if (result.data?.status === 'completed') {
+            clearInterval(interval);
+            resolve();
+          } else if (result.data?.status === 'failed') {
+            clearInterval(interval);
+            reject(new Error(result.data?.error || '上传失败'));
+          }
+        } catch (error) {
+          clearInterval(interval);
+          reject(error);
+        }
+      }, 500);
+    });
   };
 
   // 关闭升级结果
@@ -641,7 +661,8 @@ const UpgradeTab = ({ merchantId }) => {
 
   const canProceedToStep3 = () => {
     if (selectMode === 'local') {
-      return uploadComplete && file;
+      // 本地上传模式：只需要选择了文件即可，不要求已上传
+      return file !== null;
     } else if (selectMode === 'history') {
       return selectedHistoryPackage !== null;
     } else if (selectMode === 'download') {
@@ -1005,22 +1026,22 @@ const UpgradeTab = ({ merchantId }) => {
               </div>
             )}
 
-            {/* MD5 Match Confirmation Dialog */}
+            {/* MD5 Match Info Dialog - 仅提示，不触发上传 */}
             {showMd5Confirm && md5Match && (
               <div style={styles.confirmDialog}>
                 <div style={styles.confirmDialogContent}>
                   <div style={styles.confirmIcon}>⚠️</div>
-                  <div style={styles.confirmTitle}>确认继续？</div>
+                  <div style={styles.confirmTitle}>MD5 匹配提示</div>
                   <div style={styles.confirmText}>
                     检测到目标设备上已存在相同的 WAR 包（MD5 匹配）。
-                    您确定要继续更新吗？
+                    如需更新，请点击"开始执行"。
                   </div>
                   <div style={styles.confirmButtons}>
                     <button onClick={handleConfirmUpload} style={styles.confirmPrimaryBtn}>
-                      继续更新
+                      知道了
                     </button>
                     <button onClick={handleCancelUpload} style={styles.confirmCancelBtn}>
-                      取消
+                      重新选择
                     </button>
                   </div>
                 </div>
@@ -1953,13 +1974,14 @@ const styles = {
   },
   detailValues: {
     display: 'flex',
+    flexDirection: 'column', 
     flexWrap: 'wrap',
     gap: '12px 24px',
     flex: 1,
     minWidth: 0,
   },
   detailValueItem: {
-    display: 'flex',
+    display: 'block',
     alignItems: 'baseline',
     gap: '6px',
     maxWidth: '100%',

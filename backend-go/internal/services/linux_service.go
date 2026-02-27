@@ -289,15 +289,26 @@ func (s *LinuxService) StartUploadTask(merchantID, localPath, remotePath string)
 
 	// 异步上传
 	go func() {
-		err := info.SFTPClient.UploadFile(localPath, remotePath, func(transferred, total int64, percentage float64) {
+		// 先上传到临时目录 /tmp/kpos.war
+		tempPath := "/tmp/kpos.war"
+		err := info.SFTPClient.UploadFile(localPath, tempPath, func(transferred, total int64, percentage float64) {
 			task.UpdateProgress(transferred, percentage)
 		})
 
 		if err != nil {
-			task.SetFailed(err)
-		} else {
-			task.SetCompleted()
+			task.SetFailed(fmt.Errorf("上传到临时目录失败: %w", err))
+			return
 		}
+
+		// 通过 sudo 移动文件到目标位置
+		moveCmd := fmt.Sprintf("sudo mv %s %s", tempPath, remotePath)
+		_, err = info.Client.ExecuteCommand(moveCmd)
+		if err != nil {
+			task.SetFailed(fmt.Errorf("移动文件失败: %w", err))
+			return
+		}
+
+		task.SetCompleted()
 	}()
 
 	return &UploadTaskInfo{
@@ -647,6 +658,8 @@ func (s *LinuxService) OneClickUpgrade(merchantID, warPath string, configRepo *r
 		}
 		password := info.Password
 
+		targetPath := "/opt/tomcat7/webapps/kpos.war"
+
 		// 检查是否是本地 downloads 目录的文件（需要先上传到远程）
 		if strings.HasPrefix(warPath, "downloads/") {
 			// 将相对路径转换为绝对路径
@@ -662,7 +675,6 @@ func (s *LinuxService) OneClickUpgrade(merchantID, warPath string, configRepo *r
 			}
 
 			// 直接上传到目标路径
-			targetPath := "/opt/tomcat7/webapps/kpos.war"
 			log.Printf("[OneClickUpgrade] 上传 WAR 包: %s -> %s", localPath, targetPath)
 
 			err = info.SFTPClient.UploadFile(localPath, targetPath, nil)
@@ -670,12 +682,16 @@ func (s *LinuxService) OneClickUpgrade(merchantID, warPath string, configRepo *r
 				return "", fmt.Errorf("上传 WAR 包失败: %w", err)
 			}
 			log.Printf("[OneClickUpgrade] WAR 包上传完成")
-		} else {
-			// 远程路径，执行 cp 命令
-			_, err = s.ExecuteCommand(merchantID, fmt.Sprintf("cp %s /opt/tomcat7/webapps/kpos.war", warPath))
+		} else if warPath != targetPath {
+			// 远程路径且不是目标路径，执行 cp 命令
+			log.Printf("[OneClickUpgrade] 复制 WAR 包: %s -> %s", warPath, targetPath)
+			_, err = s.ExecuteCommand(merchantID, fmt.Sprintf("cp %s %s", warPath, targetPath))
 			if err != nil {
 				return "", fmt.Errorf("替换 WAR 包失败: %w", err)
 			}
+		} else {
+			// warPath 已经是目标路径，跳过复制
+			log.Printf("[OneClickUpgrade] WAR 包已在目标位置，跳过复制")
 		}
 
 		// 删除旧的解压目录
@@ -688,7 +704,7 @@ func (s *LinuxService) OneClickUpgrade(merchantID, warPath string, configRepo *r
 
 		// 解压 WAR 包
 		log.Printf("[OneClickUpgrade] 解压 WAR 包")
-		unzipCmd := fmt.Sprintf("echo '%s' | sudo -S unzip -o /opt/tomcat7/webapps/kpos.war -d /opt/tomcat7/webapps/kpos 2>&1", password)
+		unzipCmd := fmt.Sprintf("echo '%s' | sudo -S unzip -o %s -d /opt/tomcat7/webapps/kpos 2>&1", password, targetPath)
 		output, err := s.ExecuteCommand(merchantID, unzipCmd)
 		if err != nil {
 			return "", fmt.Errorf("解压 WAR 包失败: %w", err)

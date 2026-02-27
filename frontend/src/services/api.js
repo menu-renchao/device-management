@@ -269,10 +269,13 @@ export const linuxAPI = {
   },
 
   // 文件上传
-  uploadWAR: async (merchantId, file, onProgress) => {
+  uploadWAR: async (merchantId, file, onProgress, targetPath = null) => {
     const formData = new FormData();
     formData.append('merchant_id', merchantId);
     formData.append('file', file);
+    if (targetPath) {
+      formData.append('target_path', targetPath);
+    }
 
     const token = localStorage.getItem('access_token');
     const response = await axios.post(`${API_BASE_URL}/linux/upload/war`, formData, {

@@ -232,8 +232,14 @@ func (c *SFTPClient) MkdirAll(path string) error {
 			}
 		}
 
-		// 创建当前目录
-		return c.sftp.Mkdir(p)
+		// 创建当前目录（带权限 0755）
+		// 注意：sftp.Mkdir 默认创建的目录权限可能不够，需要使用 OpenFile 设置权限
+		err := c.sftp.Mkdir(p)
+		if err != nil {
+			return err
+		}
+		// 设置目录权限为 0755（rwxr-xr-x）
+		return c.sftp.Chmod(p, 0755)
 	}
 
 	return createDir(path)

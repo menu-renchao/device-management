@@ -341,6 +341,9 @@ func (h *LinuxHandler) UploadWAR(c *gin.Context) {
 		return
 	}
 
+	// 获取可选的目标路径参数
+	targetPath := c.PostForm("target_path")
+
 	// 权限检查
 	if !h.checkDevicePermission(c, merchantID) {
 		return
@@ -376,8 +379,15 @@ func (h *LinuxHandler) UploadWAR(c *gin.Context) {
 		return
 	}
 
+	// 确定远程路径
+	var remotePath string
+	if targetPath != "" {
+		remotePath = targetPath
+	} else {
+		remotePath = "/opt/tomcat7/webapps/" + header.Filename
+	}
+
 	// 开始上传任务
-	remotePath := "/opt/tomcat7/webapps/" + header.Filename
 	taskInfo, err := h.linuxService.StartUploadTask(merchantID, tempPath, remotePath)
 	if err != nil {
 		response.InternalError(c, fmt.Sprintf("开始上传失败: %s", err.Error()))

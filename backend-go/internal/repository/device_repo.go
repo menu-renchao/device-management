@@ -131,6 +131,7 @@ func (r *DeviceRepository) CleanupOldResults(hours int) (int64, error) {
 		r.db.Where("merchant_id IN ?", merchantIDs).Delete(&models.DeviceOccupancy{})
 		r.db.Where("merchant_id IN ?", merchantIDs).Delete(&models.DeviceClaim{})
 		r.db.Where("merchant_id IN ?", merchantIDs).Delete(&models.DeviceBorrowRequest{})
+		r.db.Where("merchant_id IN ?", merchantIDs).Delete(&models.DeviceProperty{})
 	}
 
 	// 删除旧的扫描结果
