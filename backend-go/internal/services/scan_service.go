@@ -17,11 +17,11 @@ import (
 // ScanStatus represents the current scan status
 type ScanStatus struct {
 	mu         sync.RWMutex
-	IsScanning bool                      `json:"is_scanning"`
-	Progress   int                       `json:"progress"`
-	CurrentIP  string                    `json:"current_ip"`
-	Results    []map[string]interface{}  `json:"results"`
-	Error      string                    `json:"error"`
+	IsScanning bool                     `json:"is_scanning"`
+	Progress   int                      `json:"progress"`
+	CurrentIP  string                   `json:"current_ip"`
+	Results    []map[string]interface{} `json:"results"`
+	Error      string                   `json:"error"`
 }
 
 // ScanService handles network scanning operations
@@ -213,10 +213,11 @@ func (s *ScanService) performScan(ctx context.Context, localIP string, onResult 
 
 	// Send IPs to workers
 	go func() {
+	Outer:
 		for _, ip := range hosts {
 			select {
 			case <-ctx.Done():
-				break
+				break Outer
 			default:
 				ipChan <- ip
 			}

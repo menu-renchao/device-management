@@ -66,7 +66,7 @@ const RegisterPage = () => {
 
         <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.field}>
-            <label style={styles.label}>用户名</label>
+              <label style={styles.label}>用户名<span style={styles.required}>*</span></label>
             <input
               type="text"
               value={username}
@@ -78,7 +78,7 @@ const RegisterPage = () => {
             />
           </div>
           <div style={styles.field}>
-            <label style={styles.label}>姓名 *</label>
+              <label style={styles.label}>姓名<span style={styles.required}>*</span></label>
             <input
               type="text"
               value={name}
@@ -99,7 +99,7 @@ const RegisterPage = () => {
             />
           </div>
           <div style={styles.field}>
-            <label style={styles.label}>密码</label>
+              <label style={styles.label}>密码<span style={styles.required}>*</span></label>
             <input
               type="password"
               value={password}
@@ -111,7 +111,7 @@ const RegisterPage = () => {
             />
           </div>
           <div style={styles.field}>
-            <label style={styles.label}>确认密码</label>
+            <label style={styles.label}>确认密码<span style={styles.required}>*</span></label>
             <input
               type="password"
               value={confirmPassword}
@@ -250,6 +250,11 @@ const styles = {
     marginTop: '16px',
     fontSize: '13px',
     color: '#86868B',
+  },
+  required: {
+    color: '#FF4D4F',
+    marginLeft: '2px',
+    fontWeight: 'bold',
   },
   link: {
     color: '#007AFF',

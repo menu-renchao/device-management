@@ -129,7 +129,7 @@ func (h *WorkspaceHandler) GetMyBorrows(c *gin.Context) {
 			"purpose":     o.Purpose,
 			"startTime":   o.StartTime.Format(time.RFC3339),
 			"endTime":     o.EndTime.Format(time.RFC3339),
-			"remainingMs": o.EndTime.Sub(time.Now()).Milliseconds(),
+			"remainingMs": time.Until(o.EndTime).Milliseconds(),
 		}
 
 		posResult = append(posResult, occDict)
@@ -140,7 +140,7 @@ func (h *WorkspaceHandler) GetMyBorrows(c *gin.Context) {
 	for _, d := range mobileDevices {
 		remainingMs := int64(0)
 		if d.EndTime != nil {
-			remainingMs = d.EndTime.Sub(time.Now()).Milliseconds()
+			remainingMs = time.Until(*d.EndTime).Milliseconds()
 		}
 
 		deviceDict := map[string]interface{}{

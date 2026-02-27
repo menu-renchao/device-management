@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"strings"
 
 	"device-management/internal/middleware"
@@ -12,14 +13,16 @@ import (
 )
 
 type AuthHandler struct {
-	authService *services.AuthService
-	userRepo    *repository.UserRepository
+	authService        *services.AuthService
+	userRepo           *repository.UserRepository
+	notificationService *services.NotificationService
 }
 
-func NewAuthHandler(authService *services.AuthService, userRepo *repository.UserRepository) *AuthHandler {
+func NewAuthHandler(authService *services.AuthService, userRepo *repository.UserRepository, notificationService *services.NotificationService) *AuthHandler {
 	return &AuthHandler{
-		authService: authService,
-		userRepo:    userRepo,
+		authService:        authService,
+		userRepo:           userRepo,
+		notificationService: notificationService,
 	}
 }
 
@@ -80,6 +83,16 @@ func (h *AuthHandler) Register(c *gin.Context) {
 			response.BadRequest(c, err.Error())
 		}
 		return
+	}
+
+	// 发送通知给所有管理员
+	if h.notificationService != nil {
+		admins, _ := h.userRepo.GetAdmins()
+		for _, admin := range admins {
+			if err := h.notificationService.SendNewUserRegister(admin.ID, req.Username, req.Name); err != nil {
+				fmt.Printf("[WARN] 发送新用户注册通知给管理员失败: %v\n", err)
+			}
+		}
 	}
 
 	response.CreatedWithMessage(c, "注册成功，请等待管理员审核", nil)

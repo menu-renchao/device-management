@@ -640,6 +640,267 @@ body {
   font-weight: 500;
 }
 
+/* Detail Modal Styles */
+.detail-modal {
+  max-width: 900px;
+}
+
+.detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.no-data {
+  text-align: center;
+  color: var(--apple-gray);
+  padding: 40px;
+  font-size: 14px;
+}
+
+.info-section {
+  background: var(--apple-gray-6);
+  border-radius: var(--apple-radius);
+  padding: 16px;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--apple-text);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--apple-gray-4);
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.info-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.info-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--apple-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.info-value {
+  font-size: 14px;
+  color: var(--apple-text);
+  font-weight: 400;
+}
+
+.info-value.company-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--apple-blue);
+}
+
+.info-value.error {
+  color: var(--apple-red);
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  width: fit-content;
+}
+
+.status-badge.activated,
+.status-badge.connected,
+.status-badge.enabled,
+.status-badge.success {
+  background: rgba(52, 199, 89, 0.15);
+  color: var(--apple-green);
+}
+
+.status-badge.disconnected,
+.status-badge.disabled,
+.status-badge.failed {
+  background: rgba(255, 59, 48, 0.15);
+  color: var(--apple-red);
+}
+
+/* App Instances */
+.app-instances-section {
+  background: var(--apple-gray-6);
+  border-radius: var(--apple-radius);
+  padding: 16px;
+}
+
+.app-instances-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.app-instance-card {
+  background: var(--apple-card-bg);
+  border-radius: var(--apple-radius-sm);
+  padding: 12px;
+  box-shadow: var(--apple-shadow);
+  transition: var(--apple-transition);
+}
+
+.app-instance-card:hover {
+  box-shadow: var(--apple-shadow-lg);
+  transform: translateY(-2px);
+}
+
+.instance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.instance-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--apple-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.instance-type {
+  font-size: 10px;
+  font-weight: 500;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.instance-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--apple-text-secondary);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--apple-gray-3);
+}
+
+.status-dot.active {
+  background: var(--apple-green);
+  box-shadow: 0 0 4px rgba(52, 199, 89, 0.5);
+}
+
+/* Hours */
+.hours-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hour-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--apple-card-bg);
+  border-radius: var(--apple-radius-sm);
+}
+
+.hour-name {
+  font-weight: 500;
+  color: var(--apple-text);
+  min-width: 100px;
+}
+
+.hour-time {
+  color: var(--apple-blue);
+  font-weight: 500;
+  font-feature-settings: 'tnum';
+}
+
+.hour-desc {
+  color: var(--apple-text-secondary);
+  font-size: 12px;
+  margin-left: auto;
+}
+
+/* Images */
+.images-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.image-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--apple-card-bg);
+  border-radius: var(--apple-radius-sm);
+  font-size: 13px;
+  color: var(--apple-text-secondary);
+}
+
+.image-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Loading State */
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: var(--apple-text-secondary);
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--apple-gray-4);
+  border-top-color: var(--apple-blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 12px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.error-message {
+  text-align: center;
+  color: var(--apple-red);
+  padding: 40px;
+  font-size: 14px;
+}
+
 /* Scan Page */
 .scan-page {
   display: flex;

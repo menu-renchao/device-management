@@ -739,7 +739,7 @@ func (s *LinuxService) OneClickUpgrade(merchantID, warPath string, configRepo *r
 		return "", fmt.Errorf("重启 POS 失败: %w", err)
 	}
 
-	return fmt.Sprintf("升级完成！"), nil
+	return "升级完成！", nil
 }
 
 // GetDiskUsage 获取磁盘使用情况

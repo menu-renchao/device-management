@@ -111,7 +111,7 @@ func (h *ScanHandler) GetDeviceDetails(c *gin.Context) {
 	// Filter data
 	filteredData := filterData(fullData)
 
-	response.Success(c, gin.H{"data": filteredData})
+	response.Success(c, filteredData)
 }
 
 // saveScanResult saves a scan result to the database
@@ -205,21 +205,29 @@ func (h *ScanHandler) updateScanResultFromMap(scanResult *models.ScanResult, res
 	}
 }
 
-// filterData removes unwanted fields from device data
+// filterData removes null values from device data
 func filterData(data interface{}) interface{} {
-	excludeKeys := map[string]bool{
-		"appInstance": true,
-		"images":      true,
-		"result":      true,
-		"printLogo":   true,
-	}
-
 	switch v := data.(type) {
 	case map[string]interface{}:
 		result := make(map[string]interface{})
 		for key, value := range v {
-			if value != nil && !excludeKeys[key] {
-				result[key] = filterData(value)
+			if value != nil {
+				filteredValue := filterData(value)
+				// Only include non-empty values
+				if filteredValue != nil {
+					switch fv := filteredValue.(type) {
+					case map[string]interface{}:
+						if len(fv) > 0 {
+							result[key] = filteredValue
+						}
+					case []interface{}:
+						if len(fv) > 0 {
+							result[key] = filteredValue
+						}
+					default:
+						result[key] = filteredValue
+					}
+				}
 			}
 		}
 		return result
@@ -227,7 +235,10 @@ func filterData(data interface{}) interface{} {
 		result := make([]interface{}, 0)
 		for _, item := range v {
 			if item != nil {
-				result = append(result, filterData(item))
+				filteredItem := filterData(item)
+				if filteredItem != nil {
+					result = append(result, filteredItem)
+				}
 			}
 		}
 		return result

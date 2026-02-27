@@ -113,7 +113,7 @@ func main() {
 	notificationService := services.NewNotificationService(notificationRepo)
 
 	// Initialize handlers
-	authHandler := handlers.NewAuthHandler(authService, userRepo)
+	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
 	adminHandler := handlers.NewAdminHandler(userRepo, deviceRepo)
 	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService)
 	mobileHandler := handlers.NewMobileHandler(mobileRepo, userRepo, notificationService)

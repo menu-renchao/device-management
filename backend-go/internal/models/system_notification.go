@@ -49,4 +49,5 @@ const (
 	NotificationTypeClaimApproved  = "claim_approved"  // 认领申请已通过
 	NotificationTypeClaimRejected  = "claim_rejected"  // 认领申请已拒绝
 	NotificationTypeClaimRequest   = "claim_request"   // 新的认领申请（发给管理员）
+	NotificationTypeUserRegister   = "user_register"   // 新用户注册（发给管理员）
 )

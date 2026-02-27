@@ -116,6 +116,18 @@ func (s *NotificationService) SendNewClaimRequest(adminID uint, applicantName st
 	return s.repo.Create(notification)
 }
 
+// SendNewUserRegister 发送新用户注册通知给管理员
+func (s *NotificationService) SendNewUserRegister(adminID uint, username string, name string) error {
+	notification := &models.SystemNotification{
+		UserID:  adminID,
+		Title:   "新用户注册",
+		Content: fmt.Sprintf("新用户「%s」（姓名：%s）已完成注册，请及时审核。", username, name),
+		Type:    models.NotificationTypeUserRegister,
+		IsRead:  false,
+	}
+	return s.repo.Create(notification)
+}
+
 // GetNotifications 获取用户通知列表
 func (s *NotificationService) GetNotifications(userID uint, limit int) ([]models.SystemNotification, error) {
 	return s.repo.GetByUserID(userID, limit)
