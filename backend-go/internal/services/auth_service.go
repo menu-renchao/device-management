@@ -120,7 +120,11 @@ func (s *AuthService) ChangePassword(userID uint, oldPassword, newPassword strin
 		return errors.New("new password must be at least 6 characters")
 	}
 
-	return user.SetPassword(newPassword)
+	if err := user.SetPassword(newPassword); err != nil {
+		return err
+	}
+
+	return s.userRepo.Update(user)
 }
 
 func (s *AuthService) UpdateProfile(userID uint, name, email string) (*models.User, error) {

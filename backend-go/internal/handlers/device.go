@@ -49,11 +49,25 @@ func (h *DeviceHandler) GetDevices(c *gin.Context) {
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
 	search := c.Query("search")
 
+	// 获取类型和分类筛选参数（支持多选，逗号分隔）
+	typesParam := c.Query("types")
+	propertiesParam := c.Query("properties")
+
+	var filterTypes []string
+	var filterProperties []string
+
+	if typesParam != "" {
+		filterTypes = strings.Split(typesParam, ",")
+	}
+	if propertiesParam != "" {
+		filterProperties = strings.Split(propertiesParam, ",")
+	}
+
 	if pageSize > 200 {
 		pageSize = 200
 	}
 
-	results, total, totalPages, err := h.deviceRepo.ListScanResults(page, pageSize, search)
+	results, total, totalPages, err := h.deviceRepo.ListScanResults(page, pageSize, search, filterTypes, filterProperties)
 	if err != nil {
 		response.InternalError(c, "获取设备列表失败")
 		return
@@ -330,7 +344,7 @@ func (h *DeviceHandler) DeleteDevice(c *gin.Context) {
 			return
 		}
 
-		// Delete by IP
+		// Delete by IP (无 merchant_id 的设备通常没有占用记录)
 		if err := h.deviceRepo.DeleteScanResultByIP(idParam); err != nil {
 			response.InternalError(c, "删除设备失败")
 			return
@@ -339,15 +353,40 @@ func (h *DeviceHandler) DeleteDevice(c *gin.Context) {
 		return
 	}
 
+	// 使用事务删除设备及关联记录
+	tx := h.deviceRepo.BeginTx()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
 	// Delete related records
 	if device.MerchantID != nil && *device.MerchantID != "" {
-		h.deviceRepo.DeleteOccupancy(*device.MerchantID)
-		h.deviceRepo.DeleteClaimsByMerchantID(*device.MerchantID)
+		// 删除占用记录
+		if err := tx.DeleteOccupancy(*device.MerchantID); err != nil {
+			tx.Rollback()
+			response.InternalError(c, "删除设备占用记录失败")
+			return
+		}
+		// 删除认领记录
+		if err := tx.DeleteClaimsByMerchantID(*device.MerchantID); err != nil {
+			tx.Rollback()
+			response.InternalError(c, "删除设备认领记录失败")
+			return
+		}
 	}
 
 	// Delete device
-	if err := h.deviceRepo.DeleteScanResult(*device.MerchantID); err != nil {
+	if err := tx.DeleteScanResult(*device.MerchantID); err != nil {
+		tx.Rollback()
 		response.InternalError(c, "删除设备失败")
+		return
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		response.InternalError(c, "提交事务失败")
 		return
 	}
 
@@ -994,4 +1033,22 @@ func parseDateTime(s string) (time.Time, error) {
 	}
 
 	return time.Parse(time.RFC3339, s)
+}
+
+// GetFilterOptions 获取筛选选项（类型和分类列表）
+func (h *DeviceHandler) GetFilterOptions(c *gin.Context) {
+	types, err := h.deviceRepo.GetDistinctTypes()
+	if err != nil {
+		types = []string{}
+	}
+
+	properties, err := h.deviceRepo.GetDistinctProperties()
+	if err != nil {
+		properties = []string{}
+	}
+
+	response.Success(c, gin.H{
+		"types":       types,
+		"properties":  properties,
+	})
 }

@@ -39,6 +39,14 @@ const ScanPage = () => {
   // 搜索条件
   const [searchText, setSearchText] = useState('');
 
+  // 筛选条件
+  const [filterTypes, setFilterTypes] = useState([]);
+  const [filterProperties, setFilterProperties] = useState([]);
+  const [availableTypes, setAvailableTypes] = useState([]);
+  const [availableProperties, setAvailableProperties] = useState([]);
+  const [showTypeDropdown, setShowTypeDropdown] = useState(false);
+  const [showPropertyDropdown, setShowPropertyDropdown] = useState(false);
+
   // 确认对话框
   const [confirmDialog, setConfirmDialog] = useState({ show: false, type: null, data: null });
 
@@ -61,16 +69,29 @@ const ScanPage = () => {
     fetchLocalIPs();
   }, []);
 
-  // 加载设备列表（分页+搜索）
-  const loadDevices = async (page = currentPage, size = pageSize, search = searchText) => {
+  // 加载设备列表（分页+搜索+筛选）
+  const loadDevices = async (page = currentPage, size = pageSize, search = searchText, types = filterTypes, properties = filterProperties) => {
     try {
-      const response = await scanAPI.getDevices(page, size, search);
-      if (response.data.success && response.data.data) {
-        setDevices(response.data.data.devices || []);
-        setFilteredDevices(response.data.data.devices || []);
-        setTotalDevices(response.data.data.total || 0);
-        setTotalPages(response.data.data.totalPages || 0);
-        setLastScanAt(response.data.data.lastScanAt);
+      // 构建查询参数
+      const params = new URLSearchParams({
+        page: page.toString(),
+        page_size: size.toString()
+      });
+      if (search) params.append('search', search);
+      if (types.length > 0) params.append('types', types.join(','));
+      if (properties.length > 0) params.append('properties', properties.join(','));
+
+      const token = localStorage.getItem('access_token');
+      const response = await fetch(`/api/devices?${params.toString()}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const result = await response.json();
+      if (result.success && result.data) {
+        setDevices(result.data.devices || []);
+        setFilteredDevices(result.data.devices || []);
+        setTotalDevices(result.data.total || 0);
+        setTotalPages(result.data.totalPages || 0);
+        setLastScanAt(result.data.lastScanAt);
       }
     } catch (error) {
       console.error('加载设备列表失败:', error);
@@ -80,20 +101,50 @@ const ScanPage = () => {
   // 初始加载
   useEffect(() => {
     loadDevices(1, pageSize, '');
+    loadFilterOptions();
   }, []);
+
+  // 加载筛选选项
+  const loadFilterOptions = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      const response = await fetch('/api/devices/filter-options', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const result = await response.json();
+      if (result.success && result.data) {
+        setAvailableTypes(result.data.types || []);
+        setAvailableProperties(result.data.properties || []);
+      }
+    } catch (error) {
+      console.error('加载筛选选项失败:', error);
+    }
+  };
 
   // 页码改变
   const handlePageChange = (newPage) => {
     setCurrentPage(newPage);
-    loadDevices(newPage, pageSize, searchText);
+    loadDevices(newPage, pageSize, searchText, filterTypes, filterProperties);
   };
 
   // 每页数量改变
   const handlePageSizeChange = (newSize) => {
     setPageSize(newSize);
     setCurrentPage(1);
-    loadDevices(1, newSize, searchText);
+    loadDevices(1, newSize, searchText, filterTypes, filterProperties);
   };
+
+  // 点击外部关闭下拉框
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setShowTypeDropdown(false);
+      setShowPropertyDropdown(false);
+    };
+    if (showTypeDropdown || showPropertyDropdown) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [showTypeDropdown, showPropertyDropdown]);
 
   // 轮询扫描状态
   useEffect(() => {
@@ -163,14 +214,35 @@ const ScanPage = () => {
   // 搜索处理（后端搜索）
   const handleSearch = () => {
     setCurrentPage(1);
-    loadDevices(1, pageSize, searchText);
+    loadDevices(1, pageSize, searchText, filterTypes, filterProperties);
   };
 
   // 清除搜索
   const clearSearch = () => {
     setSearchText('');
+    setFilterTypes([]);
+    setFilterProperties([]);
     setCurrentPage(1);
-    loadDevices(1, pageSize, '');
+    loadDevices(1, pageSize, '', [], []);
+  };
+
+  // 筛选变化处理
+  const handleFilterChange = (type, value, checked) => {
+    if (type === 'type') {
+      const newTypes = checked
+        ? [...filterTypes, value]
+        : filterTypes.filter(t => t !== value);
+      setFilterTypes(newTypes);
+      setCurrentPage(1);
+      loadDevices(1, pageSize, searchText, newTypes, filterProperties);
+    } else if (type === 'property') {
+      const newProperties = checked
+        ? [...filterProperties, value]
+        : filterProperties.filter(p => p !== value);
+      setFilterProperties(newProperties);
+      setCurrentPage(1);
+      loadDevices(1, pageSize, searchText, filterTypes, newProperties);
+    }
   };
 
   // 打开设备
@@ -427,6 +499,70 @@ const ScanPage = () => {
         </div>
 
         <div style={styles.toolbarCenter}>
+          {/* 类型筛选下拉框 */}
+          <div style={styles.filterDropdown} onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowTypeDropdown(!showTypeDropdown); setShowPropertyDropdown(false); }}
+              style={{
+                ...styles.filterBtn,
+                ...(filterTypes.length > 0 ? styles.filterBtnActive : {})
+              }}
+            >
+              类型 {filterTypes.length > 0 && `(${filterTypes.length})`}
+              <span style={styles.dropdownArrow}>▼</span>
+            </button>
+            {showTypeDropdown && (
+              <div style={styles.dropdownMenu}>
+                {availableTypes.length === 0 ? (
+                  <div style={styles.dropdownEmpty}>暂无类型</div>
+                ) : (
+                  availableTypes.map(type => (
+                    <label key={type} style={styles.dropdownItem}>
+                      <input
+                        type="checkbox"
+                        checked={filterTypes.includes(type)}
+                        onChange={(e) => handleFilterChange('type', type, e.target.checked)}
+                      />
+                      <span>{type}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 分类筛选下拉框 */}
+          <div style={styles.filterDropdown} onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowPropertyDropdown(!showPropertyDropdown); setShowTypeDropdown(false); }}
+              style={{
+                ...styles.filterBtn,
+                ...(filterProperties.length > 0 ? styles.filterBtnActive : {})
+              }}
+            >
+              分类 {filterProperties.length > 0 && `(${filterProperties.length})`}
+              <span style={styles.dropdownArrow}>▼</span>
+            </button>
+            {showPropertyDropdown && (
+              <div style={styles.dropdownMenu}>
+                {availableProperties.length === 0 ? (
+                  <div style={styles.dropdownEmpty}>暂无分类</div>
+                ) : (
+                  availableProperties.map(prop => (
+                    <label key={prop} style={styles.dropdownItem}>
+                      <input
+                        type="checkbox"
+                        checked={filterProperties.includes(prop)}
+                        onChange={(e) => handleFilterChange('property', prop, e.target.checked)}
+                      />
+                      <span>{prop}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
           <input
             type="text"
             placeholder="搜索IP/ID/名称/版本..."
@@ -436,7 +572,7 @@ const ScanPage = () => {
             style={styles.searchInput}
           />
           <button onClick={handleSearch} style={styles.searchBtn}>搜索</button>
-          {searchText && (
+          {(searchText || filterTypes.length > 0 || filterProperties.length > 0) && (
             <button onClick={clearSearch} style={styles.clearBtn}>清除</button>
           )}
         </div>
@@ -703,6 +839,7 @@ const styles = {
     fontWeight: '500',
     cursor: 'pointer',
     transition: 'all 0.15s ease',
+    whiteSpace: 'nowrap',
   },
   btnStart: {
     backgroundColor: '#007AFF',
@@ -740,6 +877,7 @@ const styles = {
     fontSize: '13px',
     fontWeight: '500',
     cursor: 'pointer',
+    whiteSpace: 'nowrap',
   },
   clearBtn: {
     padding: '6px 12px',
@@ -750,6 +888,62 @@ const styles = {
     fontSize: '13px',
     fontWeight: '500',
     cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  filterDropdown: {
+    position: 'relative',
+  },
+  filterBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '6px 12px',
+    backgroundColor: '#fff',
+    color: '#1D1D1F',
+    border: '1px solid #D1D1D6',
+    borderRadius: '6px',
+    fontSize: '13px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  filterBtnActive: {
+    backgroundColor: '#007AFF',
+    color: '#fff',
+    borderColor: '#007AFF',
+  },
+  dropdownArrow: {
+    fontSize: '10px',
+    marginLeft: '4px',
+  },
+  dropdownMenu: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    marginTop: '4px',
+    minWidth: '140px',
+    backgroundColor: '#fff',
+    border: '1px solid #E5E5EA',
+    borderRadius: '6px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+    zIndex: 100,
+    maxHeight: '200px',
+    overflowY: 'auto',
+  },
+  dropdownItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px 12px',
+    fontSize: '13px',
+    cursor: 'pointer',
+    transition: 'background-color 0.15s',
+  },
+  dropdownEmpty: {
+    padding: '12px',
+    fontSize: '12px',
+    color: '#86868B',
+    textAlign: 'center',
   },
   toolbarRight: {
     display: 'flex',
@@ -864,6 +1058,7 @@ const styles = {
     borderRadius: '8px',
     fontSize: '14px',
     cursor: 'pointer',
+    whiteSpace: 'nowrap',
   },
   btnSave: {
     padding: '8px 16px',
@@ -873,6 +1068,7 @@ const styles = {
     borderRadius: '8px',
     fontSize: '14px',
     cursor: 'pointer',
+    whiteSpace: 'nowrap',
   },
   btnDanger: {
     padding: '8px 16px',
@@ -882,6 +1078,7 @@ const styles = {
     borderRadius: '8px',
     fontSize: '14px',
     cursor: 'pointer',
+    whiteSpace: 'nowrap',
   },
   pagination: {
     display: 'flex',
@@ -919,6 +1116,7 @@ const styles = {
     fontSize: '13px',
     cursor: 'pointer',
     transition: 'all 0.15s ease',
+    whiteSpace: 'nowrap',
   },
   pageBtnDisabled: {
     opacity: 0.5,

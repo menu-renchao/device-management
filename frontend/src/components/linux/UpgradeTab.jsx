@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { linuxAPI } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -59,6 +59,26 @@ const UpgradeTab = ({ merchantId }) => {
   const [executing, setExecuting] = useState(false);
   const [executeProgress, setExecuteProgress] = useState(0);
   const [executeMessage, setExecuteMessage] = useState('');
+  const [executeResult, setExecuteResult] = useState(null); // null | 'success' | 'error'
+  const [executeError, setExecuteError] = useState('');
+
+  // Config execution states (单独执行配置修改)
+  const [executingConfigs, setExecutingConfigs] = useState(false);
+  const [configExecuteResults, setConfigExecuteResults] = useState(null);
+
+  // 页面离开提示（升级过程中）
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (executing) {
+        e.preventDefault();
+        e.returnValue = '升级正在进行中，确定要离开吗？离开可能导致升级失败。';
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [executing]);
 
   // Load configs on mount
   useEffect(() => {
@@ -142,6 +162,36 @@ const UpgradeTab = ({ merchantId }) => {
       setSelectedConfigs(configs.filter(c => c.enabled).map(c => c.id));
     } else {
       setSelectedConfigs([]);
+    }
+  };
+
+  // 单独执行配置修改（不依赖升级流程）
+  const handleExecuteConfigsOnly = async () => {
+    if (selectedConfigs.length === 0) {
+      toast.warning('请先选择要执行的配置');
+      return;
+    }
+
+    if (!confirm(`确定要在 ${env} 环境下执行选中的 ${selectedConfigs.length} 个配置修改吗？`)) {
+      return;
+    }
+
+    setExecutingConfigs(true);
+    setConfigExecuteResults(null);
+
+    try {
+      const result = await linuxAPI.executeFileConfigs(merchantId, selectedConfigs, env);
+      setConfigExecuteResults(result.data);
+
+      if (result.data?.failed > 0) {
+        toast.warning(`执行完成：${result.data.success} 个成功，${result.data.failed} 个失败`);
+      } else {
+        toast.success(`配置修改完成：${result.data?.success || 0} 个成功`);
+      }
+    } catch (error) {
+      toast.error('执行配置修改失败：' + (error.response?.data?.message || error.message));
+    } finally {
+      setExecutingConfigs(false);
     }
   };
 
@@ -495,11 +545,22 @@ const UpgradeTab = ({ merchantId }) => {
   const handleExecute = async () => {
     // Determine war path based on selectMode
     let warPath = '';
+    let needUpload = false;
+    let localFilePath = '';
+
     if (selectMode === 'local' && uploadComplete && file) {
       warPath = `/opt/tomcat7/webapps/${file.name}`;
     } else if (selectMode === 'history' && selectedHistoryPackage) {
+      // 使用选中时保存的完整包信息
       const pkg = historyPackages.find(p => p.name === selectedHistoryPackage);
-      warPath = `downloads/${selectedHistoryPackage}/${pkg?.file_name || 'kpos.war'}`;
+      if (pkg && pkg.file_name) {
+        warPath = `downloads/${selectedHistoryPackage}/${pkg.file_name}`;
+        localFilePath = warPath;
+        needUpload = true;
+      } else {
+        toast.error('无法获取包文件信息，请重新选择历史包');
+        return;
+      }
     }
 
     if (upgradeMode === 'direct') {
@@ -509,21 +570,24 @@ const UpgradeTab = ({ merchantId }) => {
         return;
       }
 
-      if (!confirm('确定要执行直接替换 WAR 升级吗？这将停止服务、备份数据、替换 WAR 包并重启服务。')) {
+      if (!confirm('确定要执行直接替换 WAR 升级吗？这将停止服务、替换 WAR 包并重启服务。')) {
         return;
       }
 
       setExecuting(true);
       setExecuteProgress(0);
       setExecuteMessage('正在执行升级...');
+      setExecuteResult(null);
+      setExecuteError('');
 
       try {
         const result = await linuxAPI.oneClickUpgrade(merchantId, warPath, env);
-        toast.success(result.message || '升级完成');
+        setExecuteProgress(100);
+        setExecuteMessage('升级完成！');
+        setExecuteResult('success');
       } catch (error) {
-        toast.error('升级失败：' + (error.response?.data?.message || error.message));
-      } finally {
-        setExecuting(false);
+        setExecuteResult('error');
+        setExecuteError(error.response?.data?.error || error.response?.data?.message || error.message);
       }
     } else {
       // Package upgrade mode
@@ -544,17 +608,29 @@ const UpgradeTab = ({ merchantId }) => {
       setExecuting(true);
       setExecuteProgress(0);
       setExecuteMessage('正在执行升级包升级...');
+      setExecuteResult(null);
+      setExecuteError('');
 
       try {
         const packageDir = `/home/menu/${selectedPackage}`;
         const result = await linuxAPI.executePackageUpgrade(merchantId, packageDir, warPath, selectMode === 'history' ? 'history' : 'local', env);
-        toast.success(result.message || '升级包升级完成');
+        setExecuteProgress(100);
+        setExecuteMessage('升级完成！');
+        setExecuteResult('success');
       } catch (error) {
-        toast.error('升级失败：' + (error.response?.data?.message || error.message));
-      } finally {
-        setExecuting(false);
+        setExecuteResult('error');
+        setExecuteError(error.response?.data?.error || error.response?.data?.message || error.message);
       }
     }
+  };
+
+  // 关闭升级结果
+  const handleCloseUpgradeResult = () => {
+    setExecuting(false);
+    setExecuteResult(null);
+    setExecuteError('');
+    setExecuteMessage('');
+    setExecuteProgress(0);
   };
 
   const formatSize = (bytes) => {
@@ -618,7 +694,7 @@ const UpgradeTab = ({ merchantId }) => {
           >
             <div style={styles.configHeaderLeft}>
               <span style={styles.expandIcon}>{configSectionExpanded ? '▼' : '▶'}</span>
-              <span style={styles.configHeaderText}>文件配置（可选）</span>
+              <span style={styles.configHeaderText}>文件配置（默认执行启用配置，一般无需修改，可单独执行）</span>
             </div>
             <div style={styles.configHeaderRight} onClick={(e) => e.stopPropagation()}>
               {isAdmin() && (
@@ -626,11 +702,60 @@ const UpgradeTab = ({ merchantId }) => {
                   onClick={() => setShowConfigModal(true)}
                   style={styles.manageBtn}
                 >
-                  管理配置
+                  新增配置
                 </button>
               )}
             </div>
           </div>
+
+          {/* 配置执行按钮 - 展开时显示 */}
+          {configSectionExpanded && (
+            <div style={styles.configExecuteBar}>
+              <span style={styles.configSelectInfo}>
+                已选择 {selectedConfigs.length} 个配置
+              </span>
+              <button
+                onClick={handleExecuteConfigsOnly}
+                disabled={executingConfigs || selectedConfigs.length === 0}
+                style={{
+                  ...styles.executeConfigBtn,
+                  ...(executingConfigs || selectedConfigs.length === 0 ? styles.disabled : {}),
+                }}
+              >
+                {executingConfigs ? '执行中...' : '单独执行配置修改'}
+              </button>
+            </div>
+          )}
+
+          {/* 配置执行结果显示 */}
+          {configExecuteResults && (
+            <div style={styles.configResultsCard}>
+              <div style={styles.configResultsHeader}>
+                执行结果：{configExecuteResults.success || 0} 成功，{configExecuteResults.failed || 0} 失败
+              </div>
+              {configExecuteResults.results && configExecuteResults.results.length > 0 && (
+                <div style={styles.configResultsList}>
+                  {configExecuteResults.results.map((result, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        ...styles.configResultItem,
+                        ...(result.startsWith('[失败]') ? styles.configResultFailed : styles.configResultSuccess)
+                      }}
+                    >
+                      {result}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={() => setConfigExecuteResults(null)}
+                style={styles.closeResultsBtn}
+              >
+                关闭
+              </button>
+            </div>
+          )}
 
           {configSectionExpanded && (
             <>
@@ -711,26 +836,25 @@ const UpgradeTab = ({ merchantId }) => {
                       </div>
                       {expandedConfig === config.id && (
                         <div style={styles.configDetail}>
-                          <table style={styles.detailTable}>
-                            <thead>
-                              <tr>
-                                <th style={styles.detailTh}>键名</th>
-                                <th style={styles.detailTh}>QA 值</th>
-                                <th style={styles.detailTh}>PROD 值</th>
-                                <th style={styles.detailTh}>DEV 值</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {config.key_values && config.key_values.map((kv, idx) => (
-                                <tr key={idx}>
-                                  <td style={styles.detailTdKey}>{kv.key}</td>
-                                  <td style={styles.detailTd}>{kv.qa_value || '-'}</td>
-                                  <td style={styles.detailTd}>{kv.prod_value || '-'}</td>
-                                  <td style={styles.detailTd}>{kv.dev_value || '-'}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                          {config.key_values && config.key_values.map((kv, idx) => (
+                            <div key={idx} style={styles.detailRow}>
+                              <span style={styles.detailKey}>{kv.key}</span>
+                              <span style={styles.detailValues}>
+                                <span style={styles.detailValueItem}>
+                                  <span style={styles.detailEnvLabel}>QA:</span>
+                                  <span style={styles.detailEnvValue}>{kv.qa_value || '-'}</span>
+                                </span>
+                                <span style={styles.detailValueItem}>
+                                  <span style={styles.detailEnvLabel}>PROD:</span>
+                                  <span style={styles.detailEnvValue}>{kv.prod_value || '-'}</span>
+                                </span>
+                                <span style={styles.detailValueItem}>
+                                  <span style={styles.detailEnvLabel}>DEV:</span>
+                                  <span style={styles.detailEnvValue}>{kv.dev_value || '-'}</span>
+                                </span>
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -1191,9 +1315,8 @@ const UpgradeTab = ({ merchantId }) => {
               <div style={styles.infoCardTitle}>直接替换 WAR 模式将执行以下操作：</div>
               <ol style={styles.infoCardList}>
                 <li>停止 POS 服务</li>
-                <li>创建数据备份</li>
                 <li>替换 /opt/tomcat7/webapps/kpos.war</li>
-                <li>执行配置修改（如果选择了配置）</li>
+                <li>执行配置修改（如果启用了配置）</li>
                 <li>重启 POS 服务</li>
               </ol>
             </div>
@@ -1300,6 +1423,48 @@ const UpgradeTab = ({ merchantId }) => {
 
   return (
     <div style={styles.container}>
+      {/* 全屏升级进度遮罩 */}
+      {executing && (
+        <div style={styles.upgradeOverlay}>
+          <div style={styles.upgradeModal}>
+            {executeResult === null ? (
+              // 执行中
+              <>
+                <div style={styles.upgradeSpinner}>
+                  <div style={styles.upgradeSpinnerRing}></div>
+                </div>
+                <div style={styles.upgradeTitle}>正在升级</div>
+                <div style={styles.upgradeMessage}>{executeMessage}</div>
+                <div style={styles.upgradeProgressBar}>
+                  <div style={styles.upgradeProgressAnimated}></div>
+                </div>
+                <div style={styles.upgradeWarning}>请勿关闭页面或刷新，否则可能导致升级失败</div>
+              </>
+            ) : executeResult === 'success' ? (
+              // 成功
+              <>
+                <div style={styles.upgradeSuccessIcon}>✓</div>
+                <div style={{ ...styles.upgradeTitle, color: '#34C759' }}>升级成功</div>
+                <div style={styles.upgradeMessage}>设备已成功完成升级</div>
+                <button onClick={handleCloseUpgradeResult} style={styles.upgradeConfirmBtn}>
+                  确认
+                </button>
+              </>
+            ) : (
+              // 失败
+              <>
+                <div style={styles.upgradeErrorIcon}>✕</div>
+                <div style={{ ...styles.upgradeTitle, color: '#FF3B30' }}>升级失败</div>
+                <div style={styles.upgradeErrorBox}>{executeError}</div>
+                <button onClick={handleCloseUpgradeResult} style={styles.upgradeConfirmBtn}>
+                  关闭
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Step 1: Environment */}
       {renderStep1()}
 
@@ -1308,18 +1473,6 @@ const UpgradeTab = ({ merchantId }) => {
 
       {/* Step 3: Upgrade Mode */}
       {renderStep3()}
-
-      {/* Execution Progress */}
-      {executing && (
-        <div style={styles.progressCard}>
-          <div style={styles.progressHeader}>
-            <span style={styles.progressLabel}>{executeMessage}</span>
-          </div>
-          <div style={styles.progressBar}>
-            <div style={{ ...styles.progressFill, width: `${executeProgress}%` }} />
-          </div>
-        </div>
-      )}
 
       {/* Execute Button */}
       <div style={styles.executeSection}>
@@ -1352,6 +1505,18 @@ const UpgradeTab = ({ merchantId }) => {
         isOpen={showDownloadConfig}
         onClose={() => setShowDownloadConfig(false)}
       />
+
+      {/* CSS 动画 */}
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes progressSlide {
+          0% { left: -30%; }
+          100% { left: 100%; }
+        }
+      `}</style>
     </div>
   );
 };
@@ -1362,6 +1527,119 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '16px',
+  },
+
+  // 全屏升级进度遮罩
+  upgradeOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+  },
+  upgradeModal: {
+    backgroundColor: '#fff',
+    borderRadius: '12px',
+    padding: '32px 48px',
+    textAlign: 'center',
+    maxWidth: '400px',
+    boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+  },
+  upgradeSpinner: {
+    width: '48px',
+    height: '48px',
+    margin: '0 auto 16px',
+  },
+  upgradeSpinnerRing: {
+    width: '48px',
+    height: '48px',
+    border: '4px solid #E5E5EA',
+    borderTop: '4px solid #007AFF',
+    borderRadius: '50%',
+    animation: 'spin 1s linear infinite',
+  },
+  upgradeTitle: {
+    fontSize: '20px',
+    fontWeight: '600',
+    color: '#1D1D1F',
+    marginBottom: '8px',
+  },
+  upgradeMessage: {
+    fontSize: '14px',
+    color: '#86868B',
+    marginBottom: '24px',
+  },
+  upgradeProgressBar: {
+    height: '6px',
+    backgroundColor: '#E5E5EA',
+    borderRadius: '3px',
+    overflow: 'hidden',
+    marginBottom: '16px',
+    position: 'relative',
+  },
+  upgradeProgressAnimated: {
+    position: 'absolute',
+    top: 0,
+    left: '-30%',
+    width: '30%',
+    height: '100%',
+    backgroundColor: '#007AFF',
+    borderRadius: '3px',
+    animation: 'progressSlide 1.5s ease-in-out infinite',
+  },
+  upgradeWarning: {
+    fontSize: '12px',
+    color: '#FF9500',
+    backgroundColor: '#FFF7E6',
+    padding: '8px 12px',
+    borderRadius: '4px',
+  },
+  upgradeSuccessIcon: {
+    width: '64px',
+    height: '64px',
+    lineHeight: '64px',
+    fontSize: '32px',
+    color: '#fff',
+    backgroundColor: '#34C759',
+    borderRadius: '50%',
+    margin: '0 auto 16px',
+  },
+  upgradeErrorIcon: {
+    width: '64px',
+    height: '64px',
+    lineHeight: '64px',
+    fontSize: '32px',
+    color: '#fff',
+    backgroundColor: '#FF3B30',
+    borderRadius: '50%',
+    margin: '0 auto 16px',
+  },
+  upgradeErrorBox: {
+    fontSize: '13px',
+    color: '#FF3B30',
+    backgroundColor: '#FFF1F0',
+    padding: '12px 16px',
+    borderRadius: '6px',
+    marginBottom: '20px',
+    textAlign: 'left',
+    wordBreak: 'break-word',
+    maxHeight: '120px',
+    overflowY: 'auto',
+  },
+  upgradeConfirmBtn: {
+    padding: '10px 48px',
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#fff',
+    backgroundColor: '#007AFF',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
   },
 
   // Step Indicators (简化)
@@ -1483,6 +1761,75 @@ const styles = {
     color: '#86868B',
   },
 
+  // Config Execute Bar
+  configExecuteBar: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '8px 10px',
+    backgroundColor: '#F2F2F7',
+    borderRadius: '4px',
+    marginTop: '8px',
+    marginBottom: '8px',
+  },
+  configSelectInfo: {
+    fontSize: '12px',
+    color: '#86868B',
+  },
+  executeConfigBtn: {
+    padding: '6px 14px',
+    backgroundColor: '#34C759',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    fontWeight: '500',
+  },
+
+  // Config Results
+  configResultsCard: {
+    marginTop: '10px',
+    padding: '10px',
+    backgroundColor: '#fff',
+    borderRadius: '4px',
+    border: '1px solid #E5E5EA',
+  },
+  configResultsHeader: {
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#1D1D1F',
+    marginBottom: '8px',
+  },
+  configResultsList: {
+    maxHeight: '120px',
+    overflowY: 'auto',
+    marginBottom: '8px',
+  },
+  configResultItem: {
+    fontSize: '11px',
+    padding: '4px 8px',
+    marginBottom: '4px',
+    borderRadius: '3px',
+  },
+  configResultSuccess: {
+    backgroundColor: '#F0F9FF',
+    color: '#0958D9',
+  },
+  configResultFailed: {
+    backgroundColor: '#FFF1F0',
+    color: '#CF1322',
+  },
+  closeResultsBtn: {
+    padding: '4px 12px',
+    backgroundColor: '#F2F2F7',
+    border: '1px solid #E5E5EA',
+    borderRadius: '4px',
+    fontSize: '11px',
+    cursor: 'pointer',
+    color: '#86868B',
+  },
+
   // Config List
   configList: {
     display: 'flex',
@@ -1583,33 +1930,49 @@ const styles = {
     cursor: 'pointer',
   },
   configDetail: {
-    padding: '10px',
+    padding: '10px 12px',
     marginLeft: '40px',
     backgroundColor: '#fff',
     borderRadius: '4px',
     marginTop: '4px',
+    border: '1px solid #E5E5EA',
   },
-  detailTable: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    fontSize: '11px',
+  detailRow: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '8px 0',
+    borderBottom: '1px solid #F2F2F7',
+    fontSize: '13px',
   },
-  detailTh: {
-    textAlign: 'left',
-    padding: '6px 8px',
-    backgroundColor: '#F2F2F7',
-    fontWeight: '500',
-    color: '#1D1D1F',
-  },
-  detailTdKey: {
-    padding: '6px 8px',
-    fontFamily: 'monospace',
+  detailKey: {
+    minWidth: '140px',
+    flexShrink: 0,
     color: '#007AFF',
+    fontWeight: '500',
+    paddingRight: '12px',
   },
-  detailTd: {
-    padding: '6px 8px',
-    fontFamily: 'monospace',
+  detailValues: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '12px 24px',
+    flex: 1,
+    minWidth: 0,
+  },
+  detailValueItem: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: '6px',
+    maxWidth: '100%',
+  },
+  detailEnvLabel: {
+    color: '#86868B',
+    fontSize: '12px',
+    flexShrink: 0,
+  },
+  detailEnvValue: {
     color: '#1D1D1F',
+    wordBreak: 'break-word',
+    overflowWrap: 'break-word',
   },
 
   // Mode Selector (简化)

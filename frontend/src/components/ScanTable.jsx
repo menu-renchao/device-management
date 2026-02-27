@@ -102,7 +102,7 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
               <td>
                 {device.owner ? (
                   <div className="owner-cell">
-                    <span className="owner-name">{device.owner.username}</span>
+                    <span className="owner-name">{device.owner.username || '用户已删除'}</span>
                     {isAdmin && (
                       <button
                         className="btn-reset-owner"
@@ -131,7 +131,7 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
                     onClick={() => onEditOccupancy(device)}
                     title={`用途: ${device.occupancy?.purpose || '无'}`}
                   >
-                    {device.occupancy?.username}
+                    {device.occupancy?.username || '用户已删除'}
                   </span>
                 ) : (
                   <span

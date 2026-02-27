@@ -914,6 +914,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    whiteSpace: 'nowrap',
   },
   occupiedLabel: {
     flex: 1,
@@ -945,6 +946,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    whiteSpace: 'nowrap',
   },
   releaseBtn: {
     flex: 1,
@@ -958,6 +960,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    whiteSpace: 'nowrap',
   },
   editBtn: {
     minHeight: '36px',
@@ -971,6 +974,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    whiteSpace: 'nowrap',
   },
   deleteBtn: {
     minHeight: '36px',
@@ -984,6 +988,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    whiteSpace: 'nowrap',
   },
   modalOverlay: {
     position: 'fixed',

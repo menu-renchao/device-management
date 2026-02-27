@@ -15,6 +15,21 @@ func NewDeviceRepository(db *gorm.DB) *DeviceRepository {
 	return &DeviceRepository{db: db}
 }
 
+// BeginTx 开始一个事务，返回一个新的 repository 实例
+func (r *DeviceRepository) BeginTx() *DeviceRepository {
+	return &DeviceRepository{db: r.db.Begin()}
+}
+
+// Commit 提交事务
+func (r *DeviceRepository) Commit() error {
+	return r.db.Commit().Error
+}
+
+// Rollback 回滚事务
+func (r *DeviceRepository) Rollback() error {
+	return r.db.Rollback().Error
+}
+
 // ScanResult operations
 func (r *DeviceRepository) CreateScanResult(result *models.ScanResult) error {
 	return r.db.Create(result).Error
@@ -50,7 +65,7 @@ func (r *DeviceRepository) DeleteScanResultByIP(ip string) error {
 	return r.db.Where("ip = ? AND (merchant_id = '' OR merchant_id IS NULL)", ip).Delete(&models.ScanResult{}).Error
 }
 
-func (r *DeviceRepository) ListScanResults(page, pageSize int, search string) ([]models.ScanResult, int64, int64, error) {
+func (r *DeviceRepository) ListScanResults(page, pageSize int, search string, types []string, properties []string) ([]models.ScanResult, int64, int64, error) {
 	var results []models.ScanResult
 	var total int64
 
@@ -59,6 +74,17 @@ func (r *DeviceRepository) ListScanResults(page, pageSize int, search string) ([
 		searchPattern := "%" + search + "%"
 		query = query.Where("ip LIKE ? OR merchant_id LIKE ? OR name LIKE ? OR version LIKE ?",
 			searchPattern, searchPattern, searchPattern, searchPattern)
+	}
+
+	// 按类型筛选
+	if len(types) > 0 {
+		query = query.Where("type IN ?", types)
+	}
+
+	// 按分类筛选（需要 JOIN device_properties 表）
+	if len(properties) > 0 {
+		query = query.Joins("LEFT JOIN device_properties ON device_properties.merchant_id = scan_results.merchant_id").
+			Where("device_properties.property IN ?", properties)
 	}
 
 	query.Count(&total)
@@ -83,6 +109,31 @@ func (r *DeviceRepository) SetOfflineNotInMerchantIDs(merchantIDs []string) erro
 }
 
 func (r *DeviceRepository) CleanupOldResults(hours int) (int64, error) {
+	// 先查询要删除的设备的 merchant_ids
+	var results []models.ScanResult
+	err := r.db.Model(&models.ScanResult{}).
+		Where("datetime(scanned_at) < datetime('now', '-' || ? || ' hours')", hours).
+		Find(&results).Error
+	if err != nil {
+		return 0, err
+	}
+
+	// 收集需要清理的 merchant_ids
+	merchantIDs := make([]string, 0)
+	for _, result := range results {
+		if result.MerchantID != nil && *result.MerchantID != "" {
+			merchantIDs = append(merchantIDs, *result.MerchantID)
+		}
+	}
+
+	// 先清理关联的占用记录和认领记录
+	if len(merchantIDs) > 0 {
+		r.db.Where("merchant_id IN ?", merchantIDs).Delete(&models.DeviceOccupancy{})
+		r.db.Where("merchant_id IN ?", merchantIDs).Delete(&models.DeviceClaim{})
+		r.db.Where("merchant_id IN ?", merchantIDs).Delete(&models.DeviceBorrowRequest{})
+	}
+
+	// 删除旧的扫描结果
 	result := r.db.Exec(`
 		DELETE FROM scan_results
 		WHERE datetime(scanned_at) < datetime('now', '-' || ? || ' hours')
@@ -359,4 +410,24 @@ func (r *DeviceRepository) ListDevicesByOwnerID(ownerID uint) ([]models.ScanResu
 	var devices []models.ScanResult
 	err := r.db.Where("owner_id = ?", ownerID).Order("last_online_time DESC").Find(&devices).Error
 	return devices, err
+}
+
+// GetDistinctTypes 获取所有不同的设备类型
+func (r *DeviceRepository) GetDistinctTypes() ([]string, error) {
+	var types []string
+	err := r.db.Model(&models.ScanResult{}).
+		Distinct("type").
+		Where("type IS NOT NULL AND type != ''").
+		Pluck("type", &types).Error
+	return types, err
+}
+
+// GetDistinctProperties 获取所有不同的设备分类
+func (r *DeviceRepository) GetDistinctProperties() ([]string, error) {
+	var properties []string
+	err := r.db.Model(&models.DeviceProperty{}).
+		Distinct("property").
+		Where("property IS NOT NULL AND property != ''").
+		Pluck("property", &properties).Error
+	return properties, err
 }

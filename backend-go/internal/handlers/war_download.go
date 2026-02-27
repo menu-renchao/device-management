@@ -16,14 +16,16 @@ import (
 )
 
 type WarDownloadHandler struct {
-	service    *services.WarDownloadService
-	configRepo *repository.SystemConfigRepository
+	service      *services.WarDownloadService
+	configRepo   *repository.SystemConfigRepository
+	metadataRepo *repository.WarPackageRepository
 }
 
-func NewWarDownloadHandler(service *services.WarDownloadService, configRepo *repository.SystemConfigRepository) *WarDownloadHandler {
+func NewWarDownloadHandler(service *services.WarDownloadService, configRepo *repository.SystemConfigRepository, metadataRepo *repository.WarPackageRepository) *WarDownloadHandler {
 	return &WarDownloadHandler{
-		service:    service,
-		configRepo: configRepo,
+		service:      service,
+		configRepo:   configRepo,
+		metadataRepo: metadataRepo,
 	}
 }
 
@@ -111,9 +113,18 @@ func (h *WarDownloadHandler) DeletePackage(c *gin.Context) {
 		return
 	}
 
+	// 先删除文件
 	if err := h.service.DeletePackage(name); err != nil {
-		response.InternalError(c, "删除失败")
+		response.InternalError(c, "删除文件失败")
 		return
+	}
+
+	// 再删除元数据记录
+	if h.metadataRepo != nil {
+		if err := h.metadataRepo.Delete(name); err != nil {
+			// 记录错误但不影响删除操作（文件已删除）
+			// 可以考虑在这里添加日志
+		}
 	}
 
 	response.SuccessWithMessage(c, "删除成功", nil)

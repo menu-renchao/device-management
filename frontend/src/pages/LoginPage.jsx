@@ -32,11 +32,7 @@ const LoginPage = () => {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <div style={styles.iconWrapper}>
-          <svg style={styles.icon} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"/>
-          </svg>
-        </div>
+        <img src="/favicon.ico" alt="Logo" style={styles.logo} />
         <h1 style={styles.title}>Menusifu设备管理平台</h1>
         <p style={styles.subtitle}>登录您的账户以继续</p>
 
@@ -100,20 +96,12 @@ const styles = {
     maxWidth: '360px',
     boxShadow: '0 16px 32px -8px rgba(0, 0, 0, 0.2)',
   },
-  iconWrapper: {
+  logo: {
     width: '48px',
     height: '48px',
-    borderRadius: '12px',
-    background: 'linear-gradient(135deg, #007AFF 0%, #5856D6 100%)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    objectFit: 'contain',
     margin: '0 auto 16px',
-  },
-  icon: {
-    width: '24px',
-    height: '24px',
-    color: 'white',
+    display: 'block',
   },
   title: {
     fontSize: '22px',

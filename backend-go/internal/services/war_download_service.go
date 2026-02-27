@@ -297,21 +297,35 @@ func (s *WarDownloadService) doDownload(task *DownloadTask, downloadURL, cookie 
 	fmt.Printf("原始文件名: %s\n", filename)
 
 	// 从文件名提取版本号：
-	// 1) 优先匹配数字形式，如 18.0.30.16.7.1_729
-	// 2) 其次匹配包含 _build 的形式，例如 Installer_-_updater_build30.16.7.1_300
+	// 1) 优先匹配 Pos_-_Package_-_War_18.0.30.16.7.1-supreme_712_artifacts.zip 格式
+	//    提取: 18.0.30.16.7.1-supreme_712
+	// 2) 匹配数字形式，如 18.0.30.16.7.1_729
+	// 3) 其次匹配包含 _build 的形式，例如 Installer_-_updater_build30.16.7.1_300
 	version := ""
-	numericPattern := regexp.MustCompile(`\d+\.\d+\.\d+\.\d+\.\d+\.\d+_\d+`)
-	if m := numericPattern.FindString(filename); m != "" {
-		version = m
-	} else {
-		buildPattern := regexp.MustCompile(`([A-Za-z0-9\-_]+_build\d+(?:\.\d+)*_\d+)`)
-		if m := buildPattern.FindString(filename); m != "" {
+
+	// 新增：匹配格式 Pos_-_Package_-_War_18.0.30.16.7.1-supreme_712_artifacts.zip
+	// 版本号格式：X.X.X.X.X[-build]_artifacts 或 X.X.X.X.X.X[-build]_artifacts
+	// 支持 4 到 7 组数字的版本号格式
+	posWarPattern := regexp.MustCompile(`(\d+(?:\.\d+){4,6}(?:-[a-zA-Z0-9_]+)?)_artifacts`)
+	if m := posWarPattern.FindStringSubmatch(filename); len(m) > 1 {
+		version = m[1] // 提取第一个分组，即版本号部分
+	}
+
+	// 原有逻辑：优先匹配数字形式，如 18.0.30.16.7.1_729
+	if version == "" {
+		numericPattern := regexp.MustCompile(`\d+\.\d+\.\d+\.\d+\.\d+\.\d+_\d+`)
+		if m := numericPattern.FindString(filename); m != "" {
 			version = m
 		} else {
-			// 更宽松匹配：支持没有下划线分割的 build 字样
-			buildPattern2 := regexp.MustCompile(`([A-Za-z0-9\-_]+build\d+(?:\.\d+)*_\d+)`)
-			if m := buildPattern2.FindString(filename); m != "" {
+			buildPattern := regexp.MustCompile(`([A-Za-z0-9\-_]+_build\d+(?:\.\d+)*_\d+)`)
+			if m := buildPattern.FindString(filename); m != "" {
 				version = m
+			} else {
+				// 更宽松匹配：支持没有下划线分割的 build 字样
+				buildPattern2 := regexp.MustCompile(`([A-Za-z0-9\-_]+build\d+(?:\.\d+)*_\d+)`)
+				if m := buildPattern2.FindString(filename); m != "" {
+					version = m
+				}
 			}
 		}
 	}
@@ -319,6 +333,7 @@ func (s *WarDownloadService) doDownload(task *DownloadTask, downloadURL, cookie 
 	if version == "" {
 		version = "unknown_" + time.Now().Format("20060102_150405")
 	}
+	fmt.Printf("原始文件名: %s\n", filename)
 	fmt.Printf("提取版本号: %s\n", version)
 
 	// 检查是否被取消（在开始解压前再次检查）
@@ -494,11 +509,12 @@ func (s *WarDownloadService) doDownload(task *DownloadTask, downloadURL, cookie 
 
 	// 自动创建元数据（使用选择的包类型）
 	metadata := &models.WarPackageMetadata{
-		PackageName: version,
-		PackageType: task.PackageType,
-		Version:     version,
-		IsRelease:   false,
-		Description: "",
+		PackageName:      version,
+		PackageType:      task.PackageType,
+		Version:          version,
+		OriginalFileName: &filename, // 保存原始文件名
+		IsRelease:        false,
+		Description:      "",
 	}
 	if s.metadataRepo != nil {
 		err = s.metadataRepo.CreateOrUpdate(metadata)

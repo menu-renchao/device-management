@@ -69,7 +69,18 @@
       "Bash(powershell -Command \"\\(Get-Content ''pkg/jwt/jwt.go'' -Raw\\) -replace ''pos-scanner-backend'', ''device-management'' | Set-Content ''pkg/jwt/jwt.go'' -NoNewline\")",
       "Bash(powershell -Command \"\\(Get-Content ''internal/services/notification_service.go'' -Raw\\) -replace ''pos-scanner-backend'', ''device-management'' | Set-Content ''internal/services/notification_service.go'' -NoNewline\")",
       "Bash(powershell -Command \"Get-ChildItem -Recurse -Filter ''*.go'' | Select-String -Pattern ''pos-scanner-backend'' | Select-Object -First 20\")",
-      "Bash(powershell -Command \"Get-ChildItem -Recurse -Filter ''*.go'' | Select-String -Pattern ''device-management'' | Select-Object Path, LineNumber, Line\")"
+      "Bash(powershell -Command \"Get-ChildItem -Recurse -Filter ''*.go'' | Select-String -Pattern ''device-management'' | Select-Object Path, LineNumber, Line\")",
+      "Bash(git push -u origin main)",
+      "Bash(git remote set-url origin https://github.com/menu-renchao/device-management.git)",
+      "Bash(git remote set-url origin git@github.com:menu-renchao/device-management.git)",
+      "Bash(git remote remove origin)",
+      "Bash(git remote add origin git@github.com:menu-renchao/device-management.git)",
+      "Bash(git config --global --list)",
+      "Bash(git remote add origin https://github.com/menu-renchao/device-management.git)",
+      "mcp__playwright__browser_run_code",
+      "Bash(go get gopkg.in/natefinch/lumberjack.v2)",
+      "Bash(start http://192.168.0.72:22080/kpos/front2/myhome.html)",
+      "mcp__playwright__browser_close"
     ]
   }
 }

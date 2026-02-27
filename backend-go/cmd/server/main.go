@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"log"
 
 	"device-management/internal/config"
 	"device-management/internal/handlers"
+	"device-management/internal/logger"
 	"device-management/internal/middleware"
 	"device-management/internal/models"
 	"device-management/internal/repository"
@@ -14,21 +14,45 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 func main() {
 	// Initialize config
 	if err := config.Init(); err != nil {
-		log.Fatalf("Failed to initialize config: %v", err)
+		fmt.Printf("Failed to initialize config: %v\n", err)
+		return
+	}
+
+	// Initialize logger
+	logConfig := logger.Config{
+		Level:      config.AppConfig.Log.Level,
+		Format:     config.AppConfig.Log.Format,
+		Output:     config.AppConfig.Log.Output,
+		FilePath:   config.AppConfig.Log.FilePath,
+		MaxSize:    config.AppConfig.Log.MaxSize,
+		MaxBackups: config.AppConfig.Log.MaxBackups,
+		MaxAge:     config.AppConfig.Log.MaxAge,
+		Compress:   config.AppConfig.Log.Compress,
+	}
+	if err := logger.Init(logConfig); err != nil {
+		fmt.Printf("Failed to initialize logger: %v\n", err)
+		return
 	}
 
 	// Set Gin mode
 	gin.SetMode(config.AppConfig.Server.Mode)
 
-	// Initialize database
-	db, err := gorm.Open(sqlite.Open(config.AppConfig.Database.Path), &gorm.Config{})
+	// Initialize database with custom logger
+	dbLogger := logger.NewGormLogger(gormlogger.Silent)
+	if config.AppConfig.Log.Level == "debug" {
+		dbLogger = logger.NewGormLogger(gormlogger.Info)
+	}
+	db, err := gorm.Open(sqlite.Open(config.AppConfig.Database.Path), &gorm.Config{
+		Logger: dbLogger,
+	})
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		logger.Fatal("Failed to connect to database", "error", err)
 	}
 
 	// Auto migrate
@@ -47,7 +71,7 @@ func main() {
 		&models.SystemNotification{},
 		&models.WarPackageMetadata{},
 	); err != nil {
-		log.Fatalf("Failed to migrate database: %v", err)
+		logger.Fatal("Failed to migrate database", "error", err)
 	}
 
 	// Create default admin if not exists
@@ -64,12 +88,12 @@ func main() {
 			Status:   "approved",
 		}
 		if err := admin.SetPassword("admin123"); err != nil {
-			log.Fatalf("Failed to set admin password: %v", err)
+			logger.Fatal("Failed to set admin password", "error", err)
 		}
 		if err := db.Create(admin).Error; err != nil {
-			log.Fatalf("Failed to create admin: %v", err)
+			logger.Fatal("Failed to create admin", "error", err)
 		}
-		log.Println("Default admin user created")
+		logger.Info("Default admin user created")
 	}
 
 	// Initialize repositories
@@ -96,16 +120,17 @@ func main() {
 	scanHandler := handlers.NewScanHandler(scanService, deviceRepo)
 	linuxHandler := handlers.NewLinuxHandler(linuxService, fileConfigRepo, deviceRepo, userRepo)
 	fileConfigHandler := handlers.NewFileConfigHandler(fileConfigRepo, linuxService)
-	warDownloadHandler := handlers.NewWarDownloadHandler(warDownloadService, systemConfigRepo)
+	warDownloadHandler := handlers.NewWarDownloadHandler(warDownloadService, systemConfigRepo, warPackageRepo)
 	warPackageHandler := handlers.NewWarPackageHandler(warPackageRepo)
 	workspaceHandler := handlers.NewWorkspaceHandler(deviceRepo, mobileRepo, userRepo)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
 
 	// Create Gin router
 	router := gin.New()
-	router.Use(gin.Logger())
-	router.Use(gin.Recovery())
 	router.Use(middleware.CORS())
+	router.Use(middleware.RequestIDMiddleware())
+	router.Use(middleware.LoggerMiddleware())
+	router.Use(middleware.RecoveryMiddleware())
 
 	// API routes
 	api := router.Group("/api")
@@ -278,6 +303,7 @@ func main() {
 
 		// Devices list (main endpoint for frontend)
 		api.GET("/devices", middleware.Auth(), deviceHandler.GetDevices)
+		api.GET("/devices/filter-options", middleware.Auth(), deviceHandler.GetFilterOptions)
 
 		// Workspace routes
 		workspace := api.Group("/workspace")
@@ -308,8 +334,8 @@ func main() {
 		port = "5000"
 	}
 
-	fmt.Printf("Server starting on port %s...\n", port)
+	logger.Info("Server starting", "port", port)
 	if err := router.Run(":" + port); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		logger.Fatal("Failed to start server", "error", err)
 	}
 }

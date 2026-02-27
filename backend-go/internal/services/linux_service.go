@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"device-management/internal/config"
 	"device-management/internal/models"
 	"device-management/internal/repository"
 	"device-management/pkg/ssh"
@@ -639,17 +638,68 @@ func (s *LinuxService) OneClickUpgrade(merchantID, warPath string, configRepo *r
 		return "", fmt.Errorf("停止 POS 失败: %w", err)
 	}
 
-	// 2. 创建备份
-	backupPath, err := s.CreateBackup(merchantID)
-	if err != nil {
-		return "", fmt.Errorf("创建备份失败: %w", err)
-	}
-
-	// 3. 替换 WAR 包
+	// 2. 替换 WAR 包
 	if warPath != "" {
-		_, err = s.ExecuteCommand(merchantID, fmt.Sprintf("cp %s /opt/tomcat7/webapps/ROOT.war", warPath))
+		// 获取连接信息（用于上传）
+		info, exists := s.pool.Get(merchantID)
+		if !exists {
+			return "", fmt.Errorf("未连接到设备")
+		}
+		password := info.Password
+
+		// 检查是否是本地 downloads 目录的文件（需要先上传到远程）
+		if strings.HasPrefix(warPath, "downloads/") {
+			// 将相对路径转换为绝对路径
+			localPath := warPath
+			if !filepath.IsAbs(localPath) {
+				wd, _ := os.Getwd()
+				localPath = filepath.Join(wd, warPath)
+			}
+
+			// 检查本地文件是否存在
+			if _, err := os.Stat(localPath); os.IsNotExist(err) {
+				return "", fmt.Errorf("WAR 包文件不存在: %s", warPath)
+			}
+
+			// 直接上传到目标路径
+			targetPath := "/opt/tomcat7/webapps/kpos.war"
+			log.Printf("[OneClickUpgrade] 上传 WAR 包: %s -> %s", localPath, targetPath)
+
+			err = info.SFTPClient.UploadFile(localPath, targetPath, nil)
+			if err != nil {
+				return "", fmt.Errorf("上传 WAR 包失败: %w", err)
+			}
+			log.Printf("[OneClickUpgrade] WAR 包上传完成")
+		} else {
+			// 远程路径，执行 cp 命令
+			_, err = s.ExecuteCommand(merchantID, fmt.Sprintf("cp %s /opt/tomcat7/webapps/kpos.war", warPath))
+			if err != nil {
+				return "", fmt.Errorf("替换 WAR 包失败: %w", err)
+			}
+		}
+
+		// 删除旧的解压目录
+		log.Printf("[OneClickUpgrade] 删除旧的 kpos 目录")
+		rmCmd := fmt.Sprintf("echo '%s' | sudo -S rm -rf /opt/tomcat7/webapps/kpos 2>&1", password)
+		_, err = s.ExecuteCommand(merchantID, rmCmd)
 		if err != nil {
-			return "", fmt.Errorf("替换 WAR 包失败: %w", err)
+			log.Printf("[OneClickUpgrade] 删除 kpos 目录警告: %v", err)
+		}
+
+		// 解压 WAR 包
+		log.Printf("[OneClickUpgrade] 解压 WAR 包")
+		unzipCmd := fmt.Sprintf("echo '%s' | sudo -S unzip -o /opt/tomcat7/webapps/kpos.war -d /opt/tomcat7/webapps/kpos 2>&1", password)
+		output, err := s.ExecuteCommand(merchantID, unzipCmd)
+		if err != nil {
+			return "", fmt.Errorf("解压 WAR 包失败: %w", err)
+		}
+		log.Printf("[OneClickUpgrade] 解压输出: %s", output)
+
+		// 修正权限
+		chownCmd := fmt.Sprintf("echo '%s' | sudo -S chown -R menu:menu /opt/tomcat7/webapps/kpos 2>&1", password)
+		_, err = s.ExecuteCommand(merchantID, chownCmd)
+		if err != nil {
+			log.Printf("[OneClickUpgrade] 修正权限警告: %v", err)
 		}
 	}
 
@@ -673,7 +723,7 @@ func (s *LinuxService) OneClickUpgrade(merchantID, warPath string, configRepo *r
 		return "", fmt.Errorf("重启 POS 失败: %w", err)
 	}
 
-	return fmt.Sprintf("升级完成！备份路径: %s", backupPath), nil
+	return fmt.Sprintf("升级完成！"), nil
 }
 
 // GetDiskUsage 获取磁盘使用情况
@@ -1044,40 +1094,41 @@ func (s *LinuxService) ExecutePackageUpgrade(merchantID, packageDir, warPath, en
 		return fmt.Errorf("停止 POS 失败: %w", err)
 	}
 
-	// 步骤 2: 创建备份 (10-20%)
+	// 步骤 2: 复制/上传 WAR 包到升级包目录 (10-30%)
 	if progressCallback != nil {
-		progressCallback(10, "创建备份...")
-	}
-	backupPath, err := s.CreateBackup(merchantID)
-	if err != nil {
-		log.Printf("[ExecutePackageUpgrade] 备份警告: %v", err)
-	}
-	_ = backupPath
-
-	// 步骤 3: 复制 WAR 包到升级包目录 (20-40%)
-	if progressCallback != nil {
-		progressCallback(20, "复制 WAR 包...")
+		progressCallback(10, "复制 WAR 包...")
 	}
 	if warPath != "" {
-		// 确定源路径
-		var sourceWarPath string
-		if strings.HasPrefix(warPath, "downloads/") {
-			// 历史包路径，需要拼接实际路径
-			sourceWarPath = filepath.Join(config.AppConfig.Upload.Path, warPath)
-		} else if strings.HasPrefix(warPath, "/") {
-			// 绝对路径
-			sourceWarPath = warPath
-		} else {
-			// 相对 /opt/tomcat7/webapps/
-			sourceWarPath = warPath
-		}
-
-		// 复制到升级包目录
 		targetWarPath := fmt.Sprintf("%s/kpos.war", packageDir)
-		copyCmd := fmt.Sprintf("cp %s %s 2>&1", sourceWarPath, targetWarPath)
-		_, err = info.Client.ExecuteCommand(copyCmd)
-		if err != nil {
-			return fmt.Errorf("复制 WAR 包失败: %w", err)
+
+		// 检查是否是本地 downloads 目录的文件（需要先上传到远程）
+		if strings.HasPrefix(warPath, "downloads/") {
+			// 将相对路径转换为绝对路径
+			localPath := warPath
+			if !filepath.IsAbs(localPath) {
+				wd, _ := os.Getwd()
+				localPath = filepath.Join(wd, warPath)
+			}
+
+			// 检查本地文件是否存在
+			if _, err := os.Stat(localPath); os.IsNotExist(err) {
+				return fmt.Errorf("WAR 包文件不存在: %s", warPath)
+			}
+
+			// 上传到升级包目录
+			log.Printf("[ExecutePackageUpgrade] 上传 WAR 包: %s -> %s", localPath, targetWarPath)
+			err = info.SFTPClient.UploadFile(localPath, targetWarPath, nil)
+			if err != nil {
+				return fmt.Errorf("上传 WAR 包失败: %w", err)
+			}
+			log.Printf("[ExecutePackageUpgrade] WAR 包上传完成")
+		} else {
+			// 远程路径，执行 cp 命令
+			copyCmd := fmt.Sprintf("cp %s %s 2>&1", warPath, targetWarPath)
+			_, err = info.Client.ExecuteCommand(copyCmd)
+			if err != nil {
+				return fmt.Errorf("复制 WAR 包失败: %w", err)
+			}
 		}
 	}
 

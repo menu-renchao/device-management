@@ -33,15 +33,16 @@ func (h *WarPackageHandler) ListMetadata(c *gin.Context) {
 	result := make([]map[string]interface{}, len(list))
 	for i, item := range list {
 		result[i] = map[string]interface{}{
-			"id":           item.ID,
-			"package_name": item.PackageName,
-			"package_type": item.PackageType,
-			"type_label":   models.PackageTypeLabels[item.PackageType],
-			"version":      item.Version,
-			"is_release":   item.IsRelease,
-			"description":  item.Description,
-			"created_at":   item.CreatedAt,
-			"updated_at":   item.UpdatedAt,
+			"id":                item.ID,
+			"package_name":       item.PackageName,
+			"package_type":       item.PackageType,
+			"type_label":         models.PackageTypeLabels[item.PackageType],
+			"version":           item.Version,
+			"original_file_name": item.OriginalFileName,
+			"is_release":        item.IsRelease,
+			"description":       item.Description,
+			"created_at":        item.CreatedAt,
+			"updated_at":        item.UpdatedAt,
 		}
 	}
 
@@ -71,15 +72,16 @@ func (h *WarPackageHandler) GetMetadata(c *gin.Context) {
 
 	// 添加类型标签
 	result := map[string]interface{}{
-		"id":           metadata.ID,
-		"package_name": metadata.PackageName,
-		"package_type": metadata.PackageType,
-		"type_label":   models.PackageTypeLabels[metadata.PackageType],
-		"version":      metadata.Version,
-		"is_release":   metadata.IsRelease,
-		"description":  metadata.Description,
-		"created_at":   metadata.CreatedAt,
-		"updated_at":   metadata.UpdatedAt,
+		"id":                metadata.ID,
+		"package_name":       metadata.PackageName,
+		"package_type":       metadata.PackageType,
+		"type_label":         models.PackageTypeLabels[metadata.PackageType],
+		"version":           metadata.Version,
+		"original_file_name": metadata.OriginalFileName,
+		"is_release":        metadata.IsRelease,
+		"description":       metadata.Description,
+		"created_at":        metadata.CreatedAt,
+		"updated_at":        metadata.UpdatedAt,
 	}
 
 	response.SuccessWithMessage(c, "获取成功", result)

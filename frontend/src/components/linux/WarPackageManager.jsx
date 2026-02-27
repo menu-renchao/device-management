@@ -28,6 +28,7 @@ const WarPackageManager = ({ merchantId }) => {
   // 筛选
   const [filterType, setFilterType] = useState('all');
   const [filterRelease, setFilterRelease] = useState('all');
+  const [searchKeyword, setSearchKeyword] = useState('');
 
   useEffect(() => {
     loadHistoryPackages();
@@ -217,15 +218,34 @@ const WarPackageManager = ({ merchantId }) => {
   // 筛选包列表
   const filteredPackages = historyPackages.filter(pkg => {
     const metadata = packageMetadata[pkg.name];
+
+    // 类型筛选
     if (filterType !== 'all' && (!metadata || metadata.package_type !== filterType)) {
       return false;
     }
+
+    // 发版筛选
     if (filterRelease === 'release' && (!metadata || !metadata.is_release)) {
       return false;
     }
     if (filterRelease === 'non_release' && metadata && metadata.is_release) {
       return false;
     }
+
+    // 关键词搜索（版本号、原始文件名、备注）
+    if (searchKeyword.trim()) {
+      const keyword = searchKeyword.toLowerCase();
+      const version = (metadata?.version || pkg.name).toLowerCase();
+      const originalFileName = (metadata?.original_file_name || '').toLowerCase();
+      const description = (metadata?.description || '').toLowerCase();
+
+      if (!version.includes(keyword) &&
+          !originalFileName.includes(keyword) &&
+          !description.includes(keyword)) {
+        return false;
+      }
+    }
+
     return true;
   });
 
@@ -326,6 +346,13 @@ const WarPackageManager = ({ merchantId }) => {
         <div style={styles.sectionHeader}>
           <h4 style={styles.sectionTitle}>历史包列表</h4>
           <div style={styles.sectionActions}>
+            <input
+              type="text"
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              placeholder="搜索版本号、文件名、备注..."
+              style={styles.searchInput}
+            />
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
@@ -356,34 +383,44 @@ const WarPackageManager = ({ merchantId }) => {
           <div style={styles.empty}>暂无符合条件的包</div>
         ) : (
           <div style={styles.packageList}>
+            {/* 表头 */}
+            <div style={styles.packageTableHeader}>
+              <div>版本号</div>
+              <div>原始文件名</div>
+              <div>大小</div>
+              <div>类型</div>
+              <div>时间</div>
+              <div>备注</div>
+              <div>操作</div>
+            </div>
+            {/* 包列表 */}
             {filteredPackages.map((pkg) => {
               const metadata = packageMetadata[pkg.name];
               return (
                 <div key={pkg.name} style={styles.packageItem}>
                   <div style={styles.packageInfo}>
-                    <div style={styles.packageHeader}>
-                      <span style={styles.packageName}>{pkg.name}</span>
-                      {metadata && (
-                        <>
-                          <span style={{
-                            ...styles.typeBadge,
-                            backgroundColor: getTypeColor(metadata.package_type)
-                          }}>
-                            {metadata.type_label || metadata.package_type}
-                          </span>
-                          {metadata.is_release && (
-                            <span style={styles.releaseBadge}>发版</span>
-                          )}
-                        </>
-                      )}
-                    </div>
-                    <div style={styles.packageMeta}>
-                      <span>{formatSize(pkg.size)}</span>
-                      <span>{new Date(pkg.created_at).toLocaleString('zh-CN')}</span>
-                    </div>
-                    {metadata?.description && (
-                      <div style={styles.description}>{metadata.description}</div>
+                    <div style={styles.packageName}>{metadata?.version || pkg.name}</div>
+                    {metadata?.is_release && (
+                      <span style={styles.releaseBadge}>发版</span>
                     )}
+                  </div>
+                  <div style={{ ...styles.packageInfo, color: '#86868B' }}>
+                    {metadata?.original_file_name || '-'}
+                  </div>
+                  <div style={styles.tableMeta}>{formatSize(pkg.size)}</div>
+                  <div>
+                    {metadata && (
+                      <span style={{
+                        ...styles.typeBadge,
+                        backgroundColor: getTypeColor(metadata.package_type)
+                      }}>
+                        {metadata.type_label || metadata.package_type}
+                      </span>
+                    )}
+                  </div>
+                  <div style={styles.tableMeta}>{new Date(pkg.created_at).toLocaleDateString('zh-CN')}</div>
+                  <div style={styles.descriptionCell} title={metadata?.description || '-'}>
+                    {metadata?.description || '-'}
                   </div>
                   <div style={styles.packageActions}>
                     <button
@@ -409,7 +446,7 @@ const WarPackageManager = ({ merchantId }) => {
                         }}
                         title={metadata?.is_release ? '取消发版' : '设为发版'}
                       >
-                        {metadata?.is_release ? '取消发版' : '设为发版'}
+                        {metadata?.is_release ? '取消' : '发版'}
                       </button>
                     )}
                     {isAdmin() && (
@@ -732,6 +769,15 @@ const styles = {
     color: '#0958D9',
     fontSize: '12px',
   },
+  searchInput: {
+    padding: '6px 10px',
+    border: '1px solid #E5E5EA',
+    borderRadius: '4px',
+    fontSize: '12px',
+    backgroundColor: '#fff',
+    minWidth: '200px',
+    flex: 1,
+  },
   filterSelect: {
     padding: '6px 10px',
     border: '1px solid #E5E5EA',
@@ -752,75 +798,91 @@ const styles = {
     fontSize: '13px',
   },
   packageList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-    maxHeight: '400px',
-    overflowY: 'auto',
+    border: '1px solid #E5E5EA',
+    borderRadius: '6px',
+    overflow: 'hidden',
+  },
+  packageTableHeader: {
+    display: 'grid',
+    gridTemplateColumns: '2fr 2.5fr 80px 90px 100px 2fr 200px',
+    gap: '12px',
+    padding: '12px',
+    backgroundColor: '#F9F9F9',
+    borderBottom: '1px solid #E5E5EA',
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#1D1D1F',
   },
   packageItem: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '12px',
+    display: 'grid',
+    gridTemplateColumns: '2fr 2.5fr 80px 90px 100px 2fr 200px',
+    gap: '12px',
+    padding: '10px 12px',
     backgroundColor: '#fff',
-    borderRadius: '6px',
-    border: '1px solid #E5E5EA',
+    borderBottom: '1px solid #E5E5EA',
+    alignItems: 'center',
+    fontSize: '12px',
+  },
+  packageItemHover: {
+    backgroundColor: '#F9F9F9',
+  },
+  descriptionCell: {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    color: '#86868B',
+    fontSize: '12px',
   },
   packageInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  packageHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    marginBottom: '4px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   packageName: {
-    fontSize: '13px',
     fontWeight: '500',
     color: '#1D1D1F',
+  },
+  originalFileName: {
+    fontSize: '11px',
+    color: '#86868B',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   typeBadge: {
     padding: '2px 8px',
     borderRadius: '4px',
-    fontSize: '10px',
+    fontSize: '11px',
     color: '#fff',
     fontWeight: '500',
   },
   releaseBadge: {
     padding: '2px 8px',
     borderRadius: '4px',
-    fontSize: '10px',
+    fontSize: '11px',
     backgroundColor: '#FF9500',
     color: '#fff',
     fontWeight: '500',
   },
-  packageMeta: {
-    display: 'flex',
-    gap: '16px',
-    fontSize: '11px',
+  tableMeta: {
     color: '#86868B',
-  },
-  description: {
-    fontSize: '11px',
-    color: '#86868B',
-    marginTop: '4px',
+    fontSize: '12px',
   },
   packageActions: {
     display: 'flex',
-    gap: '6px',
+    gap: '4px',
     alignItems: 'center',
+    flexWrap: 'nowrap',
   },
   actionBtn: {
-    padding: '6px 12px',
+    padding: '4px 8px',
     backgroundColor: '#F2F2F7',
     border: '1px solid #E5E5EA',
-    borderRadius: '4px',
+    borderRadius: '3px',
     fontSize: '11px',
     cursor: 'pointer',
     color: '#1D1D1F',
+    whiteSpace: 'nowrap',
   },
   deleteBtn: {
     backgroundColor: '#FFF1F0',

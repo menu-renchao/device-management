@@ -332,6 +332,7 @@ const styles = {
     cursor: 'pointer',
     fontSize: '12px',
     fontWeight: '500',
+    whiteSpace: 'nowrap',
   },
 };
 

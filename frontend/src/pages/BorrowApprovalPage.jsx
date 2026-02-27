@@ -383,6 +383,7 @@ const styles = {
     cursor: 'pointer',
     fontSize: '12px',
     fontWeight: '500',
+    whiteSpace: 'nowrap',
   },
   btnReject: {
     padding: '6px 14px',
@@ -393,6 +394,7 @@ const styles = {
     cursor: 'pointer',
     fontSize: '12px',
     fontWeight: '500',
+    whiteSpace: 'nowrap',
   },
   loading: {
     display: 'flex',

@@ -14,6 +14,7 @@ type Config struct {
 	CORS     CORSConfig
 	Upload   UploadConfig
 	Download DownloadConfig
+	Log      LogConfig
 }
 
 type ServerConfig struct {
@@ -44,6 +45,17 @@ type DownloadConfig struct {
 	DownloadsDir string
 }
 
+type LogConfig struct {
+	Level      string
+	Format     string
+	Output     string
+	FilePath   string
+	MaxSize    int
+	MaxBackups int
+	MaxAge     int
+	Compress   bool
+}
+
 var AppConfig *Config
 
 func Init() error {
@@ -60,6 +72,15 @@ func Init() error {
 	viper.SetDefault("CORS_ORIGINS", "*")
 	viper.SetDefault("UPLOAD_PATH", "uploads")
 	viper.SetDefault("DOWNLOADS_DIR", "downloads")
+	// 日志配置默认值
+	viper.SetDefault("LOG_LEVEL", "info")
+	viper.SetDefault("LOG_FORMAT", "json")
+	viper.SetDefault("LOG_OUTPUT", "both")
+	viper.SetDefault("LOG_FILE_PATH", "logs/app.log")
+	viper.SetDefault("LOG_MAX_SIZE", 100)
+	viper.SetDefault("LOG_MAX_BACKUPS", 10)
+	viper.SetDefault("LOG_MAX_AGE", 30)
+	viper.SetDefault("LOG_COMPRESS", true)
 
 	if err := viper.ReadInConfig(); err != nil {
 		// If .env doesn't exist, use defaults
@@ -105,6 +126,16 @@ func Init() error {
 		},
 		Download: DownloadConfig{
 			DownloadsDir: viper.GetString("DOWNLOADS_DIR"),
+		},
+		Log: LogConfig{
+			Level:      viper.GetString("LOG_LEVEL"),
+			Format:     viper.GetString("LOG_FORMAT"),
+			Output:     viper.GetString("LOG_OUTPUT"),
+			FilePath:   viper.GetString("LOG_FILE_PATH"),
+			MaxSize:    viper.GetInt("LOG_MAX_SIZE"),
+			MaxBackups: viper.GetInt("LOG_MAX_BACKUPS"),
+			MaxAge:     viper.GetInt("LOG_MAX_AGE"),
+			Compress:   viper.GetBool("LOG_COMPRESS"),
 		},
 	}
 
