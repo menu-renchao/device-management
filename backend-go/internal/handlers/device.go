@@ -381,6 +381,12 @@ func (h *DeviceHandler) DeleteDevice(c *gin.Context) {
 			response.InternalError(c, "删除设备分类属性失败")
 			return
 		}
+		// 删除借用申请记录
+		if err := tx.DeleteBorrowRequestsByMerchantID(*device.MerchantID); err != nil {
+			tx.Rollback()
+			response.InternalError(c, "删除设备借用申请记录失败")
+			return
+		}
 	}
 
 	// Delete device

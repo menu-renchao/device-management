@@ -16,12 +16,14 @@ import (
 
 // ScanStatus represents the current scan status
 type ScanStatus struct {
-	mu         sync.RWMutex
-	IsScanning bool                     `json:"is_scanning"`
-	Progress   int                      `json:"progress"`
-	CurrentIP  string                   `json:"current_ip"`
-	Results    []map[string]interface{} `json:"results"`
-	Error      string                   `json:"error"`
+	mu           sync.RWMutex
+	IsScanning   bool                     `json:"is_scanning"`
+	Progress     int                      `json:"progress"`
+	CurrentIP    string                   `json:"current_ip"`
+	Results      []map[string]interface{} `json:"results"`
+	Error        string                   `json:"error"`
+	WasCancelled bool                     `json:"was_cancelled"`
+	MerchantIDs  []string                 `json:"merchant_ids"`
 }
 
 // ScanService handles network scanning operations
@@ -47,11 +49,13 @@ func (s *ScanService) GetStatus() *ScanStatus {
 	s.status.mu.RLock()
 	defer s.status.mu.RUnlock()
 	return &ScanStatus{
-		IsScanning: s.status.IsScanning,
-		Progress:   s.status.Progress,
-		CurrentIP:  s.status.CurrentIP,
-		Results:    s.status.Results,
-		Error:      s.status.Error,
+		IsScanning:   s.status.IsScanning,
+		Progress:     s.status.Progress,
+		CurrentIP:    s.status.CurrentIP,
+		Results:      s.status.Results,
+		Error:        s.status.Error,
+		WasCancelled: s.status.WasCancelled,
+		MerchantIDs:  s.status.MerchantIDs,
 	}
 }
 
@@ -119,6 +123,8 @@ func (s *ScanService) StartScan(localIP string, onResult func(result map[string]
 	s.status.CurrentIP = ""
 	s.status.Results = make([]map[string]interface{}, 0)
 	s.status.Error = ""
+	s.status.WasCancelled = false
+	s.status.MerchantIDs = make([]string, 0)
 	s.status.mu.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -138,6 +144,7 @@ func (s *ScanService) StopScan() {
 	}
 	s.status.mu.Lock()
 	s.status.IsScanning = false
+	s.status.WasCancelled = true
 	s.status.mu.Unlock()
 	s.mu.Unlock()
 }
@@ -306,6 +313,10 @@ func (s *ScanService) performScan(ctx context.Context, localIP string, onResult 
 	for result := range fetchResultChan {
 		s.status.mu.Lock()
 		s.status.Results = append(s.status.Results, result)
+		// Collect merchantIDs for online status update
+		if merchantID, ok := result["merchantId"].(string); ok && merchantID != "" {
+			s.status.MerchantIDs = append(s.status.MerchantIDs, merchantID)
+		}
 		completedCount++
 		// Update progress (45-95%)
 		s.status.Progress = 45 + completedCount*50/totalOpen

@@ -177,9 +177,21 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
                       )}
                     </>
                   ) : device.isOnline && !device.merchantId ? (
-                    <span className="service-unavailable">服务不可用</span>
+                    <>
+                      <span className="service-unavailable">服务不可用</span>
+                      {isAdmin && (
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={() => onDeleteDevice(device)}
+                          title="删除此设备"
+                        >
+                          删除
+                        </button>
+                      )}
+                    </>
                   ) : !device.isOnline ? (
                     <>
+                      <span className="service-unavailable">服务不可用</span>
                       {device.type === 'linux' && (
                         <button
                           className="btn btn-sm btn-config"
@@ -189,16 +201,14 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
                           配置
                         </button>
                       )}
-                      {isAdmin ? (
+                      {isAdmin && (
                         <button
                           className="btn btn-sm btn-danger"
                           onClick={() => onDeleteDevice(device)}
-                          title="删除此离线设备"
+                          title="删除此设备"
                         >
                           删除
                         </button>
-                      ) : (
-                        <span className="offline-label">离线</span>
                       )}
                     </>
                   ) : (

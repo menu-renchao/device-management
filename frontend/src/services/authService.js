@@ -3,12 +3,36 @@ import axios from 'axios';
 const API_BASE = '/api/auth';
 const ADMIN_BASE = '/api/admin';
 
+// 处理 401 响应的通用函数
+const handleUnauthorized = () => {
+  // 清除本地存储的认证信息
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  localStorage.removeItem('user');
+
+  // 跳转到登录页
+  window.location.href = '/login';
+};
+
 // 创建带认证的 axios 实例
 const createAuthAxios = () => {
   const token = localStorage.getItem('access_token');
-  return axios.create({
+  const authAxios = axios.create({
     headers: token ? { 'Authorization': `Bearer ${token}` } : {}
   });
+
+  // 添加响应拦截器处理 401
+  authAxios.interceptors.response.use(
+    (response) => response,
+    (error) => {
+      if (error.response?.status === 401) {
+        handleUnauthorized();
+      }
+      return Promise.reject(error);
+    }
+  );
+
+  return authAxios;
 };
 
 // 认证 API

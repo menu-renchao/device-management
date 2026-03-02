@@ -68,6 +68,10 @@ func (h *ScanHandler) StartScan(c *gin.Context) {
 			time.Sleep(500 * time.Millisecond)
 			status := h.scanService.GetStatus()
 			if !status.IsScanning {
+				// Only mark devices offline if scan completed normally (not cancelled)
+				if !status.WasCancelled && len(status.MerchantIDs) > 0 {
+					h.deviceRepo.SetOfflineNotInMerchantIDs(status.MerchantIDs)
+				}
 				// Update scan session
 				session, err := h.deviceRepo.GetScanSession()
 				if err == nil {

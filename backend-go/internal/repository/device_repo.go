@@ -58,11 +58,11 @@ func (r *DeviceRepository) UpdateScanResult(result *models.ScanResult) error {
 }
 
 func (r *DeviceRepository) DeleteScanResult(merchantID string) error {
-	return r.db.Where("merchant_id = ?", merchantID).Delete(&models.ScanResult{}).Error
+	return r.db.Unscoped().Where("merchant_id = ?", merchantID).Delete(&models.ScanResult{}).Error
 }
 
 func (r *DeviceRepository) DeleteScanResultByIP(ip string) error {
-	return r.db.Where("ip = ? AND (merchant_id = '' OR merchant_id IS NULL)", ip).Delete(&models.ScanResult{}).Error
+	return r.db.Unscoped().Where("ip = ? AND (merchant_id = '' OR merchant_id IS NULL)", ip).Delete(&models.ScanResult{}).Error
 }
 
 func (r *DeviceRepository) ListScanResults(page, pageSize int, search string, types []string, properties []string) ([]models.ScanResult, int64, int64, error) {
@@ -184,7 +184,7 @@ func (r *DeviceRepository) UpdateOccupancy(occupancy *models.DeviceOccupancy) er
 }
 
 func (r *DeviceRepository) DeleteOccupancy(merchantID string) error {
-	return r.db.Where("merchant_id = ?", merchantID).Delete(&models.DeviceOccupancy{}).Error
+	return r.db.Unscoped().Where("merchant_id = ?", merchantID).Delete(&models.DeviceOccupancy{}).Error
 }
 
 func (r *DeviceRepository) ListOccupancies() ([]models.DeviceOccupancy, error) {
@@ -234,7 +234,7 @@ func (r *DeviceRepository) CreateOrUpdateProperty(prop *models.DeviceProperty) e
 }
 
 func (r *DeviceRepository) DeleteProperty(merchantID string) error {
-	return r.db.Where("merchant_id = ?", merchantID).Delete(&models.DeviceProperty{}).Error
+	return r.db.Unscoped().Where("merchant_id = ?", merchantID).Delete(&models.DeviceProperty{}).Error
 }
 
 func (r *DeviceRepository) ListProperties() ([]models.DeviceProperty, error) {
@@ -310,7 +310,7 @@ func (r *DeviceRepository) RejectOtherPendingClaims(merchantID string, excludeCl
 }
 
 func (r *DeviceRepository) DeleteClaimsByMerchantID(merchantID string) error {
-	return r.db.Where("merchant_id = ?", merchantID).Delete(&models.DeviceClaim{}).Error
+	return r.db.Unscoped().Where("merchant_id = ?", merchantID).Delete(&models.DeviceClaim{}).Error
 }
 
 // ScanSession operations
@@ -390,6 +390,11 @@ func (r *DeviceRepository) UpdateBorrowRequest(req *models.DeviceBorrowRequest) 
 // DeleteBorrowRequest deletes a borrow request
 func (r *DeviceRepository) DeleteBorrowRequest(id uint) error {
 	return r.db.Delete(&models.DeviceBorrowRequest{}, id).Error
+}
+
+// DeleteBorrowRequestsByMerchantID deletes all borrow requests for a device (physical delete)
+func (r *DeviceRepository) DeleteBorrowRequestsByMerchantID(merchantID string) error {
+	return r.db.Unscoped().Where("merchant_id = ?", merchantID).Delete(&models.DeviceBorrowRequest{}).Error
 }
 
 // ListBorrowRequestsByUserID gets user's borrow requests
