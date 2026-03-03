@@ -113,6 +113,20 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
                       </button>
                     )}
                   </div>
+                ) : device.ownerId ? (
+                  // ownerId 有值但 owner 为空，说明用户已被删除
+                  <div className="owner-cell">
+                    <span className="owner-name deleted-owner">用户已删除</span>
+                    {isAdmin && (
+                      <button
+                        className="btn-reset-owner"
+                        onClick={() => onResetOwner(device)}
+                        title="重置负责人"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
                 ) : device.merchantId ? (
                   <button
                     className="btn btn-sm btn-claim"

@@ -107,7 +107,10 @@ func (h *DeviceHandler) GetDevices(c *gin.Context) {
 
 	// Get users (包括设备负责人和借用人)
 	allUserIDs := append(ownerIDs, occupierIDs...)
-	users, _ := h.deviceRepo.GetUsersByIDs(allUserIDs)
+	users, err := h.deviceRepo.GetUsersByIDs(allUserIDs)
+	if err != nil {
+		fmt.Printf("[ERROR] GetUsersByIDs failed: %v\n", err)
+	}
 	userMap := make(map[uint]*models.User)
 	for i := range users {
 		userMap[users[i].ID] = &users[i]

@@ -508,11 +508,17 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 
 .owner-name {
   font-weight: 500;
   color: var(--apple-text);
+}
+
+.owner-name.deleted-owner {
+  color: var(--apple-gray);
+  font-style: italic;
 }
 
 .btn-reset-owner {
