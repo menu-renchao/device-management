@@ -674,14 +674,23 @@ func (s *LinuxService) OneClickUpgrade(merchantID, warPath string, configRepo *r
 				return "", fmt.Errorf("WAR 包文件不存在: %s", warPath)
 			}
 
-			// 直接上传到目标路径
-			log.Printf("[OneClickUpgrade] 上传 WAR 包: %s -> %s", localPath, targetPath)
+			// 先上传到临时目录，再用 sudo 移动到目标路径（因为 SFTP 用户可能没有 /opt/tomcat7/webapps/ 的写入权限）
+			tempPath := "/tmp/kpos.war"
+			log.Printf("[OneClickUpgrade] 上传 WAR 包到临时目录: %s -> %s", localPath, tempPath)
 
-			err = info.SFTPClient.UploadFile(localPath, targetPath, nil)
+			err = info.SFTPClient.UploadFile(localPath, tempPath, nil)
 			if err != nil {
-				return "", fmt.Errorf("上传 WAR 包失败: %w", err)
+				return "", fmt.Errorf("上传 WAR 包到临时目录失败: %w", err)
 			}
-			log.Printf("[OneClickUpgrade] WAR 包上传完成")
+			log.Printf("[OneClickUpgrade] WAR 包上传完成，移动到目标路径: %s -> %s", tempPath, targetPath)
+
+			// 使用 sudo 移动文件到目标位置
+			moveCmd := fmt.Sprintf("echo '%s' | sudo -S mv %s %s 2>&1", password, tempPath, targetPath)
+			_, err = s.ExecuteCommand(merchantID, moveCmd)
+			if err != nil {
+				return "", fmt.Errorf("移动 WAR 包失败: %w", err)
+			}
+			log.Printf("[OneClickUpgrade] WAR 包移动完成")
 		} else if warPath != targetPath {
 			// 远程路径且不是目标路径，执行 cp 命令
 			log.Printf("[OneClickUpgrade] 复制 WAR 包: %s -> %s", warPath, targetPath)
