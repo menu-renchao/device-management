@@ -11,6 +11,18 @@ export default defineConfig({
         target: 'http://localhost:5000',
         changeOrigin: true
       },
+      // SSE 代理 - 需要特殊配置
+      '/api/linux/upgrade/stream': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            // SSE 需要保持连接
+            proxyReq.setHeader('Connection', 'keep-alive');
+            proxyReq.setHeader('Cache-Control', 'no-cache');
+          });
+        }
+      },
       '/uploads': {
         target: 'http://localhost:5000',
         changeOrigin: true

@@ -24,16 +24,18 @@ import (
 
 // LinuxService Linux 设备服务
 type LinuxService struct {
-	pool        *ssh.SessionPool
-	uploadTasks map[string]*ssh.UploadTask
-	mu          sync.RWMutex
+	pool             *ssh.SessionPool
+	uploadTasks      map[string]*ssh.UploadTask
+	upgradeTaskMgr   *UpgradeTaskManager
+	mu               sync.RWMutex
 }
 
 // NewLinuxService 创建 Linux 服务
 func NewLinuxService() *LinuxService {
 	return &LinuxService{
-		pool:        ssh.GetSessionPool(),
-		uploadTasks: make(map[string]*ssh.UploadTask),
+		pool:           ssh.GetSessionPool(),
+		uploadTasks:    make(map[string]*ssh.UploadTask),
+		upgradeTaskMgr: NewUpgradeTaskManager(),
 	}
 }
 
@@ -641,116 +643,6 @@ func (s *LinuxService) ListConfigFiles(merchantID string) ([]string, error) {
 	return existingConfigs, nil
 }
 
-// OneClickUpgrade 一键升级（包含配置修改）
-func (s *LinuxService) OneClickUpgrade(merchantID, warPath string, configRepo *repository.FileConfigRepository, env string) (string, error) {
-	// 1. 停止 POS
-	_, err := s.StopPOS(merchantID)
-	if err != nil {
-		return "", fmt.Errorf("停止 POS 失败: %w", err)
-	}
-
-	// 2. 替换 WAR 包
-	if warPath != "" {
-		// 获取连接信息（用于上传）
-		info, exists := s.pool.Get(merchantID)
-		if !exists {
-			return "", fmt.Errorf("未连接到设备")
-		}
-		password := info.Password
-
-		targetPath := "/opt/tomcat7/webapps/kpos.war"
-
-		// 检查是否是本地 downloads 目录的文件（需要先上传到远程）
-		if strings.HasPrefix(warPath, "downloads/") {
-			// 将相对路径转换为绝对路径
-			localPath := warPath
-			if !filepath.IsAbs(localPath) {
-				wd, _ := os.Getwd()
-				localPath = filepath.Join(wd, warPath)
-			}
-
-			// 检查本地文件是否存在
-			if _, err := os.Stat(localPath); os.IsNotExist(err) {
-				return "", fmt.Errorf("WAR 包文件不存在: %s", warPath)
-			}
-
-			// 先上传到临时目录，再用 sudo 移动到目标路径（因为 SFTP 用户可能没有 /opt/tomcat7/webapps/ 的写入权限）
-			tempPath := "/tmp/kpos.war"
-			log.Printf("[OneClickUpgrade] 上传 WAR 包到临时目录: %s -> %s", localPath, tempPath)
-
-			err = info.SFTPClient.UploadFile(localPath, tempPath, nil)
-			if err != nil {
-				return "", fmt.Errorf("上传 WAR 包到临时目录失败: %w", err)
-			}
-			log.Printf("[OneClickUpgrade] WAR 包上传完成，移动到目标路径: %s -> %s", tempPath, targetPath)
-
-			// 使用 sudo 移动文件到目标位置
-			moveCmd := fmt.Sprintf("echo '%s' | sudo -S mv %s %s 2>&1", password, tempPath, targetPath)
-			_, err = s.ExecuteCommand(merchantID, moveCmd)
-			if err != nil {
-				return "", fmt.Errorf("移动 WAR 包失败: %w", err)
-			}
-			log.Printf("[OneClickUpgrade] WAR 包移动完成")
-		} else if warPath != targetPath {
-			// 远程路径且不是目标路径，执行 cp 命令
-			log.Printf("[OneClickUpgrade] 复制 WAR 包: %s -> %s", warPath, targetPath)
-			_, err = s.ExecuteCommand(merchantID, fmt.Sprintf("cp %s %s", warPath, targetPath))
-			if err != nil {
-				return "", fmt.Errorf("替换 WAR 包失败: %w", err)
-			}
-		} else {
-			// warPath 已经是目标路径，跳过复制
-			log.Printf("[OneClickUpgrade] WAR 包已在目标位置，跳过复制")
-		}
-
-		// 删除旧的解压目录
-		log.Printf("[OneClickUpgrade] 删除旧的 kpos 目录")
-		rmCmd := fmt.Sprintf("echo '%s' | sudo -S rm -rf /opt/tomcat7/webapps/kpos 2>&1", password)
-		_, err = s.ExecuteCommand(merchantID, rmCmd)
-		if err != nil {
-			log.Printf("[OneClickUpgrade] 删除 kpos 目录警告: %v", err)
-		}
-
-		// 解压 WAR 包
-		log.Printf("[OneClickUpgrade] 解压 WAR 包")
-		unzipCmd := fmt.Sprintf("echo '%s' | sudo -S unzip -o %s -d /opt/tomcat7/webapps/kpos 2>&1", password, targetPath)
-		output, err := s.ExecuteCommand(merchantID, unzipCmd)
-		if err != nil {
-			return "", fmt.Errorf("解压 WAR 包失败: %w", err)
-		}
-		log.Printf("[OneClickUpgrade] 解压输出: %s", output)
-
-		// 修正权限
-		chownCmd := fmt.Sprintf("echo '%s' | sudo -S chown -R menu:menu /opt/tomcat7/webapps/kpos 2>&1", password)
-		_, err = s.ExecuteCommand(merchantID, chownCmd)
-		if err != nil {
-			log.Printf("[OneClickUpgrade] 修正权限警告: %v", err)
-		}
-	}
-
-	// 4. 执行启用的配置修改
-	if configRepo != nil && env != "" {
-		configs, err := configRepo.GetEnabled()
-		if err == nil && len(configs) > 0 {
-			for _, config := range configs {
-				_, execErr := s.ExecuteFileConfig(merchantID, &config, env)
-				if execErr != nil {
-					// 记录错误但继续执行
-					log.Printf("[OneClickUpgrade] 配置修改失败 %s: %v", config.Name, execErr)
-				}
-			}
-		}
-	}
-
-	// 5. 重启 POS
-	_, err = s.StartPOS(merchantID)
-	if err != nil {
-		return "", fmt.Errorf("重启 POS 失败: %w", err)
-	}
-
-	return "升级完成！", nil
-}
-
 // GetDiskUsage 获取磁盘使用情况
 func (s *LinuxService) GetDiskUsage(merchantID string) (string, error) {
 	output, err := s.ExecuteCommand(merchantID, "df -h /opt")
@@ -1080,137 +972,290 @@ func (s *LinuxService) UploadAndExtractPackage(merchantID, localZipPath string, 
 	return fmt.Sprintf("/home/menu/%s", extractedName), nil
 }
 
-// PackageUpgradeRequest 升级包升级请求
-type PackageUpgradeRequest struct {
-	MerchantID string `json:"merchant_id" binding:"required"`
-	PackageDir string `json:"package_dir" binding:"required"`
-	WarPath    string `json:"war_path"`
-	WarSource  string `json:"war_source"` // "local" | "history"
-	Env        string `json:"env"`
+// GetUpgradeTaskManager 获取升级任务管理器
+func (s *LinuxService) GetUpgradeTaskManager() *UpgradeTaskManager {
+	return s.upgradeTaskMgr
 }
 
-// PackageUpgradeProgress 升级包升级进度
-type PackageUpgradeProgress struct {
-	Step      string `json:"step"`
-	Progress  int    `json:"progress"`
-	Message   string `json:"message"`
-	IsError   bool   `json:"is_error"`
-	IsSuccess bool   `json:"is_success"`
+// GetUpgradeTask 获取升级任务
+func (s *LinuxService) GetUpgradeTask(taskID string) (*UpgradeTask, bool) {
+	return s.upgradeTaskMgr.GetTask(taskID)
 }
 
-// ExecutePackageUpgrade 执行升级包升级流程
-func (s *LinuxService) ExecutePackageUpgrade(merchantID, packageDir, warPath, env string,
-	configRepo *repository.FileConfigRepository,
-	progressCallback func(int, string)) error {
+// GetUpgradeTaskSnapshot 获取升级任务快照
+func (s *LinuxService) GetUpgradeTaskSnapshot(taskID string) (*UpgradeTaskSnapshot, bool) {
+	return s.upgradeTaskMgr.GetTaskSnapshot(taskID)
+}
 
+// GetUpgradeEventChannel 获取升级事件通道
+func (s *LinuxService) GetUpgradeEventChannel(taskID string) (<-chan UpgradeEvent, bool) {
+	return s.upgradeTaskMgr.GetEventChannel(taskID)
+}
+
+// CopyWarForDirectUpgrade 为直接替换升级复制 WAR 包
+func (s *LinuxService) CopyWarForDirectUpgrade(merchantID, warPath string, progressCallback func(int, string)) error {
 	info, exists := s.pool.Get(merchantID)
 	if !exists {
 		return fmt.Errorf("未连接")
 	}
 
 	password := info.Password
+	targetPath := "/opt/tomcat7/webapps/kpos.war"
 
-	// 步骤 1: 停止 POS (0-10%)
-	if progressCallback != nil {
-		progressCallback(0, "停止 POS 服务...")
-	}
-	_, err := s.StopPOS(merchantID)
-	if err != nil {
-		return fmt.Errorf("停止 POS 失败: %w", err)
-	}
+	// 检查是否是本地 downloads 目录的文件
+	if strings.HasPrefix(warPath, "downloads/") {
+		localPath := warPath
+		if !filepath.IsAbs(localPath) {
+			wd, _ := os.Getwd()
+			localPath = filepath.Join(wd, warPath)
+		}
 
-	// 步骤 2: 复制/上传 WAR 包到升级包目录 (10-30%)
-	if progressCallback != nil {
-		progressCallback(10, "复制 WAR 包...")
-	}
-	if warPath != "" {
-		targetWarPath := fmt.Sprintf("%s/kpos.war", packageDir)
+		if _, err := os.Stat(localPath); os.IsNotExist(err) {
+			return fmt.Errorf("WAR 包文件不存在: %s", warPath)
+		}
 
-		// 检查是否是本地 downloads 目录的文件（需要先上传到远程）
-		if strings.HasPrefix(warPath, "downloads/") {
-			// 将相对路径转换为绝对路径
-			localPath := warPath
-			if !filepath.IsAbs(localPath) {
-				wd, _ := os.Getwd()
-				localPath = filepath.Join(wd, warPath)
+		if progressCallback != nil {
+			progressCallback(10, "上传 WAR 包到临时目录...")
+		}
+
+		tempPath := "/tmp/kpos.war"
+		err := info.SFTPClient.UploadFile(localPath, tempPath, func(transferred, total int64, percentage float64) {
+			if progressCallback != nil {
+				progressCallback(int(percentage*0.8), fmt.Sprintf("上传中 %.0f%%", percentage))
 			}
+		})
+		if err != nil {
+			return fmt.Errorf("上传 WAR 包失败: %w", err)
+		}
 
-			// 检查本地文件是否存在
-			if _, err := os.Stat(localPath); os.IsNotExist(err) {
-				return fmt.Errorf("WAR 包文件不存在: %s", warPath)
-			}
+		if progressCallback != nil {
+			progressCallback(90, "移动 WAR 包到目标位置...")
+		}
 
-			// 上传到升级包目录
-			log.Printf("[ExecutePackageUpgrade] 上传 WAR 包: %s -> %s", localPath, targetWarPath)
-			err = info.SFTPClient.UploadFile(localPath, targetWarPath, nil)
-			if err != nil {
-				return fmt.Errorf("上传 WAR 包失败: %w", err)
-			}
-			log.Printf("[ExecutePackageUpgrade] WAR 包上传完成")
-		} else {
-			// 远程路径，执行 cp 命令
-			copyCmd := fmt.Sprintf("cp %s %s 2>&1", warPath, targetWarPath)
-			_, err = info.Client.ExecuteCommand(copyCmd)
-			if err != nil {
+		moveCmd := fmt.Sprintf("echo '%s' | sudo -S mv %s %s 2>&1", password, tempPath, targetPath)
+		_, err = s.ExecuteCommand(merchantID, moveCmd)
+		if err != nil {
+			return fmt.Errorf("移动 WAR 包失败: %w", err)
+		}
+
+		if progressCallback != nil {
+			progressCallback(100, "WAR 包准备完成")
+		}
+	} else if warPath != targetPath {
+		if progressCallback != nil {
+			progressCallback(10, "复制 WAR 包...")
+		}
+
+		_, err := s.ExecuteCommand(merchantID, fmt.Sprintf("cp %s %s", warPath, targetPath))
+		if err != nil {
 				return fmt.Errorf("复制 WAR 包失败: %w", err)
 			}
+
+		if progressCallback != nil {
+				progressCallback(100, "WAR 包准备完成")
+			}
+	} else {
+		if progressCallback != nil {
+			progressCallback(100, "WAR 包已在目标位置")
 		}
 	}
 
-	// 步骤 4: 执行 update.sh (40-70%)
-	if progressCallback != nil {
-		progressCallback(40, "执行升级脚本...")
+	return nil
+}
+
+// ExtractWarForUpgrade 解压 WAR 包
+func (s *LinuxService) ExtractWarForUpgrade(merchantID string, progressCallback func(int, string)) error {
+	info, exists := s.pool.Get(merchantID)
+	if !exists {
+		return fmt.Errorf("未连接")
 	}
+
+	password := info.Password
+	targetPath := "/opt/tomcat7/webapps/kpos.war"
+
+	// 删除旧的解压目录
+	if progressCallback != nil {
+		progressCallback(10, "删除旧解压目录...")
+	}
+	rmCmd := fmt.Sprintf("echo '%s' | sudo -S rm -rf /opt/tomcat7/webapps/kpos 2>&1", password)
+	_, err := s.ExecuteCommand(merchantID, rmCmd)
+	if err != nil {
+		log.Printf("[ExtractWarForUpgrade] 删除 kpos 目录警告: %v", err)
+	}
+
+	// 解压 WAR 包
+	if progressCallback != nil {
+		progressCallback(30, "解压 WAR 包...")
+	}
+	unzipCmd := fmt.Sprintf("echo '%s' | sudo -S unzip -o %s -d /opt/tomcat7/webapps/kpos 2>&1", password, targetPath)
+	output, err := s.ExecuteCommand(merchantID, unzipCmd)
+	if err != nil {
+		return fmt.Errorf("解压 WAR 包失败: %w", err)
+	}
+	log.Printf("[ExtractWarForUpgrade] 解压输出: %s", output)
+
+	// 修正权限
+	if progressCallback != nil {
+		progressCallback(90, "修正文件权限...")
+	}
+	chownCmd := fmt.Sprintf("echo '%s' | sudo -S chown -R menu:menu /opt/tomcat7/webapps/kpos 2>&1", password)
+	_, err = s.ExecuteCommand(merchantID, chownCmd)
+	if err != nil {
+		log.Printf("[ExtractWarForUpgrade] 修正权限警告: %v", err)
+	}
+
+	if progressCallback != nil {
+		progressCallback(100, "解压完成")
+	}
+
+	return nil
+}
+
+// ExecuteConfigsForUpgrade 执行配置修改
+func (s *LinuxService) ExecuteConfigsForUpgrade(merchantID, env string, configRepo *repository.FileConfigRepository, progressCallback func(int, string)) error {
+	if configRepo == nil || env == "" {
+		return nil
+	}
+
+	configs, err := configRepo.GetEnabled()
+	if err != nil || len(configs) == 0 {
+		if progressCallback != nil {
+			progressCallback(100, "无需执行配置修改")
+		}
+		return nil
+	}
+
+	total := len(configs)
+	for i, config := range configs {
+		if progressCallback != nil {
+				progress := ((i + 1) * 100) / total
+				progressCallback(progress, fmt.Sprintf("执行配置修改: %s (%d/%d)", config.Name, i+1, total))
+		}
+
+		_, execErr := s.ExecuteFileConfig(merchantID, &config, env)
+		if execErr != nil {
+			log.Printf("[ExecuteConfigsForUpgrade] 配置修改失败 %s: %v", config.Name, execErr)
+		}
+	}
+
+	if progressCallback != nil {
+		progressCallback(100, "配置修改完成")
+	}
+
+	return nil
+}
+
+// CopyWarForPackageUpgrade 为升级包升级复制 WAR 包
+func (s *LinuxService) CopyWarForPackageUpgrade(merchantID, packageDir, warPath string, progressCallback func(int, string)) error {
+	info, exists := s.pool.Get(merchantID)
+	if !exists {
+		return fmt.Errorf("未连接")
+	}
+
+	if warPath == "" {
+		if progressCallback != nil {
+			progressCallback(100, "无需复制 WAR 包")
+		}
+		return nil
+	}
+
+	targetWarPath := fmt.Sprintf("%s/kpos.war", packageDir)
+
+	// 检查是否是本地 downloads 目录的文件
+	if strings.HasPrefix(warPath, "downloads/") {
+		localPath := warPath
+		if !filepath.IsAbs(localPath) {
+			wd, _ := os.Getwd()
+			localPath = filepath.Join(wd, warPath)
+		}
+
+		if _, err := os.Stat(localPath); os.IsNotExist(err) {
+			return fmt.Errorf("WAR 包文件不存在: %s", warPath)
+		}
+
+		if progressCallback != nil {
+			progressCallback(10, "上传 WAR 包到升级目录...")
+		}
+
+		err := info.SFTPClient.UploadFile(localPath, targetWarPath, func(transferred, total int64, percentage float64) {
+			if progressCallback != nil {
+				progressCallback(int(percentage), fmt.Sprintf("上传中 %.0f%%", percentage))
+			}
+		})
+		if err != nil {
+			return fmt.Errorf("上传 WAR 包失败: %w", err)
+		}
+
+		if progressCallback != nil {
+			progressCallback(100, "WAR 包上传完成")
+		}
+	} else {
+		if progressCallback != nil {
+			progressCallback(10, "复制 WAR 包...")
+		}
+
+		copyCmd := fmt.Sprintf("cp %s %s 2>&1", warPath, targetWarPath)
+		_, err := info.Client.ExecuteCommand(copyCmd)
+		if err != nil {
+			return fmt.Errorf("复制 WAR 包失败: %w", err)
+		}
+
+		if progressCallback != nil {
+			progressCallback(100, "WAR 包复制完成")
+		}
+	}
+
+	return nil
+}
+
+// ExecuteUpdateScript 执行升级包的 update.sh 脚本
+func (s *LinuxService) ExecuteUpdateScript(merchantID, packageDir string, progressCallback func(int, string)) error {
+	info, exists := s.pool.Get(merchantID)
+	if !exists {
+		return fmt.Errorf("未连接")
+	}
+
+	password := info.Password
 	updateShPath := fmt.Sprintf("%s/update.sh", packageDir)
 
 	// 检查 update.sh 是否存在
+	if progressCallback != nil {
+		progressCallback(10, "检查升级脚本...")
+	}
 	checkCmd := fmt.Sprintf("test -f %s && echo 'exists' || echo 'not_found'", updateShPath)
 	checkOutput, _ := info.Client.ExecuteCommand(checkCmd)
 
-	if strings.TrimSpace(checkOutput) == "exists" {
-		// 赋予执行权限
-		chmodCmd := fmt.Sprintf("echo '%s' | sudo -S chmod +x %s 2>&1", password, updateShPath)
-		_, _ = info.Client.ExecuteCommand(chmodCmd)
-
-		// 执行 update.sh
-		runCmd := fmt.Sprintf("cd %s && echo '%s' | sudo -S ./update.sh 2>&1", packageDir, password)
-		output, err := info.Client.ExecuteCommand(runCmd)
-		if err != nil {
-			log.Printf("[ExecutePackageUpgrade] update.sh 输出: %s", output)
-			return fmt.Errorf("执行 update.sh 失败: %w", err)
+	if strings.TrimSpace(checkOutput) != "exists" {
+		if progressCallback != nil {
+			progressCallback(100, "未找到升级脚本，跳过")
 		}
-		log.Printf("[ExecutePackageUpgrade] update.sh 输出: %s", output)
-	} else {
-		log.Printf("[ExecutePackageUpgrade] update.sh 不存在，跳过")
+		return nil
 	}
 
-	// 步骤 5: 执行配置修改 (70-85%)
+	// 赋予执行权限
 	if progressCallback != nil {
-		progressCallback(70, "执行配置修改...")
+		progressCallback(20, "设置脚本执行权限...")
 	}
-	if configRepo != nil && env != "" {
-		configs, err := configRepo.GetEnabled()
-		if err == nil && len(configs) > 0 {
-			for _, config := range configs {
-				_, execErr := s.ExecuteFileConfig(merchantID, &config, env)
-				if execErr != nil {
-					log.Printf("[ExecutePackageUpgrade] 配置修改失败 %s: %v", config.Name, execErr)
-				}
-			}
-		}
-	}
-
-	// 步骤 6: 重启 POS (85-100%)
-	if progressCallback != nil {
-		progressCallback(85, "重启 POS 服务...")
-	}
-	_, err = s.StartPOS(merchantID)
+	chmodCmd := fmt.Sprintf("echo '%s' | sudo -S chmod +x %s 2>&1", password, updateShPath)
+	_, err := info.Client.ExecuteCommand(chmodCmd)
 	if err != nil {
-		return fmt.Errorf("重启 POS 失败: %w", err)
+		log.Printf("[ExecuteUpdateScript] chmod 警告: %v", err)
 	}
 
+	// 执行 update.sh
 	if progressCallback != nil {
-		progressCallback(100, "升级完成")
+		progressCallback(30, "执行升级脚本...")
+	}
+	runCmd := fmt.Sprintf("cd %s && echo '%s' | sudo -S ./update.sh 2>&1", packageDir, password)
+	output, err := info.Client.ExecuteCommand(runCmd)
+	if err != nil {
+		log.Printf("[ExecuteUpdateScript] update.sh 输出: %s", output)
+		return fmt.Errorf("执行 update.sh 失败: %w", err)
+	}
+	log.Printf("[ExecuteUpdateScript] update.sh 输出: %s", output)
+
+	if progressCallback != nil {
+		progressCallback(100, "升级脚本执行完成")
 	}
 
 	return nil

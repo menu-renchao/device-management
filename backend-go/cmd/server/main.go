@@ -257,13 +257,14 @@ func main() {
 			linux.GET("/config/list", linuxHandler.ListConfigFiles)
 			linux.POST("/config", linuxHandler.UpdateConfig)
 
-			// One-click upgrade
-			linux.POST("/upgrade", linuxHandler.OneClickUpgrade)
-
 			// Upgrade package management
 			linux.GET("/upgrade/package/scan", linuxHandler.ScanUpgradePackages)
 			linux.POST("/upgrade/package/upload", linuxHandler.UploadUpgradePackage)
-			linux.POST("/upgrade/package/execute", linuxHandler.ExecutePackageUpgrade)
+
+			// SSE upgrade progress
+			linux.POST("/upgrade/task", linuxHandler.StartUpgradeTask)
+			linux.GET("/upgrade/stream/:taskId", linuxHandler.StreamUpgradeProgress)
+			linux.GET("/upgrade/status/:taskId", linuxHandler.GetUpgradeTaskStatus)
 
 			// System info
 			linux.GET("/system/info", linuxHandler.GetSystemInfo)

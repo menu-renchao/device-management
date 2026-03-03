@@ -81,7 +81,8 @@
       "Bash(go get gopkg.in/natefinch/lumberjack.v2)",
       "Bash(start http://192.168.0.72:22080/kpos/front2/myhome.html)",
       "mcp__playwright__browser_close",
-      "Bash(pushd \"D:/menusifu/device_management/backend-go\")"
+      "Bash(pushd \"D:/menusifu/device_management/backend-go\")",
+      "Bash(git push)"
     ]
   }
 }

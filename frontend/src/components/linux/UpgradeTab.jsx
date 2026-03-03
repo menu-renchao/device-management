@@ -62,6 +62,12 @@ const UpgradeTab = ({ merchantId }) => {
   const [executeResult, setExecuteResult] = useState(null); // null | 'success' | 'error'
   const [executeError, setExecuteError] = useState('');
 
+  // SSE upgrade states
+  const [upgradeTaskId, setUpgradeTaskId] = useState(null);
+  const [upgradeSteps, setUpgradeSteps] = useState([]);
+  const [currentStepIndex, setCurrentStepIndex] = useState(-1);
+  const eventSourceRef = useRef(null);
+
   // Config execution states (单独执行配置修改)
   const [executingConfigs, setExecutingConfigs] = useState(false);
   const [configExecuteResults, setConfigExecuteResults] = useState(null);
@@ -525,7 +531,7 @@ const UpgradeTab = ({ merchantId }) => {
     }
   };
 
-  // Execute upgrade
+  // Execute upgrade using SSE
   const handleExecute = async () => {
     let warPath = '';
 
@@ -567,10 +573,14 @@ const UpgradeTab = ({ merchantId }) => {
       }
     }
 
+    // 重置状态
     setExecuting(true);
     setExecuteProgress(0);
     setExecuteResult(null);
     setExecuteError('');
+    setExecuteMessage('准备升级...');
+    setUpgradeSteps([]);
+    setCurrentStepIndex(-1);
 
     try {
       // 如果是本地上传模式，需要先上传文件
@@ -590,38 +600,148 @@ const UpgradeTab = ({ merchantId }) => {
         }
       }
 
-      // 执行升级
-      if (upgradeMode === 'direct') {
-        setExecuteMessage('正在执行升级...');
-        setExecuteProgress(60);
+      // 创建升级任务
+      setExecuteMessage('创建升级任务...');
+      setExecuteProgress(50);
 
-        // 本地文件已上传到目标位置，或者历史包由后端处理
-        const result = await linuxAPI.oneClickUpgrade(merchantId, warPath, env);
-        setExecuteProgress(100);
-        setExecuteMessage('升级完成！');
-        setExecuteResult('success');
-      } else {
-        setExecuteMessage('正在执行升级包升级...');
-        setExecuteProgress(60);
+      const taskParams = {
+        merchant_id: merchantId,
+        type: upgradeMode,
+        war_path: warPath,
+        env: env,
+      };
 
-        const packageDir = `/home/menu/${selectedPackage}`;
-        // 本地上传时 warPath 已经是目标路径，历史包时 warPath 是 downloads/ 开头
-        const result = await linuxAPI.executePackageUpgrade(
-          merchantId,
-          packageDir,
-          warPath,
-          selectMode === 'history' ? 'history' : 'local',
-          env
-        );
-        setExecuteProgress(100);
-        setExecuteMessage('升级完成！');
-        setExecuteResult('success');
+      if (upgradeMode === 'package') {
+        taskParams.package_dir = `/home/menu/${selectedPackage}`;
       }
+
+      const taskResult = await linuxAPI.startUpgradeTask(taskParams);
+
+      if (!taskResult.success || !taskResult.data?.task_id) {
+        throw new Error(taskResult.message || '创建升级任务失败');
+      }
+
+      const newTaskId = taskResult.data.task_id;
+      setUpgradeTaskId(newTaskId);
+      setExecuteMessage('升级任务已创建，正在执行...');
+
+      // 使用 SSE 监听进度
+      startSSEUpgrade(newTaskId);
+
     } catch (error) {
       setExecuteResult('error');
       setExecuteError(error.response?.data?.error || error.response?.data?.message || error.message);
+      setExecuting(false);
     }
   };
+
+  // SSE 监听升级进度
+  const startSSEUpgrade = (taskId) => {
+    const streamUrl = linuxAPI.getUpgradeStreamUrl(taskId);
+
+    const eventSource = new EventSource(streamUrl);
+    eventSourceRef.current = eventSource;
+
+    eventSource.onopen = () => {
+      console.log('[SSE] 连接已建立');
+    };
+
+    eventSource.addEventListener('progress', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        console.log('[SSE] progress:', data);
+        if (data.progress !== undefined) {
+          // 将升级进度映射到 50-100%
+          const adjustedProgress = 50 + (data.progress * 0.5);
+          setExecuteProgress(Math.min(adjustedProgress, 100));
+        }
+        if (data.message) {
+          setExecuteMessage(data.message);
+        }
+        if (data.steps) {
+          setUpgradeSteps(data.steps);
+        }
+        if (data.current_step !== undefined) {
+          setCurrentStepIndex(data.current_step);
+        }
+      } catch (err) {
+        console.error('[SSE] 解析进度数据失败:', err);
+      }
+    });
+
+    eventSource.addEventListener('step', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        console.log('[SSE] step:', data);
+        if (data.task) {
+          if (data.task.steps) {
+            setUpgradeSteps(data.task.steps);
+          }
+          if (data.task.current_step !== undefined) {
+            setCurrentStepIndex(data.task.current_step);
+          }
+          if (data.task.progress !== undefined) {
+            const adjustedProgress = 50 + (data.task.progress * 0.5);
+            setExecuteProgress(Math.min(adjustedProgress, 100));
+          }
+          if (data.task.message) {
+            setExecuteMessage(data.task.message);
+          }
+        }
+      } catch (err) {
+        console.error('[SSE] 解析步骤数据失败:', err);
+      }
+    });
+
+    eventSource.addEventListener('completed', (e) => {
+      console.log('[SSE] completed');
+      try {
+        const data = JSON.parse(e.data);
+        if (data.steps) {
+          setUpgradeSteps(data.steps);
+        }
+      } catch (err) {}
+      setExecuteProgress(100);
+      setExecuteMessage('升级完成！');
+      setExecuteResult('success');
+      eventSource.close();
+      setExecuting(false);
+    });
+
+    eventSource.addEventListener('error', (e) => {
+      console.log('[SSE] error event:', e);
+      let errorMsg = '升级失败';
+      try {
+        if (e.data) {
+          const data = JSON.parse(e.data);
+          errorMsg = data.error || data.message || errorMsg;
+          if (data.task?.steps) {
+            setUpgradeSteps(data.task.steps);
+          }
+        }
+      } catch (err) {}
+      setExecuteResult('error');
+      setExecuteError(errorMsg);
+      eventSource.close();
+      setExecuting(false);
+    });
+
+    eventSource.onerror = (err) => {
+      console.error('[SSE] 连接错误:', err);
+      // EventSource 的 onerror 会在连接失败时触发
+      // 但如果是正常关闭（任务完成），不需要处理
+      // 这里只记录日志，具体错误由 'error' 事件处理
+    };
+  };
+
+  // 清理 SSE 连接
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
+  }, []);
 
   // 轮询上传完成状态
   const pollUploadCompletion = async (taskId) => {
@@ -651,6 +771,14 @@ const UpgradeTab = ({ merchantId }) => {
     setExecuteError('');
     setExecuteMessage('');
     setExecuteProgress(0);
+    setUpgradeTaskId(null);
+    setUpgradeSteps([]);
+    setCurrentStepIndex(-1);
+    // 关闭 SSE 连接
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
   };
 
   const formatSize = (bytes) => {
@@ -1445,21 +1573,67 @@ const UpgradeTab = ({ merchantId }) => {
   return (
     <div style={styles.container}>
       {/* 全屏升级进度遮罩 */}
-      {executing && (
+      {(executing || executeResult !== null) && (
         <div style={styles.upgradeOverlay}>
           <div style={styles.upgradeModal}>
             {executeResult === null ? (
-              // 执行中
+              // 执行中 - 显示步骤列表
               <>
-                <div style={styles.upgradeSpinner}>
-                  <div style={styles.upgradeSpinnerRing}></div>
+                <div style={styles.upgradeHeader}>
+                  <div style={styles.upgradeTitle}>正在升级</div>
+                  <div style={styles.upgradeProgressText}>{Math.round(executeProgress)}%</div>
                 </div>
-                <div style={styles.upgradeTitle}>正在升级</div>
-                <div style={styles.upgradeMessage}>{executeMessage}</div>
+
+                {/* 进度条 */}
                 <div style={styles.upgradeProgressBar}>
-                  <div style={styles.upgradeProgressAnimated}></div>
+                  <div style={{
+                    ...styles.upgradeProgressFill,
+                    width: `${executeProgress}%`
+                  }}></div>
                 </div>
-                <div style={styles.upgradeWarning}>请勿关闭页面或刷新，否则可能导致升级失败</div>
+
+                {/* 步骤列表 */}
+                {upgradeSteps.length > 0 && (
+                  <div style={styles.upgradeStepsContainer}>
+                    {upgradeSteps.map((step, index) => (
+                      <div key={index} style={{
+                        ...styles.upgradeStepItem,
+                        ...(index === currentStepIndex ? styles.upgradeStepActive : {}),
+                        ...(step.status === 'completed' ? styles.upgradeStepCompleted : {}),
+                        ...(step.status === 'failed' ? styles.upgradeStepFailed : {}),
+                      }}>
+                        <div style={styles.upgradeStepIcon}>
+                          {step.status === 'completed' && '✅'}
+                          {step.status === 'running' && '🔄'}
+                          {step.status === 'failed' && '❌'}
+                          {step.status === 'pending' && '⏳'}
+                        </div>
+                        <div style={styles.upgradeStepContent}>
+                          <div style={styles.upgradeStepName}>{step.name}</div>
+                          {step.status === 'running' && step.message && (
+                            <div style={styles.upgradeStepMessage}>{step.message}</div>
+                          )}
+                          {step.status === 'failed' && step.message && (
+                            <div style={styles.upgradeStepError}>{step.message}</div>
+                          )}
+                        </div>
+                        <div style={styles.upgradeStepStatus}>
+                          {step.status === 'completed' && '完成'}
+                          {step.status === 'running' && '进行中...'}
+                          {step.status === 'failed' && '失败'}
+                          {step.status === 'pending' && '等待中'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* 当前消息 */}
+                <div style={styles.upgradeMessage}>{executeMessage}</div>
+
+                <div style={styles.upgradeWarning}>
+                  ⚠️ 请勿关闭页面或刷新，否则可能导致升级失败
+                </div>
               </>
             ) : executeResult === 'success' ? (
               // 成功
@@ -1467,8 +1641,11 @@ const UpgradeTab = ({ merchantId }) => {
                 <div style={styles.upgradeSuccessIcon}>✓</div>
                 <div style={{ ...styles.upgradeTitle, color: '#34C759' }}>升级成功</div>
                 <div style={styles.upgradeMessage}>设备已成功完成升级</div>
+                <div style={styles.upgradeDoneHint}>
+                  请确认设备已正常启动后，再点击关闭
+                </div>
                 <button onClick={handleCloseUpgradeResult} style={styles.upgradeConfirmBtn}>
-                  确认
+                  关闭
                 </button>
               </>
             ) : (
@@ -1661,6 +1838,93 @@ const styles = {
     border: 'none',
     borderRadius: '8px',
     cursor: 'pointer',
+  },
+  upgradeDoneHint: {
+    fontSize: '13px',
+    color: '#fff',
+    backgroundColor: '#34C759',
+    padding: '8px 16px',
+    borderRadius: '6px',
+    marginBottom: '16px',
+    fontWeight: '500',
+  },
+
+  // SSE Upgrade Modal
+  upgradeHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '16px',
+  },
+  upgradeProgressText: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#007AFF',
+  },
+  upgradeProgressFill: {
+    height: '100%',
+    backgroundColor: '#007AFF',
+    borderRadius: '4px',
+    transition: 'width 0.3s ease',
+  },
+  upgradeStepsContainer: {
+    textAlign: 'left',
+    maxHeight: '280px',
+    overflowY: 'auto',
+    marginBottom: '16px',
+    border: '1px solid #E5E5EA',
+    borderRadius: '8px',
+    padding: '12px',
+  },
+  upgradeStepItem: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '10px 12px',
+    marginBottom: '8px',
+    backgroundColor: '#F9F9F9',
+    borderRadius: '6px',
+    transition: 'all 0.2s ease',
+  },
+  upgradeStepActive: {
+    backgroundColor: '#E8F4FD',
+    borderLeft: '3px solid #007AFF',
+  },
+  upgradeStepCompleted: {
+    backgroundColor: '#F0F9F4',
+  },
+  upgradeStepFailed: {
+    backgroundColor: '#FFF1F0',
+    borderLeft: '3px solid #FF3B30',
+  },
+  upgradeStepIcon: {
+    fontSize: '16px',
+    marginRight: '12px',
+    width: '24px',
+    textAlign: 'center',
+  },
+  upgradeStepContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+  upgradeStepName: {
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#1D1D1F',
+  },
+  upgradeStepMessage: {
+    fontSize: '12px',
+    color: '#86868B',
+    marginTop: '4px',
+  },
+  upgradeStepError: {
+    fontSize: '12px',
+    color: '#FF3B30',
+    marginTop: '4px',
+  },
+  upgradeStepStatus: {
+    fontSize: '12px',
+    color: '#86868B',
+    flexShrink: 0,
   },
 
   // Step Indicators (简化)

@@ -450,17 +450,6 @@ export const linuxAPI = {
     return response.data;
   },
 
-  // 一键升级
-  oneClickUpgrade: async (merchantId, warPath, env = 'QA') => {
-    const authAxios = createAuthAxios();
-    const response = await authAxios.post('/linux/upgrade', {
-      merchant_id: merchantId,
-      war_path: warPath,
-      env: env
-    });
-    return response.data;
-  },
-
   // 系统信息
   getSystemInfo: async (merchantId) => {
     const authAxios = createAuthAxios();
@@ -647,17 +636,24 @@ export const linuxAPI = {
     return response.data;
   },
 
-  // 执行升级包升级
-  executePackageUpgrade: async (merchantId, packageDir, warPath, warSource, env) => {
+  // 创建升级任务（SSE 模式）
+  startUpgradeTask: async (params) => {
     const authAxios = createAuthAxios();
-    const response = await authAxios.post('/linux/upgrade/package/execute', {
-      merchant_id: merchantId,
-      package_dir: packageDir,
-      war_path: warPath,
-      war_source: warSource,
-      env: env
-    });
+    const response = await authAxios.post('/linux/upgrade/task', params);
     return response.data;
+  },
+
+  // 获取升级任务状态
+  getUpgradeTaskStatus: async (taskId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.get(`/linux/upgrade/status/${taskId}`);
+    return response.data;
+  },
+
+  // 获取 SSE 升级进度 URL
+  getUpgradeStreamUrl: (taskId) => {
+    const token = localStorage.getItem('access_token');
+    return `/api/linux/upgrade/stream/${taskId}?token=${token}`;
   }
 };
 

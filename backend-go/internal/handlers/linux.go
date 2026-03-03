@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"crypto/md5"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -882,42 +883,6 @@ func (h *LinuxHandler) UpdateConfig(c *gin.Context) {
 	response.SuccessWithMessage(c, "配置文件已更新", nil)
 }
 
-// OneClickUpgrade 一键升级
-func (h *LinuxHandler) OneClickUpgrade(c *gin.Context) {
-	var req struct {
-		MerchantID string `json:"merchant_id" binding:"required"`
-		WarPath    string `json:"war_path"`
-		Env        string `json:"env"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "请求格式无效")
-		return
-	}
-
-	// 权限检查
-	if !h.checkDevicePermission(c, req.MerchantID) {
-		return
-	}
-
-	if !h.linuxService.IsConnected(req.MerchantID) {
-		response.BadRequest(c, "未连接")
-		return
-	}
-
-	// 默认环境为 QA
-	if req.Env == "" {
-		req.Env = "QA"
-	}
-
-	msg, err := h.linuxService.OneClickUpgrade(req.MerchantID, req.WarPath, h.fileConfigRepo, req.Env)
-	if err != nil {
-		response.InternalError(c, fmt.Sprintf("一键升级失败: %s", err.Error()))
-		return
-	}
-
-	response.SuccessWithMessage(c, msg, nil)
-}
-
 // GetSystemInfo 获取系统信息
 func (h *LinuxHandler) GetSystemInfo(c *gin.Context) {
 	merchantID := c.Query("merchant_id")
@@ -1050,13 +1015,13 @@ func (h *LinuxHandler) UploadUpgradePackage(c *gin.Context) {
 	})
 }
 
-// ExecutePackageUpgrade 执行升级包升级
-func (h *LinuxHandler) ExecutePackageUpgrade(c *gin.Context) {
+// StartUpgradeTask 创建并启动升级任务
+func (h *LinuxHandler) StartUpgradeTask(c *gin.Context) {
 	var req struct {
 		MerchantID string `json:"merchant_id" binding:"required"`
-		PackageDir string `json:"package_dir" binding:"required"`
+		Type       string `json:"type" binding:"required"` // "direct" | "package"
 		WarPath    string `json:"war_path"`
-		WarSource  string `json:"war_source"` // "local" | "history"
+		PackageDir string `json:"package_dir"`
 		Env        string `json:"env"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1079,17 +1044,257 @@ func (h *LinuxHandler) ExecutePackageUpgrade(c *gin.Context) {
 		req.Env = "QA"
 	}
 
-	// 执行升级包升级
-	err := h.linuxService.ExecutePackageUpgrade(req.MerchantID, req.PackageDir, req.WarPath, req.Env, h.fileConfigRepo, func(progress int, message string) {
-		// 进度回调（可用于 WebSocket 推送）
-		log.Printf("[ExecutePackageUpgrade] %d%% - %s", progress, message)
-	})
-	if err != nil {
-		response.InternalError(c, fmt.Sprintf("升级包升级失败: %s", err.Error()))
+	// 创建升级任务
+	var task *services.UpgradeTask
+	if req.Type == "direct" {
+		task = h.linuxService.GetUpgradeTaskManager().CreateDirectUpgradeTask(req.MerchantID)
+	} else if req.Type == "package" {
+		task = h.linuxService.GetUpgradeTaskManager().CreatePackageUpgradeTask(req.MerchantID)
+	} else {
+		response.BadRequest(c, "无效的升级类型")
 		return
 	}
 
-	response.SuccessWithMessage(c, "升级包升级完成", gin.H{
-		"package_dir": req.PackageDir,
+	// 异步执行升级
+	go func() {
+		defer func() {
+			// 任务完成后延迟移除（保留一段时间供客户端获取最终状态）
+			time.Sleep(30 * time.Second)
+			h.linuxService.GetUpgradeTaskManager().RemoveTask(task.ID)
+		}()
+
+		if req.Type == "direct" {
+			h.executeDirectUpgradeWithTask(task, req.MerchantID, req.WarPath, req.Env)
+		} else {
+			h.executePackageUpgradeWithTask(task, req.MerchantID, req.PackageDir, req.WarPath, req.Env)
+		}
+	}()
+
+	response.Success(c, gin.H{
+		"task_id":     task.ID,
+		"message":     "升级任务已创建",
+		"stream_path": fmt.Sprintf("/api/linux/upgrade/stream/%s", task.ID),
+		"status_path": fmt.Sprintf("/api/linux/upgrade/status/%s", task.ID),
 	})
+}
+
+// executeDirectUpgradeWithTask 执行直接替换升级（带任务进度）
+func (h *LinuxHandler) executeDirectUpgradeWithTask(task *services.UpgradeTask, merchantID, warPath, env string) {
+	task.Start()
+
+	// 步骤 0: 停止 POS (0-10%)
+	task.StartStep(0)
+	task.UpdateStepProgress(0, 50, "正在停止 POS 服务...")
+	_, err := h.linuxService.StopPOS(merchantID)
+	if err != nil {
+		task.FailStep(0, err.Error())
+		task.Fail(err.Error())
+		return
+	}
+	task.CompleteStep(0)
+
+	// 步骤 1: 上传/复制 WAR 包 (10-40%)
+	task.StartStep(1)
+	task.UpdateStepProgress(1, 10, "正在准备 WAR 包...")
+
+	err = h.linuxService.CopyWarForDirectUpgrade(merchantID, warPath, func(progress int, message string) {
+		task.UpdateStepProgress(1, progress, message)
+	})
+	if err != nil {
+		task.FailStep(1, err.Error())
+		task.Fail(err.Error())
+		return
+	}
+	task.CompleteStep(1)
+
+	// 步骤 2: 解压 WAR 包 (40-60%)
+	task.StartStep(2)
+	task.UpdateStepProgress(2, 10, "正在解压 WAR 包...")
+	err = h.linuxService.ExtractWarForUpgrade(merchantID, func(progress int, message string) {
+		task.UpdateStepProgress(2, progress, message)
+	})
+	if err != nil {
+		task.FailStep(2, err.Error())
+		task.Fail(err.Error())
+		return
+	}
+	task.CompleteStep(2)
+
+	// 步骤 3: 执行配置修改 (60-80%)
+	task.StartStep(3)
+	task.UpdateStepProgress(3, 10, "正在执行配置修改...")
+	err = h.linuxService.ExecuteConfigsForUpgrade(merchantID, env, h.fileConfigRepo, func(progress int, message string) {
+		task.UpdateStepProgress(3, progress, message)
+	})
+	if err != nil {
+		log.Printf("[executeDirectUpgradeWithTask] 配置修改警告: %v", err)
+		// 配置修改失败不中断升级
+	}
+	task.CompleteStep(3)
+
+	// 步骤 4: 重启 POS (80-100%)
+	task.StartStep(4)
+	task.UpdateStepProgress(4, 50, "正在重启 POS 服务...")
+	_, err = h.linuxService.StartPOS(merchantID)
+	if err != nil {
+		task.FailStep(4, err.Error())
+		task.Fail(err.Error())
+		return
+	}
+	task.CompleteStep(4)
+
+	task.Complete()
+}
+
+// executePackageUpgradeWithTask 执行升级包升级（带任务进度）
+func (h *LinuxHandler) executePackageUpgradeWithTask(task *services.UpgradeTask, merchantID, packageDir, warPath, env string) {
+	task.Start()
+
+	// 步骤 0: 停止 POS (0-10%)
+	task.StartStep(0)
+	task.UpdateStepProgress(0, 50, "正在停止 POS 服务...")
+	_, err := h.linuxService.StopPOS(merchantID)
+	if err != nil {
+		task.FailStep(0, err.Error())
+		task.Fail(err.Error())
+		return
+	}
+	task.CompleteStep(0)
+
+	// 步骤 1: 复制/上传 WAR 包 (10-30%)
+	task.StartStep(1)
+	task.UpdateStepProgress(1, 10, "正在准备 WAR 包...")
+	err = h.linuxService.CopyWarForPackageUpgrade(merchantID, packageDir, warPath, func(progress int, message string) {
+		task.UpdateStepProgress(1, progress, message)
+	})
+	if err != nil {
+		task.FailStep(1, err.Error())
+		task.Fail(err.Error())
+		return
+	}
+	task.CompleteStep(1)
+
+	// 步骤 2: 执行 update.sh (30-70%)
+	task.StartStep(2)
+	task.UpdateStepProgress(2, 10, "正在执行升级脚本...")
+	err = h.linuxService.ExecuteUpdateScript(merchantID, packageDir, func(progress int, message string) {
+		task.UpdateStepProgress(2, progress, message)
+	})
+	if err != nil {
+		task.FailStep(2, err.Error())
+		task.Fail(err.Error())
+		return
+	}
+	task.CompleteStep(2)
+
+	// 步骤 3: 执行配置修改 (70-85%)
+	task.StartStep(3)
+	task.UpdateStepProgress(3, 10, "正在执行配置修改...")
+	err = h.linuxService.ExecuteConfigsForUpgrade(merchantID, env, h.fileConfigRepo, func(progress int, message string) {
+		task.UpdateStepProgress(3, progress, message)
+	})
+	if err != nil {
+		log.Printf("[executePackageUpgradeWithTask] 配置修改警告: %v", err)
+	}
+	task.CompleteStep(3)
+
+	// 步骤 4: 重启 POS (85-100%)
+	task.StartStep(4)
+	task.UpdateStepProgress(4, 50, "正在重启 POS 服务...")
+	_, err = h.linuxService.StartPOS(merchantID)
+	if err != nil {
+		task.FailStep(4, err.Error())
+		task.Fail(err.Error())
+		return
+	}
+	task.CompleteStep(4)
+
+	task.Complete()
+}
+
+// StreamUpgradeProgress SSE 推送升级进度
+func (h *LinuxHandler) StreamUpgradeProgress(c *gin.Context) {
+	taskID := c.Param("taskId")
+
+	// 设置 SSE headers
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+
+	// 获取任务的事件 channel
+	eventChan, exists := h.linuxService.GetUpgradeEventChannel(taskID)
+	if !exists {
+		c.SSEvent("error", "任务不存在")
+		c.Writer.Flush()
+		return
+	}
+
+	// 先发送当前任务状态
+	snapshot, exists := h.linuxService.GetUpgradeTaskSnapshot(taskID)
+	if exists {
+		data, _ := json.Marshal(snapshot)
+		c.SSEvent("progress", string(data))
+		c.Writer.Flush()
+	}
+
+	// 监听事件并推送
+	for {
+		select {
+		case event, ok := <-eventChan:
+			if !ok {
+				// channel 已关闭
+				return
+			}
+
+			// 将 payload 转换为 JSON
+			var data []byte
+			var err error
+			switch v := event.Payload.(type) {
+			case string:
+				data = []byte(v)
+			case *services.UpgradeTaskSnapshot:
+				data, err = json.Marshal(v)
+			case map[string]interface{}:
+				data, err = json.Marshal(v)
+			default:
+				data, err = json.Marshal(v)
+			}
+
+			if err != nil {
+				log.Printf("[StreamUpgradeProgress] JSON 编码错误: %v", err)
+				continue
+			}
+
+			c.SSEvent(event.Type, string(data))
+			c.Writer.Flush()
+
+			// 任务完成或失败时关闭连接
+			if event.Type == "completed" || event.Type == "error" {
+				return
+			}
+
+		case <-c.Request.Context().Done():
+			// 客户端断开连接
+			return
+
+		case <-time.After(30 * time.Second):
+			// 发送心跳保持连接
+			c.SSEvent("heartbeat", "ping")
+			c.Writer.Flush()
+		}
+	}
+}
+
+// GetUpgradeTaskStatus 获取升级任务状态
+func (h *LinuxHandler) GetUpgradeTaskStatus(c *gin.Context) {
+	taskID := c.Param("taskId")
+
+	snapshot, exists := h.linuxService.GetUpgradeTaskSnapshot(taskID)
+	if !exists {
+		response.NotFound(c, "任务不存在")
+		return
+	}
+
+	response.Success(c, snapshot)
 }
