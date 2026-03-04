@@ -43,7 +43,7 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
       <table className="scan-table">
         <thead>
           <tr>
-            <th>IP</th>
+            <th className="ip-col">IP</th>
             <th>类型</th>
             <th>商家ID</th>
             <th>名称</th>

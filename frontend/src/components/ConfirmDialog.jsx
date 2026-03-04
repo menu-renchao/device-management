@@ -8,7 +8,8 @@ const ConfirmDialog = ({
   onCancel,
   confirmText,
   cancelText,
-  // 新增：输入框相关
+  variant = 'danger', // 'danger' | 'primary'
+  // 输入框相关
   showInput = false,
   inputPlaceholder = '',
   inputLabel = '',
@@ -61,7 +62,13 @@ const ConfirmDialog = ({
           <button onClick={onCancel} style={styles.cancelBtn}>
             {cancelText || '取消'}
           </button>
-          <button onClick={handleConfirm} style={styles.confirmBtn}>
+          <button
+            onClick={handleConfirm}
+            style={{
+              ...styles.confirmBtn,
+              backgroundColor: variant === 'primary' ? '#007AFF' : '#FF3B30',
+            }}
+          >
             {confirmText || '确定'}
           </button>
         </div>

@@ -30,7 +30,11 @@ const BackupTab = ({ merchantId }) => {
   };
 
   const handleCreateBackup = async () => {
-    if (!confirm('确定要创建备份吗？')) {
+    if (!(await toast.confirm('确定要创建备份吗？', {
+      title: '创建备份',
+      variant: 'primary',
+      confirmText: '创建',
+    }))) {
       return;
     }
 
@@ -47,7 +51,10 @@ const BackupTab = ({ merchantId }) => {
   };
 
   const handleRestore = async (backupPath) => {
-    if (!confirm(`确定要恢复备份 ${backupPath} 吗？当前数据将被覆盖。`)) {
+    if (!(await toast.confirm(`确定要恢复备份 ${backupPath} 吗？当前数据将被覆盖。`, {
+      title: '恢复备份',
+      confirmText: '确认恢复',
+    }))) {
       return;
     }
 

@@ -141,7 +141,7 @@ const UpgradeTab = ({ merchantId }) => {
   };
 
   const handleDeleteConfig = async (configId) => {
-    if (!confirm('确定要删除此配置吗？此操作不可恢复。')) {
+    if (!(await toast.confirm('确定要删除此配置吗？此操作不可恢复。', { title: '删除配置' }))) {
       return;
     }
     try {
@@ -178,7 +178,11 @@ const UpgradeTab = ({ merchantId }) => {
       return;
     }
 
-    if (!confirm(`确定要在 ${env} 环境下执行选中的 ${selectedConfigs.length} 个配置修改吗？`)) {
+    if (!(await toast.confirm(`确定要在 ${env} 环境下执行选中的 ${selectedConfigs.length} 个配置修改吗？`, {
+      title: '执行配置修改',
+      variant: 'primary',
+      confirmText: '确认执行',
+    }))) {
       return;
     }
 
@@ -242,7 +246,7 @@ const UpgradeTab = ({ merchantId }) => {
   };
 
   const handleDeletePackage = async (name) => {
-    if (!confirm(`确定要删除 ${name} 吗？此操作不可恢复。`)) {
+    if (!(await toast.confirm(`确定要删除 ${name} 吗？此操作不可恢复。`, { title: '删除包' }))) {
       return;
     }
 
@@ -560,7 +564,11 @@ const UpgradeTab = ({ merchantId }) => {
 
     // 确认对话框
     if (upgradeMode === 'direct') {
-      if (!confirm('确定要执行直接替换 WAR 升级吗？这将停止服务、替换 WAR 包并重启服务。')) {
+      if (!(await toast.confirm('确定要执行直接替换 WAR 升级吗？这将停止服务、替换 WAR 包并重启服务。', {
+        title: '确认升级',
+        variant: 'primary',
+        confirmText: '开始升级',
+      }))) {
         return;
       }
     } else {
@@ -568,7 +576,11 @@ const UpgradeTab = ({ merchantId }) => {
         toast.warning('请选择升级包');
         return;
       }
-      if (!confirm(`确定要使用升级包 ${selectedPackage} 执行升级吗？`)) {
+      if (!(await toast.confirm(`确定要使用升级包 ${selectedPackage} 执行升级吗？`, {
+        title: '确认升级',
+        variant: 'primary',
+        confirmText: '开始升级',
+      }))) {
         return;
       }
     }

@@ -1,3 +1,13 @@
+/* IP列宽度控制 */
+.scan-table th.ip-col,
+.scan-table td .ip-cell {
+  max-width: 120px;
+  width: 120px;
+  min-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Apple Style Design System - Compact */
 
 :root {
@@ -449,6 +459,7 @@ body {
 .release-time {
   font-size: 12px;
   color: #86868B;
+  white-space: nowrap;
 }
 
 /* IP Cell - Online/Offline Status */

@@ -153,7 +153,7 @@ const WarPackageManager = ({ merchantId }) => {
   };
 
   const handleDeletePackage = async (name) => {
-    if (!confirm(`确定要删除 ${name} 吗？此操作不可恢复。`)) {
+    if (!(await toast.confirm(`确定要删除 ${name} 吗？此操作不可恢复。`, { title: '删除包' }))) {
       return;
     }
 
