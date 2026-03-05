@@ -4,13 +4,24 @@ import { useNavigate } from 'react-router-dom';
 const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, onEditOccupancy, onDeleteDevice, onClaimDevice, onResetOwner, isAdmin, currentUserId, onConfigNoPermission }) => {
   const navigate = useNavigate();
   const [openMenuKey, setOpenMenuKey] = useState(null);
-  const [openMenuPlacement, setOpenMenuPlacement] = useState({ direction: 'down', maxHeight: 260 });
+  const [openMenuPlacement, setOpenMenuPlacement] = useState({ direction: 'down', top: 0, left: 0 });
 
   useEffect(() => {
     const closeMenu = () => setOpenMenuKey(null);
     document.addEventListener('click', closeMenu);
     return () => document.removeEventListener('click', closeMenu);
   }, []);
+
+  useEffect(() => {
+    if (openMenuKey === null) return undefined;
+    const closeMenuOnViewportChange = () => setOpenMenuKey(null);
+    window.addEventListener('resize', closeMenuOnViewportChange);
+    window.addEventListener('scroll', closeMenuOnViewportChange, true);
+    return () => {
+      window.removeEventListener('resize', closeMenuOnViewportChange);
+      window.removeEventListener('scroll', closeMenuOnViewportChange, true);
+    };
+  }, [openMenuKey]);
 
   // 处理配置按钮点击
   const handleConfigClick = (device) => {
@@ -48,26 +59,38 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
 
   const calculateMenuPlacement = (triggerEl) => {
     if (!triggerEl) {
-      return { direction: 'down', maxHeight: 260 };
-    }
-
-    const tableContainer = triggerEl.closest('.scan-table-container');
-    if (!tableContainer) {
-      return { direction: 'down', maxHeight: 260 };
+      return { direction: 'down', top: 0, left: 0 };
     }
 
     const triggerRect = triggerEl.getBoundingClientRect();
-    const containerRect = tableContainer.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
     const safePadding = 12;
-    const spaceAbove = Math.max(0, Math.floor(triggerRect.top - containerRect.top - safePadding));
-    const spaceBelow = Math.max(0, Math.floor(containerRect.bottom - triggerRect.bottom - safePadding));
-    const estimatedMenuHeight = 240;
+    const estimatedMenuHeight = 280;
+    const estimatedMenuWidth = 132;
+
+    const spaceAbove = Math.max(0, Math.floor(triggerRect.top - safePadding));
+    const spaceBelow = Math.max(0, Math.floor(viewportHeight - triggerRect.bottom - safePadding));
     const shouldOpenUp = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
-    const maxHeight = Math.max(120, shouldOpenUp ? spaceAbove : spaceBelow);
+
+    const desiredTop = shouldOpenUp
+      ? triggerRect.top - estimatedMenuHeight - 6
+      : triggerRect.bottom + 6;
+    const top = Math.max(
+      safePadding,
+      Math.min(desiredTop, viewportHeight - estimatedMenuHeight - safePadding)
+    );
+
+    const desiredLeft = triggerRect.right - estimatedMenuWidth;
+    const left = Math.max(
+      safePadding,
+      Math.min(desiredLeft, viewportWidth - estimatedMenuWidth - safePadding)
+    );
 
     return {
       direction: shouldOpenUp ? 'up' : 'down',
-      maxHeight
+      top,
+      left
     };
   };
 
@@ -329,7 +352,10 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
                       {openMenuKey === rowKey && (
                         <div
                           className={`action-dropdown ${openMenuPlacement.direction === 'up' ? 'up' : 'down'}`}
-                          style={{ maxHeight: `${openMenuPlacement.maxHeight}px` }}
+                          style={{
+                            top: `${openMenuPlacement.top}px`,
+                            left: `${openMenuPlacement.left}px`
+                          }}
                         >
                           {isAdmin && hasMerchantId && (
                             <button

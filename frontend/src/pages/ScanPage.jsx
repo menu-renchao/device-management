@@ -7,6 +7,8 @@ import ScanTable from '../components/ScanTable';
 import DetailModal from '../components/DetailModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 
+const getOnlyMyDevicesStorageKey = (userId) => `scan_page_only_my_devices_${userId || 'default'}`;
+
 const ScanPage = () => {
   const { isAdmin, user } = useAuth();
   const toast = useToast();
@@ -46,6 +48,7 @@ const ScanPage = () => {
   const [availableProperties, setAvailableProperties] = useState([]);
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
   const [showPropertyDropdown, setShowPropertyDropdown] = useState(false);
+  const [onlyMyDevices, setOnlyMyDevices] = useState(false);
 
   // 确认对话框
   const [confirmDialog, setConfirmDialog] = useState({ show: false, type: null, data: null });
@@ -70,7 +73,14 @@ const ScanPage = () => {
   }, []);
 
   // 加载设备列表（分页+搜索+筛选）
-  const loadDevices = async (page = currentPage, size = pageSize, search = searchText, types = filterTypes, properties = filterProperties) => {
+  const loadDevices = async (
+    page = currentPage,
+    size = pageSize,
+    search = searchText,
+    types = filterTypes,
+    properties = filterProperties,
+    mineOnly = onlyMyDevices
+  ) => {
     try {
       // 构建查询参数
       const params = new URLSearchParams({
@@ -80,6 +90,7 @@ const ScanPage = () => {
       if (search) params.append('search', search);
       if (types.length > 0) params.append('types', types.join(','));
       if (properties.length > 0) params.append('properties', properties.join(','));
+      if (mineOnly) params.append('mine_only', '1');
 
       const token = localStorage.getItem('access_token');
       const response = await fetch(`/api/devices?${params.toString()}`, {
@@ -98,11 +109,17 @@ const ScanPage = () => {
     }
   };
 
-  // 初始加载
+  // 初始加载（含用户筛选偏好）
   useEffect(() => {
-    loadDevices(1, pageSize, '');
+    if (!user?.id) return;
+
+    const storageKey = getOnlyMyDevicesStorageKey(user.id);
+    const savedOnlyMyDevices = localStorage.getItem(storageKey) === '1';
+    setOnlyMyDevices(savedOnlyMyDevices);
+    setCurrentPage(1);
+    loadDevices(1, pageSize, '', [], [], savedOnlyMyDevices);
     loadFilterOptions();
-  }, []);
+  }, [user?.id]);
 
   // 加载筛选选项
   const loadFilterOptions = async () => {
@@ -163,7 +180,7 @@ const ScanPage = () => {
           if (!status.is_scanning) {
             setIsScanning(false);
             // 扫描完成后重新获取设备列表
-            loadDevices(1, pageSize, searchText);
+            loadDevices(1, pageSize, searchText, filterTypes, filterProperties, onlyMyDevices);
             setCurrentPage(1);
             if (intervalId) clearInterval(intervalId);
           }
@@ -243,6 +260,17 @@ const ScanPage = () => {
       setCurrentPage(1);
       loadDevices(1, pageSize, searchText, filterTypes, newProperties);
     }
+  };
+
+  const handleOnlyMyDevicesChange = (checked) => {
+    setOnlyMyDevices(checked);
+    setCurrentPage(1);
+
+    if (user?.id) {
+      localStorage.setItem(getOnlyMyDevicesStorageKey(user.id), checked ? '1' : '0');
+    }
+
+    loadDevices(1, pageSize, searchText, filterTypes, filterProperties, checked);
   };
 
   // 打开设备
@@ -572,6 +600,22 @@ const ScanPage = () => {
               </div>
             )}
           </div>
+
+          <label
+            style={{
+              ...styles.mineOnlyToggle,
+              ...(onlyMyDevices ? styles.mineOnlyToggleActive : {})
+            }}
+            title="仅显示我负责或我借用的POS设备"
+          >
+            <input
+              type="checkbox"
+              checked={onlyMyDevices}
+              onChange={(e) => handleOnlyMyDevicesChange(e.target.checked)}
+              style={styles.mineOnlyCheckbox}
+            />
+            <span>只展示我的设备</span>
+          </label>
 
           <input
             type="text"
@@ -954,6 +998,29 @@ const styles = {
     fontSize: '12px',
     color: '#86868B',
     textAlign: 'center',
+  },
+  mineOnlyToggle: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '6px 10px',
+    border: '1px solid #D1D1D6',
+    borderRadius: '6px',
+    fontSize: '13px',
+    color: '#1D1D1F',
+    backgroundColor: '#fff',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    userSelect: 'none',
+  },
+  mineOnlyToggleActive: {
+    borderColor: '#007AFF',
+    backgroundColor: 'rgba(0, 122, 255, 0.08)',
+    color: '#007AFF',
+  },
+  mineOnlyCheckbox: {
+    margin: 0,
+    cursor: 'pointer',
   },
   toolbarRight: {
     display: 'flex',

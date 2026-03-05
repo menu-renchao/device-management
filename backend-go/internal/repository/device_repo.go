@@ -65,7 +65,7 @@ func (r *DeviceRepository) DeleteScanResultByIP(ip string) error {
 	return r.db.Unscoped().Where("ip = ? AND (merchant_id = '' OR merchant_id IS NULL)", ip).Delete(&models.ScanResult{}).Error
 }
 
-func (r *DeviceRepository) ListScanResults(page, pageSize int, search string, types []string, properties []string) ([]models.ScanResult, int64, int64, error) {
+func (r *DeviceRepository) ListScanResults(page, pageSize int, search string, types []string, properties []string, mineOnly bool, currentUserID uint) ([]models.ScanResult, int64, int64, error) {
 	var results []models.ScanResult
 	var total int64
 
@@ -85,6 +85,21 @@ func (r *DeviceRepository) ListScanResults(page, pageSize int, search string, ty
 	if len(properties) > 0 {
 		query = query.Joins("LEFT JOIN device_properties ON device_properties.merchant_id = scan_results.merchant_id").
 			Where("device_properties.property IN ?", properties)
+	}
+
+	// 仅展示当前用户相关设备：负责人或借用人
+	if mineOnly {
+		query = query.Where(`
+			scan_results.owner_id = ?
+			OR EXISTS (
+				SELECT 1
+				FROM device_occupancies
+				WHERE device_occupancies.merchant_id = scan_results.merchant_id
+				  AND device_occupancies.user_id = ?
+				  AND device_occupancies.deleted_at IS NULL
+				  AND datetime(device_occupancies.end_time) > datetime('now')
+			)
+		`, currentUserID, currentUserID)
 	}
 
 	query.Count(&total)

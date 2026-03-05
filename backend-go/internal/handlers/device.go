@@ -52,6 +52,9 @@ func (h *DeviceHandler) GetDevices(c *gin.Context) {
 	// 获取类型和分类筛选参数（支持多选，逗号分隔）
 	typesParam := c.Query("types")
 	propertiesParam := c.Query("properties")
+	mineOnlyParam := strings.ToLower(strings.TrimSpace(c.DefaultQuery("mine_only", "0")))
+	mineOnly := mineOnlyParam == "1" || mineOnlyParam == "true" || mineOnlyParam == "yes"
+	currentUserID := middleware.GetUserID(c)
 
 	var filterTypes []string
 	var filterProperties []string
@@ -67,7 +70,7 @@ func (h *DeviceHandler) GetDevices(c *gin.Context) {
 		pageSize = 200
 	}
 
-	results, total, totalPages, err := h.deviceRepo.ListScanResults(page, pageSize, search, filterTypes, filterProperties)
+	results, total, totalPages, err := h.deviceRepo.ListScanResults(page, pageSize, search, filterTypes, filterProperties, mineOnly, currentUserID)
 	if err != nil {
 		response.InternalError(c, "获取设备列表失败")
 		return
@@ -1063,7 +1066,7 @@ func (h *DeviceHandler) GetFilterOptions(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{
-		"types":       types,
-		"properties":  properties,
+		"types":      types,
+		"properties": properties,
 	})
 }

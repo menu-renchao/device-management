@@ -22,7 +22,7 @@ const createDefaultConnectionForm = (host = '') => ({
   password: DEFAULT_DB_PASSWORD,
 });
 
-const PAGE_SIZE = 20;
+const TEMPLATE_FETCH_PAGE_SIZE = 100;
 
 const DBConfigPage = () => {
   const { merchantId } = useParams();
@@ -41,9 +41,7 @@ const DBConfigPage = () => {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [keywordInput, setKeywordInput] = useState('');
   const [keyword, setKeyword] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
 
   const [selectedTemplateIds, setSelectedTemplateIds] = useState([]);
   const [expandedTemplateIds, setExpandedTemplateIds] = useState([]);
@@ -66,16 +64,31 @@ const DBConfigPage = () => {
     }
   }, [device, user, isAdmin, navigate, toast]);
 
-  const loadTemplates = async (page = currentPage, search = keyword) => {
+  const loadTemplates = async (search = keyword) => {
     setLoadingTemplates(true);
     try {
-      const result = await dbConfigAPI.getTemplates(page, PAGE_SIZE, search);
-      const data = result.data || {};
-      setTemplates(data.items || []);
-      setTotal(data.total || 0);
-      setTotalPages(data.totalPages || 0);
-      setSelectedTemplateIds((prev) => prev.filter((id) => (data.items || []).some((item) => item.id === id)));
-      setExpandedTemplateIds((prev) => prev.filter((id) => (data.items || []).some((item) => item.id === id)));
+      const firstPageResult = await dbConfigAPI.getTemplates(1, TEMPLATE_FETCH_PAGE_SIZE, search);
+      const firstPageData = firstPageResult.data || {};
+      const totalPages = Number(firstPageData.totalPages || 1);
+      const totalItems = Number(firstPageData.total || 0);
+      let mergedItems = firstPageData.items || [];
+
+      if (totalPages > 1) {
+        const requestList = [];
+        for (let page = 2; page <= totalPages; page += 1) {
+          requestList.push(dbConfigAPI.getTemplates(page, TEMPLATE_FETCH_PAGE_SIZE, search));
+        }
+        const restPageResults = await Promise.all(requestList);
+        restPageResults.forEach((result) => {
+          const items = result.data?.items || [];
+          mergedItems = mergedItems.concat(items);
+        });
+      }
+
+      setTemplates(mergedItems);
+      setTotal(totalItems || mergedItems.length);
+      setSelectedTemplateIds((prev) => prev.filter((id) => mergedItems.some((item) => item.id === id)));
+      setExpandedTemplateIds((prev) => prev.filter((id) => mergedItems.some((item) => item.id === id)));
     } catch (error) {
       toast.error(error.response?.data?.error || '加载模板列表失败');
     } finally {
@@ -90,8 +103,8 @@ const DBConfigPage = () => {
 
   useEffect(() => {
     if (!merchantId) return;
-    loadTemplates(currentPage, keyword);
-  }, [merchantId, currentPage, keyword]);
+    loadTemplates(keyword);
+  }, [merchantId, keyword]);
 
   const allChecked = useMemo(() => {
     if (templates.length === 0) return false;
@@ -161,14 +174,12 @@ const DBConfigPage = () => {
   };
 
   const handleSearch = () => {
-    setCurrentPage(1);
     setKeyword(keywordInput.trim());
   };
 
   const clearSearch = () => {
     setKeywordInput('');
     setKeyword('');
-    setCurrentPage(1);
   };
 
   const toggleSelect = (id, checked) => {
@@ -221,7 +232,7 @@ const DBConfigPage = () => {
         toast.success('模板创建成功');
       }
       closeModal();
-      loadTemplates(currentPage, keyword);
+      loadTemplates(keyword);
     } catch (error) {
       toast.error(error.response?.data?.error || '保存模板失败');
     } finally {
@@ -239,7 +250,7 @@ const DBConfigPage = () => {
     try {
       await dbConfigAPI.deleteTemplate(template.id);
       toast.success('模板删除成功');
-      loadTemplates(currentPage, keyword);
+      loadTemplates(keyword);
     } catch (error) {
       toast.error(error.response?.data?.error || '删除模板失败');
     }
@@ -346,7 +357,10 @@ const DBConfigPage = () => {
 
       <div style={styles.card}>
         <div style={styles.tableHeader}>
-          <h3 style={styles.tableTitle}>SQL 模板库</h3>
+          <h3 style={styles.tableTitle}>
+            SQL 模板库
+            <span style={styles.tableCount}>（共 {total} 条）</span>
+          </h3>
           <div style={styles.actions}>
             <input
               type="text"
@@ -486,26 +500,6 @@ const DBConfigPage = () => {
             </tbody>
           </table>
         </div>
-
-        <div style={styles.pagination}>
-          <span style={styles.paginationText}>共 {total} 条，当前第 {currentPage}/{Math.max(totalPages, 1)} 页</span>
-          <div style={styles.paginationBtns}>
-            <button
-              onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-              disabled={currentPage <= 1}
-              style={{ ...styles.pageBtn, ...(currentPage <= 1 ? styles.disabled : {}) }}
-            >
-              上一页
-            </button>
-            <button
-              onClick={() => setCurrentPage((prev) => Math.min(prev + 1, Math.max(totalPages, 1)))}
-              disabled={currentPage >= totalPages}
-              style={{ ...styles.pageBtn, ...(currentPage >= totalPages ? styles.disabled : {}) }}
-            >
-              下一页
-            </button>
-          </div>
-        </div>
       </div>
 
       <ExecuteResultPanel result={executeResult} onClose={() => setExecuteResult(null)} />
@@ -576,6 +570,13 @@ const styles = {
     margin: 0,
     fontSize: '15px',
     fontWeight: 600,
+    whiteSpace: 'nowrap',
+  },
+  tableCount: {
+    marginLeft: '6px',
+    fontSize: '12px',
+    color: '#86868B',
+    fontWeight: 500,
   },
   actions: {
     display: 'flex',
@@ -633,7 +634,8 @@ const styles = {
     cursor: 'not-allowed',
   },
   tableWrap: {
-    overflowX: 'auto',
+    height: '520px',
+    overflow: 'auto',
     border: '1px solid #E5E5EA',
     borderRadius: '8px',
   },
@@ -652,6 +654,9 @@ const styles = {
   colDetail: { width: '90px' },
   colActions: { width: '210px' },
   th: {
+    position: 'sticky',
+    top: 0,
+    zIndex: 1,
     textAlign: 'left',
     padding: '10px',
     backgroundColor: '#F7F7F7',
@@ -661,6 +666,9 @@ const styles = {
     borderBottom: '1px solid #E5E5EA',
   },
   thCenter: {
+    position: 'sticky',
+    top: 0,
+    zIndex: 1,
     textAlign: 'center',
     padding: '10px',
     backgroundColor: '#F7F7F7',
@@ -801,30 +809,6 @@ const styles = {
     color: '#86868B',
     fontSize: '13px',
     padding: '18px 12px',
-  },
-  pagination: {
-    marginTop: '10px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  paginationText: {
-    fontSize: '12px',
-    color: '#86868B',
-  },
-  paginationBtns: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  pageBtn: {
-    border: 'none',
-    borderRadius: '8px',
-    padding: '6px 10px',
-    backgroundColor: '#F2F2F7',
-    color: '#1D1D1F',
-    fontSize: '12px',
-    cursor: 'pointer',
   },
 };
 

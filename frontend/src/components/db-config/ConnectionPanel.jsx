@@ -11,80 +11,75 @@ const ConnectionPanel = ({
 
   return (
     <div style={styles.card}>
-      <div style={styles.header}>
+      <div style={styles.inlineRow}>
         <h3 style={styles.title}>设备数据库连接</h3>
         <span style={styles.meta}>
-          {deviceIP ? `当前设备IP: ${deviceIP}` : '未获取到当前设备IP'}
+          {deviceIP ? `IP: ${deviceIP}` : '未获取到当前设备IP'}
         </span>
-      </div>
 
-      <div style={styles.grid}>
-        <div style={styles.field}>
-          <label style={styles.label}>主机</label>
+        <div style={styles.inlineField}>
+          <span style={styles.inlineLabel}>主机</span>
           <input
             type="text"
             value={form.host}
             onChange={(e) => onFormChange('host', e.target.value)}
-            placeholder="例如: 192.168.1.100"
-            style={{ ...styles.input, ...styles.readonlyInput }}
+            placeholder="192.168.1.100"
+            style={{ ...styles.input, ...styles.hostInput, ...styles.readonlyInput }}
             readOnly
             disabled
           />
         </div>
 
-        <div style={styles.field}>
-          <label style={styles.label}>端口</label>
+        <div style={styles.inlineField}>
+          <span style={styles.inlineLabel}>端口</span>
           <input
             type="number"
             value={form.port}
             onChange={(e) => onFormChange('port', Number(e.target.value) || 22108)}
-            style={styles.input}
+            style={{ ...styles.input, ...styles.portInput }}
           />
         </div>
 
-        <div style={styles.field}>
-          <label style={styles.label}>数据库名</label>
+        <div style={styles.inlineField}>
+          <span style={styles.inlineLabel}>库名</span>
           <input
             type="text"
             value={form.database_name}
             onChange={(e) => onFormChange('database_name', e.target.value)}
-            placeholder="例如: kpos"
-            style={styles.input}
+            placeholder="kpos"
+            style={{ ...styles.input, ...styles.databaseInput }}
           />
         </div>
 
-        <div style={styles.field}>
-          <label style={styles.label}>用户名</label>
+        <div style={styles.inlineField}>
+          <span style={styles.inlineLabel}>用户</span>
           <input
             type="text"
             value={form.username}
             onChange={(e) => onFormChange('username', e.target.value)}
-            placeholder="例如: root"
-            style={{ ...styles.input, ...styles.readonlyInput }}
+            placeholder="root"
+            style={{ ...styles.input, ...styles.usernameInput, ...styles.readonlyInput }}
             readOnly
             disabled
           />
         </div>
 
-        <div style={{ ...styles.field, gridColumn: '1 / -1' }}>
-          <label style={styles.label}>密码</label>
-          <div style={styles.passwordRow}>
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={form.password}
-              onChange={(e) => onFormChange('password', e.target.value)}
-              placeholder="默认: N0mur@4$99!"
-              style={{ ...styles.input, flex: 1 }}
-            />
-            <button onClick={() => setShowPassword(!showPassword)} style={styles.toggleBtn}>
-              {showPassword ? '隐藏' : '显示'}
-            </button>
-          </div>
+        <div style={styles.passwordField}>
+          <span style={styles.inlineLabel}>密码</span>
+          <input
+            type={showPassword ? 'text' : 'password'}
+            value={form.password}
+            onChange={(e) => onFormChange('password', e.target.value)}
+            placeholder="N0mur@4$99!"
+            style={{ ...styles.input, ...styles.passwordInput }}
+          />
+          <button type="button" onClick={() => setShowPassword(!showPassword)} style={styles.toggleBtn}>
+            {showPassword ? '隐藏' : '显示'}
+          </button>
         </div>
-      </div>
 
-      <div style={styles.actions}>
         <button
+          type="button"
           onClick={onTest}
           disabled={testing}
           style={{ ...styles.btn, ...styles.testBtn, ...(testing ? styles.disabled : {}) }}
@@ -100,80 +95,89 @@ const styles = {
   card: {
     backgroundColor: '#fff',
     borderRadius: '10px',
-    padding: '16px',
+    padding: '10px 12px',
     boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
   },
-  header: {
+  inlineRow: {
     display: 'flex',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: '14px',
+    gap: '8px',
+    overflowX: 'auto',
+    whiteSpace: 'nowrap',
   },
   title: {
     margin: 0,
-    fontSize: '15px',
+    fontSize: '14px',
     fontWeight: 600,
     color: '#1D1D1F',
+    flex: '0 0 auto',
   },
   meta: {
     color: '#86868B',
     fontSize: '12px',
+    backgroundColor: '#F2F2F7',
+    borderRadius: '999px',
+    padding: '4px 10px',
+    flex: '0 0 auto',
   },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: '12px',
-  },
-  field: {
+  inlineField: {
     display: 'flex',
-    flexDirection: 'column',
+    alignItems: 'center',
     gap: '6px',
+    flex: '0 0 auto',
   },
-  label: {
+  passwordField: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    flex: '0 0 auto',
+  },
+  inlineLabel: {
     fontSize: '12px',
     color: '#86868B',
     fontWeight: 500,
+    flex: '0 0 auto',
   },
   input: {
     border: '1px solid #D1D1D6',
     borderRadius: '8px',
-    padding: '9px 12px',
-    fontSize: '13px',
+    padding: '6px 10px',
+    fontSize: '12px',
     outline: 'none',
+    height: '32px',
+    boxSizing: 'border-box',
   },
+  hostInput: { width: '170px' },
+  portInput: { width: '88px' },
+  databaseInput: { width: '120px' },
+  usernameInput: { width: '90px' },
+  passwordInput: { width: '170px' },
   readonlyInput: {
     backgroundColor: '#F7F7FA',
     color: '#6C6C70',
     cursor: 'not-allowed',
-  },
-  passwordRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
   },
   toggleBtn: {
     border: '1px solid #D1D1D6',
     backgroundColor: '#F2F2F7',
     color: '#1D1D1F',
     borderRadius: '8px',
-    padding: '9px 12px',
+    padding: '0 10px',
+    height: '32px',
     fontSize: '12px',
     cursor: 'pointer',
-  },
-  actions: {
-    marginTop: '14px',
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '8px',
+    flex: '0 0 auto',
   },
   btn: {
     border: 'none',
     borderRadius: '8px',
-    padding: '8px 14px',
+    padding: '7px 12px',
     color: '#fff',
     cursor: 'pointer',
-    fontSize: '13px',
+    fontSize: '12px',
     fontWeight: 500,
+    whiteSpace: 'nowrap',
+    flex: '0 0 auto',
   },
   testBtn: {
     backgroundColor: '#5AC8FA',
