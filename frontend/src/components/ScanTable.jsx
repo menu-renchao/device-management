@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, onEditOccupancy, onDeleteDevice, onClaimDevice, onResetOwner, isAdmin, currentUserId, onConfigNoPermission }) => {
+const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, onEditOccupancy, onDeleteDevice, onClaimDevice, onResetOwner, onBackupLicense, onImportLicense, isAdmin, currentUserId, onConfigNoPermission }) => {
   const navigate = useNavigate();
   const [openMenuKey, setOpenMenuKey] = useState(null);
   const [openMenuPlacement, setOpenMenuPlacement] = useState({ direction: 'down', top: 0, left: 0 });
@@ -66,7 +66,7 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
     const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
     const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
     const safePadding = 12;
-    const estimatedMenuHeight = 280;
+    const estimatedMenuHeight = 340;
     const estimatedMenuWidth = 132;
 
     const spaceAbove = Math.max(0, Math.floor(triggerRect.top - safePadding));
@@ -217,7 +217,10 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
             const canClaimDevice = hasMerchantId && !device.owner && !device.ownerId;
             const canResetOwner = isAdmin && hasMerchantId && (!!device.owner || !!device.ownerId);
             const canManageBorrow = hasMerchantId;
-            const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow;
+            const canManageLicense = hasMerchantId && canAccessDeviceConfig(device);
+            const canBackupLicense = canManageLicense && typeof onBackupLicense === 'function';
+            const canImportLicense = canManageLicense && typeof onImportLicense === 'function';
+            const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow || canBackupLicense || canImportLicense;
             const offlineTimeText = formatLastOnlineTime(device.lastOnlineTime);
             const statusText = isOnlineDevice
               ? (hasMerchantId ? '在线' : '服务异常')
@@ -386,6 +389,26 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
                               onClick={(e) => handleMenuAction(e, () => handleDbConfigClick(device))}
                             >
                               数据库配置
+                            </button>
+                          )}
+
+                          {canBackupLicense && (
+                            <button
+                              className="action-menu-item"
+                              onClick={(e) => handleMenuAction(e, () => onBackupLicense(device))}
+                              title="导出 License 备份 SQL 文件"
+                            >
+                              License备份
+                            </button>
+                          )}
+
+                          {canImportLicense && (
+                            <button
+                              className="action-menu-item"
+                              onClick={(e) => handleMenuAction(e, () => onImportLicense(device))}
+                              title="导入 License SQL 文件"
+                            >
+                              License导入
                             </button>
                           )}
 

@@ -117,6 +117,7 @@ func main() {
 	authService := services.NewAuthService(userRepo)
 	scanService := services.NewScanService()
 	linuxService := services.NewLinuxService()
+	licenseService := services.NewLicenseService()
 	warDownloadService := services.NewWarDownloadService(systemConfigRepo, warPackageRepo)
 	notificationService := services.NewNotificationService(notificationRepo)
 	dbConfigService := services.NewDBConfigService(dbConnectionRepo, dbSQLTemplateRepo, dbSQLTaskRepo)
@@ -124,7 +125,7 @@ func main() {
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
 	adminHandler := handlers.NewAdminHandler(userRepo, deviceRepo)
-	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService)
+	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService)
 	mobileHandler := handlers.NewMobileHandler(mobileRepo, userRepo, notificationService)
 	scanHandler := handlers.NewScanHandler(scanService, deviceRepo)
 	linuxHandler := handlers.NewLinuxHandler(linuxService, fileConfigRepo, deviceRepo, userRepo)
@@ -186,6 +187,8 @@ func main() {
 			device.POST("/claim/:id/reject", middleware.AdminOnly(userRepo), deviceHandler.RejectClaim)
 			device.DELETE("/:merchant_id/owner", middleware.AdminOnly(userRepo), deviceHandler.ResetOwner)
 			device.DELETE("/:merchant_id", middleware.AdminOnly(userRepo), deviceHandler.DeleteDevice)
+			device.POST("/license/backup", deviceHandler.BackupLicense)
+			device.POST("/license/import", deviceHandler.ImportLicense)
 
 			// POS设备借用申请
 			device.POST("/borrow-requests", deviceHandler.SubmitBorrowRequest)

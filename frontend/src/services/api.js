@@ -239,6 +239,31 @@ export const deviceAPI = {
     const authAxios = createAuthAxios();
     const response = await authAxios.post(`/device/borrow-requests/${requestId}/reject`, { reason });
     return response.data;
+  },
+
+  // License 备份（返回文件流）
+  backupLicense: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    return authAxios.post('/device/license/backup', {
+      merchant_id: merchantId
+    }, {
+      responseType: 'blob'
+    });
+  },
+
+  // License 导入（上传 .sql 文件）
+  importLicense: async (merchantId, file) => {
+    const formData = new FormData();
+    formData.append('merchant_id', merchantId);
+    formData.append('file', file);
+
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/license/import', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    return response.data;
   }
 };
 

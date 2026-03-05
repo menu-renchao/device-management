@@ -2,6 +2,10 @@ package handlers
 
 import (
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -19,13 +23,15 @@ type DeviceHandler struct {
 	deviceRepo          *repository.DeviceRepository
 	userRepo            *repository.UserRepository
 	notificationService *services.NotificationService
+	licenseService      *services.LicenseService
 }
 
-func NewDeviceHandler(deviceRepo *repository.DeviceRepository, userRepo *repository.UserRepository, notificationService *services.NotificationService) *DeviceHandler {
+func NewDeviceHandler(deviceRepo *repository.DeviceRepository, userRepo *repository.UserRepository, notificationService *services.NotificationService, licenseService *services.LicenseService) *DeviceHandler {
 	return &DeviceHandler{
 		deviceRepo:          deviceRepo,
 		userRepo:            userRepo,
 		notificationService: notificationService,
+		licenseService:      licenseService,
 	}
 }
 
@@ -1030,6 +1036,161 @@ func (h *DeviceHandler) RejectBorrowRequest(c *gin.Context) {
 	}
 
 	response.SuccessWithMessage(c, "借用申请已拒绝", nil)
+}
+
+// BackupLicense 导出 License SQL 备份文件
+func (h *DeviceHandler) BackupLicense(c *gin.Context) {
+	if h.licenseService == nil {
+		response.InternalError(c, "License服务未初始化")
+		return
+	}
+
+	var req struct {
+		MerchantID string `json:"merchant_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "请求格式无效")
+		return
+	}
+
+	merchantID := strings.TrimSpace(req.MerchantID)
+	if merchantID == "" {
+		response.BadRequest(c, "商家ID不能为空")
+		return
+	}
+
+	device, ok := h.getPermittedDeviceForLicense(c, merchantID)
+	if !ok {
+		return
+	}
+
+	host := strings.TrimSpace(device.IP)
+	if host == "" {
+		response.BadRequest(c, "设备IP为空，无法备份License")
+		return
+	}
+
+	result, err := h.licenseService.Backup(host)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	encodedFileName := url.QueryEscape(result.FileName)
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Type", "application/sql; charset=utf-8")
+	c.Header("Content-Disposition", "attachment; filename*=UTF-8''"+encodedFileName)
+	c.Header("Content-Transfer-Encoding", "binary")
+	c.Header("Cache-Control", "must-revalidate")
+	c.Header("Pragma", "public")
+	c.Data(http.StatusOK, "application/sql; charset=utf-8", result.Content)
+}
+
+// ImportLicense 导入 License SQL 文件
+func (h *DeviceHandler) ImportLicense(c *gin.Context) {
+	if h.licenseService == nil {
+		response.InternalError(c, "License服务未初始化")
+		return
+	}
+
+	merchantID := strings.TrimSpace(c.PostForm("merchant_id"))
+	if merchantID == "" {
+		response.BadRequest(c, "商家ID不能为空")
+		return
+	}
+
+	device, ok := h.getPermittedDeviceForLicense(c, merchantID)
+	if !ok {
+		return
+	}
+
+	host := strings.TrimSpace(device.IP)
+	if host == "" {
+		response.BadRequest(c, "设备IP为空，无法导入License")
+		return
+	}
+
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		response.BadRequest(c, "请上传SQL文件")
+		return
+	}
+	if strings.ToLower(filepath.Ext(fileHeader.Filename)) != ".sql" {
+		response.BadRequest(c, "仅支持上传 .sql 文件")
+		return
+	}
+	if fileHeader.Size <= 0 {
+		response.BadRequest(c, "SQL文件为空")
+		return
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		response.BadRequest(c, "读取SQL文件失败")
+		return
+	}
+	defer file.Close()
+
+	const maxSQLFileSize = 20 * 1024 * 1024
+	content, err := io.ReadAll(io.LimitReader(file, maxSQLFileSize+1))
+	if err != nil {
+		response.BadRequest(c, "读取SQL文件失败")
+		return
+	}
+	if int64(len(content)) > maxSQLFileSize {
+		response.BadRequest(c, "SQL文件过大，限制为20MB")
+		return
+	}
+	if strings.TrimSpace(string(content)) == "" {
+		response.BadRequest(c, "SQL文件内容为空")
+		return
+	}
+
+	importResult, err := h.licenseService.Import(host, string(content))
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	response.SuccessWithMessage(c, "License导入成功", gin.H{
+		"executed_count": importResult.ExecutedCount,
+		"file_name":      fileHeader.Filename,
+	})
+}
+
+func (h *DeviceHandler) getPermittedDeviceForLicense(c *gin.Context, merchantID string) (*models.ScanResult, bool) {
+	userID := middleware.GetUserID(c)
+	if userID == 0 {
+		response.Unauthorized(c, "未授权")
+		return nil, false
+	}
+
+	user, err := h.userRepo.GetByID(userID)
+	if err != nil || user == nil {
+		response.Unauthorized(c, "用户不存在")
+		return nil, false
+	}
+
+	device, err := h.deviceRepo.GetScanResultByMerchantID(merchantID)
+	if err != nil || device == nil {
+		response.NotFound(c, "设备不存在")
+		return nil, false
+	}
+
+	if user.Role == "admin" {
+		return device, true
+	}
+	if device.OwnerID != nil && *device.OwnerID == userID {
+		return device, true
+	}
+
+	occupancy, err := h.deviceRepo.GetOccupancyByMerchantID(merchantID)
+	if err == nil && occupancy != nil && occupancy.UserID == userID && occupancy.EndTime.After(time.Now()) {
+		return device, true
+	}
+
+	response.Forbidden(c, "您没有权限操作此设备，只有管理员、负责人或借用人才能访问")
+	return nil, false
 }
 
 // parseDateTime parses various datetime formats
