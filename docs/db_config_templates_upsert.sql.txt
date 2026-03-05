@@ -1,0 +1,360 @@
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('切换新UI', 'update system_configuration set val = ''NORMAL_NEW'' where name = ''RESTAURANT_DISPLAY_MODE'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('打开云菜单', 'UPDATE kpos.system_configuration SET val=''Cloudify'' WHERE name=''ADMIN_SRC_SERVICE'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('关闭云菜单', 'UPDATE kpos.system_configuration SET val=''Local'' WHERE name=''ADMIN_SRC_SERVICE'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('重新同步云菜单数据', 'delete from kpos.sync_scheduled_task_his;', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('估清测试环境配置', 'update system_configuration set val = ''https://cloud.menusifucloudqa.com/apicn'' where name = ''CLOUD_SERVICE_URL'';
+update system_configuration set val = ''dwvJJFJBkh3xZtRfaeqGv5KQxoAPJH6z8lRlXd7G'' where name = ''CLOUD_SERVICE_API_KEY'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('打开cd', 'update system_configuration set boolean_val=1 where name=''CASH_DISCOUNT_ENABLE''', 0, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('关闭cd', 'update system_configuration set boolean_val=0 where name=''CASH_DISCOUNT_ENABLE''', 0, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('扩充license数量', 'UPDATE `kpos`.`system_configuration` SET `val` = ''p7U2ZUeN6xKXDXk566n7o5LW7xgU9mJKokLkPSRLY/b+keGOkn5QWBX0OOBHRG94'' WHERE `name` = ''MAX_ANDROID_PHONE_ALLOWED'';
+UPDATE `kpos`.`system_configuration` SET `val` = ''GDy3abGKC4D/9TtUYsKppq4LnHyrTAD2thP2rFyVX8sjsyFCvwBg4a8tAJ0EwjJw'' WHERE `name` = ''MAX_ANDROID_TABLET_ALLOWED'';
+UPDATE `kpos`.`system_configuration` SET `val` = ''GDy3abGKC4D/9TtUYsKpprmrw8UMha3smpFl0c/TKVJtJyQuFyd0d299P6d/3PL7'' WHERE `name` = ''MAX_ANDROID_TABLET_PRO_ALLOWED'';
+UPDATE `kpos`.`system_configuration` SET `val` = ''L/fHcKKq77rxJ2C/yIxNF6Rq1eEi9BVcw/9JNfpsvLY='' WHERE `name` = ''MAX_EMENU_ALLOWED'';
+UPDATE `kpos`.`system_configuration` SET `val` = ''BxsBtccMz9jC27L/0WCXs+Hz2ApjctPWcB+iwlKfnHY='' WHERE `name` = ''MAX_IPAD_POS_ALLOWED'';
+UPDATE `kpos`.`system_configuration` SET `val` = ''dYxAvEQSLsApncLAG4skKz799PHP0Ke0yRZShaIp0Pw='' WHERE `name` = ''MAX_IPHONE_POS_ALLOWED'';
+UPDATE `kpos`.`system_configuration` SET `val` = ''W+Gws/SSiIGtRMrKuBMbm6Rq1eEi9BVcw/9JNfpsvLY='' WHERE `name` = ''MAX_KIOSK_ALLOWED'';
+UPDATE `kpos`.`system_configuration` SET `val` = ''rseq0eV7k0GutUWOzFKrP8z2Dztwmr4JRJN1eNIj5LusIFWxrvj71FV9EY6cScoi'' WHERE `name` = ''MAX_KITCHEN_DISPLAY_ALLOWED'';
+UPDATE `kpos`.`system_configuration` SET `val` = ''YJRca2DvpxbfcVNq1PeP3ox+W+rVUx3zDuUIhsQS4VY='' WHERE `name` = ''MAX_ONLINE_ORDER_ALLOWED'';
+UPDATE `kpos`.`system_configuration` SET `val` = ''83T2AYYSwUe0gBUpqAd1eQJE02cm8P9hpLyPXvLtZQM='' WHERE `name` = ''MAX_POS_ALLOWED'';
+UPDATE `kpos`.`system_configuration` SET `val` = ''RhFZNwyT22bG+BLC3A1dRJTXS5M4qr3sqnR9tSVcrU8='' WHERE `name` = ''MAX_POS_ANDROID_ALLOWED'';
+UPDATE `kpos`.`system_configuration` SET `val` = ''s7TKvzzWJijMhGkB9b89jxl4taQd3iQAB8+l3eTyV8A='' WHERE `name` = ''MAX_POS_IOS_ALLOWED'';
+UPDATE `kpos`.`system_configuration` SET `val` = ''uw9Be0esfL0frC/3KNWfpH/2h56xdqeoEAWizV/GBlHVEgu7U9gPH8EgK2D9bUpQ'' WHERE `name` = ''MAX_REGISTER_DISPLAY_ALLOWED'';
+UPDATE `kpos`.`system_configuration` SET `val` = ''nSVjOTz42iTBvTh++X/YzV/W/4Fm8X/yrERJp0OXjoHX40ZEbvK55e5wJGj6g4vv'' WHERE `name` = ''MAX_SELF_SERVICE_TERMINAL_ALLOWED'';
+UPDATE `kpos`.`system_configuration` SET `val` = ''zFhFfSQP0Rb2iwcHJrcQ8B3g71MXl34TP04JN+HULceWRSS2gxione+EOdHavZDZ'' WHERE `name` = ''MAX_WEARABLE_DEVICE_ALLOWED'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('开启云等位', 'UPDATE system_configuration SET boolean_val = 1 WHERE name = ''CLOUD_WAITING_LIST_SERVICE_ENABLED'';
+update system_configuration set val = ''https://cloud.menusifucloudqa.com/api'' where name = ''CLOUD_WAITING_LIST_SERVICE_URL'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('关闭云等位', 'UPDATE system_configuration SET boolean_val = 0 WHERE name = ''CLOUD_WAITING_LIST_SERVICE_ENABLED'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('修改网络连接检测为百度', 'UPDATE kpos.system_configuration SET val = ''www.baidu.com'' WHERE name = ''INTERNET_HOST'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('彻底清空云菜单表', 'TRUNCATE kpos.cdh_tasks;
+TRUNCATE kpos.cdh_released_message;
+TRUNCATE kpos.cdh_task_hook_stub;', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('切换快餐版', 'update system_configuration set val = ''FAST_FOOD'' where name = ''RESTAURANT_DISPLAY_MODE'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('开启版本回滚', 'update system_configuration set boolean_val=1 where name=''FLYWAY_SERVICE_NOT_ENABLED'';', 0, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('关闭版本回滚', 'update system_configuration set boolean_val=0 where name=''FLYWAY_SERVICE_NOT_ENABLED'';', 0, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('开启云打印', 'UPDATE system_configuration SET boolean_val = 0 WHERE name = ''PRINT_TICKET_WITH_JASPERREPORT'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('关闭云打印', 'UPDATE system_configuration SET boolean_val = 1 WHERE name = ''PRINT_TICKET_WITH_JASPERREPORT'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('首次切换云打印QA', 'update system_configuration set val=null where name=''PRINTING_SENDING_CLOUD_DATA'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('这条加到pos里了。如果是没跑过16.6的环境，会自动执行这条。已经跑过的，就需要手工去insert；如果报错了，就把insert改成update', 'UPDATE `system_configuration`
+SET `val` = ''Oe3F7bmbmi5HNVC7johaX1ngDakBocQnIpxZuX73'',
+`description` = ''Printing API KEY'',
+`created_on` = now(),
+`version` = 0,
+`display_name` = ''Printing API KEY'',
+`category` = ''System'',
+`frontend_readable` = 0,
+`frontend_editable` = 0,
+`admin_readable` = 0,
+`admin_editable` = 0,
+`config_type` = ''INPUT'',
+`global_setting` = 1,
+`user_setting` = 0,
+`app_setting` = 0,
+`sync_to_cloud` = 1,
+`sequence_num` = 9999
+WHERE `name` = ''PRINTING_API_KEY'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('开通云会员', 'update kpos.system_configuration set val = ''https://cloud.menusifucloudqa.com/api/integra-crm'' where name = ''CRM_SERVICE_URL'';
+update kpos.system_configuration set val = ''https://commonlib.menusifu.com/api/price/test'' where name = ''PRICES_AND_POINTS_RULES_SERVICE_URL'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('权限处理', 'GRANT ALL PRIVILEGES ON *.* TO ''root''@''%'' IDENTIFIED BY ''N0mur@4$99!'' WITH GRANT OPTION;', 0, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('oo没菜', 'delete from kpos.sync_scheduled_task_his;', 0, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('效期对接qa', 'UPDATE `system_configuration` SET  `val` = ''api.balamxqa.com''  WHERE `name` = ''SOCKET_INTEGRATION_SERVICE_URL'';
+UPDATE `system_configuration` SET  `val` = ''Oe3F7bmbmi5HNVC7johaX1ngDakBocQnIpxZuX73''  WHERE `name` = ''SOCKET_INTEGRATION_SERVICE_KEY'';
+UPDATE `system_configuration` SET  `val` = ''https://api.balamxqa.com/wms/api/v1/pos/expiration/detail/''  WHERE `name` = ''WMS_INTEGRATION_SERVICE_URL'';
+UPDATE `system_configuration` SET  `val` = ''Oe3F7bmbmi5HNVC7johaX1ngDakBocQnIpxZuX73''  WHERE `name` = ''WMS_INTEGRATION_SERVICE_KEY'';
+UPDATE `system_configuration` SET  `val` = ''https://cloud.menusifucloudqa.com/api/iam/api/getBusinessSeqByMerchantId''  WHERE `name` = ''BPLATFORM_INTEGRATION_SERVICE_URL'';
+UPDATE `system_configuration` SET  `val` = ''MokqLz4zw63Rd8oVDLmOM8TUsURI3AcOvabA4lta''  WHERE `name` = ''BPLATFORM_INTEGRATION_SERVICE_KEY'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('切换tripos到qa', 'update system_configuration set val = ''https://certtransaction.elementexpress.com'' where name = ''WORLDPAY_EXPRESS_TRANSACTION_URL'';
+update system_configuration set val = ''https://certreporting.elementexpress.com'' where name = ''WORLDPAY_EXPRESS_REPORTING_URL'';
+update partner_integration set account_id = ''1290958'', acceptor_id = ''364806082'',token= ''259561E88AFC0ADD1C8C8493684E4061139447FD95F102EFCD5E953B50405C7835A2E501'' where name = ''WorldPay'';', 0, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('wdl切换为测试环境', 'update partner_integration set api_url = ''https://uatmcm.roamdata.com'', api_key = ''SDK6-1336b209-f5ee-4edf-bdbd-a474f29ceeaa'' where name = ''Ingenico-Bluetooth'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('清空蓝牙设备列表', 'delete FROM kpos.`terminal`', 0, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('开启caller id', 'UPDATE system_configuration SET boolean_val = 1 WHERE name = ''CALLERID_ENABLED'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('关闭caller id', 'UPDATE system_configuration SET boolean_val = 0 WHERE name = ''CALLERID_ENABLED'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('开启打印debug', 'UPDATE system_configuration SET boolean_val = 1 WHERE name = ''PRINTING_DEBUG_MODE'';', 0, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('关闭打印debug', 'UPDATE system_configuration SET boolean_val = 0 WHERE name = ''PRINTING_DEBUG_MODE'';', 0, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('打开离线支付', 'update system_configuration set boolean_val=1 where name=''ENABLE_SAF_FUNCTION'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('关闭离线刷卡', 'update system_configuration set boolean_val=0 where name=''ENABLE_SAF_FUNCTION'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('打开云菜单入口 cloud-admin', 'UPDATE `kpos`.`system_configuration` SET  `val` = ''Cloudify'' WHERE `name` = ''ADMIN_SRC_SERVICE'';', 0, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('关闭云菜单入口  cloud-admin', 'UPDATE `kpos`.`system_configuration` SET  `val` = '''' WHERE `name` = ''ADMIN_SRC_SERVICE'';', 0, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;
+
+INSERT INTO db_sql_templates (name, sql_content, need_restart, remark, created_by, updated_by, created_at, updated_at)
+VALUES ('ad会员切换到qa环境', 'update system_configuration set val=''https://cloud.menusifucloudqa.com/api/promotion/api/v2'' where name=''PROMOTION_SERVICE_URL'';
+update system_configuration set val=''https://cloud.menusifucloudqa.com/api'' where name=''CRM_INTEGRATION_SERVICE_URL'';
+update system_configuration set val=''vVVd973fN3sRowLZCtmcU00HwoWgU59ftcAquE+7p8v+keGOkn5QWBX0OOBHRG94'' where name=''CRM_INTEGRATION_API_KEY'';
+update system_configuration set val=''https://commonlib.menusifu.com/api/price/test'' where name=''PRICES_AND_POINTS_RULES_SERVICE_URL'';', 1, '', 2, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+  sql_content=excluded.sql_content,
+  need_restart=excluded.need_restart,
+  remark=excluded.remark,
+  updated_by=excluded.updated_by,
+  updated_at=CURRENT_TIMESTAMP;

@@ -1,8 +1,16 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, onEditOccupancy, onDeleteDevice, onClaimDevice, onResetOwner, isAdmin, currentUserId, onConfigNoPermission }) => {
   const navigate = useNavigate();
+  const [openMenuKey, setOpenMenuKey] = useState(null);
+  const [openMenuPlacement, setOpenMenuPlacement] = useState({ direction: 'down', maxHeight: 260 });
+
+  useEffect(() => {
+    const closeMenu = () => setOpenMenuKey(null);
+    document.addEventListener('click', closeMenu);
+    return () => document.removeEventListener('click', closeMenu);
+  }, []);
 
   // 处理配置按钮点击
   const handleConfigClick = (device) => {
@@ -14,10 +22,81 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
       onConfigNoPermission();
     }
   };
+
+  // 处理数据库配置按钮点击
+  const handleDbConfigClick = (device) => {
+    if (!device?.merchantId) return;
+    const isOwner = device.owner?.id === currentUserId;
+    const isOccupier = device.occupancy?.userId === currentUserId;
+    if (isAdmin || isOwner || isOccupier) {
+      navigate(`/db-config/${device.merchantId}`, { state: { device } });
+    } else if (onConfigNoPermission) {
+      onConfigNoPermission();
+    }
+  };
+
+  const supportsDBConfig = (deviceType) => {
+    const type = (deviceType || '').toLowerCase();
+    return type === 'linux' || type === 'windows';
+  };
+
+  const canAccessDeviceConfig = (device) => {
+    const isOwner = device.owner?.id === currentUserId;
+    const isOccupier = device.occupancy?.userId === currentUserId;
+    return isAdmin || isOwner || isOccupier;
+  };
+
+  const calculateMenuPlacement = (triggerEl) => {
+    if (!triggerEl) {
+      return { direction: 'down', maxHeight: 260 };
+    }
+
+    const tableContainer = triggerEl.closest('.scan-table-container');
+    if (!tableContainer) {
+      return { direction: 'down', maxHeight: 260 };
+    }
+
+    const triggerRect = triggerEl.getBoundingClientRect();
+    const containerRect = tableContainer.getBoundingClientRect();
+    const safePadding = 12;
+    const spaceAbove = Math.max(0, Math.floor(triggerRect.top - containerRect.top - safePadding));
+    const spaceBelow = Math.max(0, Math.floor(containerRect.bottom - triggerRect.bottom - safePadding));
+    const estimatedMenuHeight = 240;
+    const shouldOpenUp = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(120, shouldOpenUp ? spaceAbove : spaceBelow);
+
+    return {
+      direction: shouldOpenUp ? 'up' : 'down',
+      maxHeight
+    };
+  };
+
+  const toggleMoreMenu = (e, rowKey) => {
+    e.stopPropagation();
+    if (openMenuKey === rowKey) {
+      setOpenMenuKey(null);
+      return;
+    }
+    setOpenMenuPlacement(calculateMenuPlacement(e.currentTarget));
+    setOpenMenuKey(rowKey);
+  };
+
+  const handleMenuAction = (e, action) => {
+    e.stopPropagation();
+    setOpenMenuKey(null);
+    action();
+  };
+
+  const getConfigDisabledReason = (device) => {
+    if (!device?.merchantId) return '缺少商家ID，无法配置';
+    if (!canAccessDeviceConfig(device)) return '无权限：仅管理员、负责人或借用人可操作';
+    return '';
+  };
   // 格式化时间显示
   const formatTime = (isoString) => {
-    if (!isoString) return '——';
+    if (!isoString) return '';
     const date = new Date(isoString);
+    if (Number.isNaN(date.getTime())) return '';
     return date.toLocaleString('zh-CN', {
       month: '2-digit',
       day: '2-digit',
@@ -38,200 +117,304 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
     });
   };
 
+  const getDeviceTypeIcon = (deviceType) => {
+    const type = (deviceType || '').toLowerCase();
+    if (type.includes('linux')) return '🐧';
+    if (type.includes('win')) return '🪟';
+    return '🖥';
+  };
+
+  const getPurposeText = (purpose) => {
+    if (purpose === null || purpose === undefined) return '';
+    if (typeof purpose === 'string') return purpose.trim();
+    if (typeof purpose === 'object') {
+      if (typeof purpose.String === 'string') return purpose.String.trim();
+      if (typeof purpose.value === 'string') return purpose.value.trim();
+    }
+    return String(purpose).trim();
+  };
+
+  const getPurposeDisplay = (hasMerchantId, isOccupied, purposeText) => {
+    if (!hasMerchantId) {
+      return { text: '不适用', tone: 'muted', title: '缺少商家ID' };
+    }
+    if (!isOccupied) {
+      return { text: '空闲中', tone: 'idle', title: '设备当前未借用' };
+    }
+    if (!purposeText) {
+      return { text: '待补充', tone: 'warn', title: '借用用途未填写' };
+    }
+    return { text: purposeText, tone: 'normal', title: purposeText };
+  };
+
+  const getReturnDisplay = (hasMerchantId, isOccupied, endTime) => {
+    if (!hasMerchantId) {
+      return { text: '不适用', tone: 'muted', title: '缺少商家ID' };
+    }
+    if (!isOccupied) {
+      return { text: '无需归还', tone: 'idle', title: '设备当前未借用' };
+    }
+
+    const formattedTime = formatTime(endTime);
+    if (!formattedTime) {
+      return { text: '未设置', tone: 'warn', title: '归还时间未设置' };
+    }
+
+    return { text: formattedTime, tone: 'normal', title: formattedTime };
+  };
+
   return (
     <div className="scan-table-container">
       <table className="scan-table">
         <thead>
           <tr>
-            <th className="ip-col">IP</th>
-            <th>类型</th>
-            <th>商家ID</th>
-            <th>名称</th>
-            <th>版本</th>
-            <th>分类</th>
-            <th>负责人</th>
-            <th>借用状态</th>
-            <th>归还时间</th>
-            <th>操作</th>
+            <th className="ip-col">设备</th>
+            <th className="merchant-col">商家 / MID</th>
+            <th className="property-col">分类</th>
+            <th className="version-col">版本</th>
+            <th className="owner-col">负责人</th>
+            <th className="occupancy-col">借用状态</th>
+            <th className="purpose-col">用途</th>
+            <th className="return-col">归还时间</th>
+            <th className="action-col">操作</th>
           </tr>
         </thead>
         <tbody>
-          {devices.map((device, index) => (
-            <tr key={device.id || `${device.ip}-${device.merchantId || index}`} className={index % 2 === 0 ? 'even' : 'odd'}>
-              <td>
-                <div className="ip-cell">
-                  <span className="ip-address">{device.ip}</span>
-                  {device.isOnline === true ? (
-                    device.merchantId ? (
-                      <span className="online-indicator" title="在线"></span>
-                    ) : (
-                      <span className="error-indicator" title="服务不可用"></span>
-                    )
-                  ) : (
-                    <span className="offline-indicator" title="离线"></span>
-                  )}
+          {devices.map((device, index) => {
+            const rowKey = device.id || `${device.ip}-${device.merchantId || index}`;
+            const hasMerchantId = !!device.merchantId;
+            const isOnlineDevice = device.isOnline === true;
+            const canOpen = isOnlineDevice && hasMerchantId;
+            const canShowDetails = hasMerchantId;
+            const isLinuxDevice = (device.type || '').toLowerCase() === 'linux';
+            const showDBConfig = supportsDBConfig(device.type);
+            const configDisabledReason = getConfigDisabledReason(device);
+            const canUseConfig = configDisabledReason === '';
+            const showDelete = isAdmin && (!isOnlineDevice || !hasMerchantId);
+            const canClaimDevice = hasMerchantId && !device.owner && !device.ownerId;
+            const canResetOwner = isAdmin && hasMerchantId && (!!device.owner || !!device.ownerId);
+            const canManageBorrow = hasMerchantId;
+            const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow;
+            const offlineTimeText = formatLastOnlineTime(device.lastOnlineTime);
+            const statusText = isOnlineDevice
+              ? (hasMerchantId ? '在线' : '服务异常')
+              : (offlineTimeText ? `离线 ${offlineTimeText}` : '离线');
+            const statusToneClassName = isOnlineDevice
+              ? (hasMerchantId ? 'online' : 'error')
+              : 'offline';
+            const statusDotClassName = isOnlineDevice
+              ? (hasMerchantId ? 'online-indicator' : 'error-indicator')
+              : 'offline-indicator';
+            const merchantIdText = device.merchantId || (device.name && device.version ? 'Free Trials' : '——');
+            const propertyText = (device.property || '').trim();
+            const typeLower = (device.type || '').toLowerCase();
+            const deviceTypeText = device.type || '未知类型';
+            const deviceTypeIcon = getDeviceTypeIcon(device.type);
+            const deviceTypeClass = typeLower.includes('linux') ? 'linux' : (typeLower.includes('win') ? 'windows' : 'other');
+            const canViewDetails = canShowDetails && typeof onShowDetails === 'function';
+            const occupancyPurposeText = getPurposeText(device.occupancy?.purpose);
+            const purposeDisplay = getPurposeDisplay(hasMerchantId, device.isOccupied, occupancyPurposeText);
+            const returnDisplay = getReturnDisplay(hasMerchantId, device.isOccupied, device.occupancy?.endTime);
+
+            return (
+            <tr
+              key={rowKey}
+              className={`${index % 2 === 0 ? 'even' : 'odd'} ${canViewDetails ? 'row-clickable' : ''}`}
+              onClick={() => canViewDetails && onShowDetails(device)}
+              title={canViewDetails ? '点击查看详情' : ''}
+            >
+              <td className="ip-col-cell">
+                <div className="device-cell">
+                  <div className="device-top-line">
+                    <span className="ip-address" title={device.ip || '——'}>{device.ip || '——'}</span>
+                    <span className={statusDotClassName} title={statusText}></span>
+                  </div>
+                  <div className="device-bottom-line" title={`设备类型: ${deviceTypeText} · ${statusText}`}>
+                    <span
+                      className={`ip-type-icon ${deviceTypeClass}`}
+                      title={`设备类型: ${deviceTypeText}`}
+                    >
+                      {deviceTypeIcon}
+                    </span>
+                    <span className={`device-status-text ${statusToneClassName}`}>{statusText}</span>
+                  </div>
                 </div>
               </td>
-              <td>{device.type || '——'}</td>
-              <td>{device.merchantId || (device.name && device.version ? 'Free Trials' : '——')}</td>
-              <td>{device.name || '——'}</td>
-              <td>{device.version || '——'}</td>
-              <td>
-                {device.property ? (
-                  <span
-                    className="property-tag"
-                    style={isAdmin && device.merchantId ? { cursor: 'pointer' } : {}}
-                    onClick={() => isAdmin && device.merchantId && onEditProperty(device)}
-                    title={isAdmin && device.merchantId ? '点击修改分类' : ''}
-                  >
-                    {device.property}
+              <td className="merchant-col-cell">
+                <div className="merchant-cell-stack">
+                  <span className="merchant-name" title={device.name || '——'}>{device.name || '——'}</span>
+                  <span className="merchant-mid" title={`MID: ${merchantIdText}`}>MID: {merchantIdText}</span>
+                </div>
+              </td>
+              <td className="property-col-cell">
+                {propertyText ? (
+                  <span className="property-tag merchant-property" title={`分类: ${propertyText}`}>
+                    {propertyText}
                   </span>
                 ) : (
-                  <span
-                    className="property-empty"
-                    style={isAdmin && device.merchantId ? { cursor: 'pointer' } : {}}
-                    onClick={() => isAdmin && device.merchantId && onEditProperty(device)}
-                    title={isAdmin && device.merchantId ? '点击设置分类' : ''}
-                  >
-                    ——
-                  </span>
+                  <span className="property-empty">——</span>
                 )}
               </td>
-              <td>
+              <td className="version-col-cell">
+                <span className="version-text" title={device.version || '——'}>{device.version || '——'}</span>
+              </td>
+              <td className="owner-col-cell">
                 {device.owner ? (
                   <div className="owner-cell">
-                    <span className="owner-name">{device.owner.username || '用户已删除'}</span>
-                    {isAdmin && (
-                      <button
-                        className="btn-reset-owner"
-                        onClick={() => onResetOwner(device)}
-                        title="重置负责人"
-                      >
-                        ×
-                      </button>
-                    )}
+                    <span className="owner-name" title={device.owner.username || '用户已删除'}>
+                      {device.owner.username || '用户已删除'}
+                    </span>
                   </div>
                 ) : device.ownerId ? (
                   // ownerId 有值但 owner 为空，说明用户已被删除
                   <div className="owner-cell">
                     <span className="owner-name deleted-owner">用户已删除</span>
-                    {isAdmin && (
-                      <button
-                        className="btn-reset-owner"
-                        onClick={() => onResetOwner(device)}
-                        title="重置负责人"
-                      >
-                        ×
-                      </button>
-                    )}
                   </div>
                 ) : device.merchantId ? (
-                  <button
-                    className="btn btn-sm btn-claim"
-                    onClick={() => onClaimDevice(device)}
-                  >
-                    认领
-                  </button>
+                  <span className="owner-unclaimed">未认领</span>
                 ) : (
                   <span className="property-empty">——</span>
                 )}
               </td>
-              <td>
-                {device.isOccupied ? (
-                  <span
-                    className="occupancy-occupied"
-                    onClick={() => onEditOccupancy(device)}
-                    title={`用途: ${device.occupancy?.purpose || '无'}`}
-                  >
-                    {device.occupancy?.username || '用户已删除'}
-                  </span>
-                ) : (
-                  <span
-                    className="occupancy-free"
-                    onClick={() => device.merchantId && onEditOccupancy(device)}
-                    style={{ cursor: device.merchantId ? 'pointer' : 'default' }}
-                  >
-                    可借用
-                  </span>
-                )}
-              </td>
-              <td>
-                {device.isOccupied ? (
-                  <span className="release-time">{formatTime(device.occupancy?.endTime)}</span>
-                ) : (
-                  <span className="property-empty">——</span>
-                )}
-              </td>
-              <td>
-                <div className="action-buttons">
-                  {device.isOnline && device.merchantId ? (
-                    <>
-                      <button
-                        className="btn btn-sm btn-primary"
-                        onClick={() => onOpenDevice(device.ip)}
-                      >
-                        打开
-                      </button>
-                      <button
-                        className="btn btn-sm btn-success"
-                        onClick={() => onShowDetails(device)}
-                      >
-                        详情
-                      </button>
-                      {device.type === 'linux' && (
-                        <button
-                          className="btn btn-sm btn-config"
-                          onClick={() => handleConfigClick(device)}
-                          title="Linux 配置管理"
-                        >
-                          配置
-                        </button>
-                      )}
-                    </>
-                  ) : device.isOnline && !device.merchantId ? (
-                    <>
-                      <span className="service-unavailable">服务不可用</span>
-                      {isAdmin && (
-                        <button
-                          className="btn btn-sm btn-danger"
-                          onClick={() => onDeleteDevice(device)}
-                          title="删除此设备"
-                        >
-                          删除
-                        </button>
-                      )}
-                    </>
-                  ) : !device.isOnline ? (
-                    <>
-                      <span className="offline-label">
-                        离线: {formatLastOnlineTime(device.lastOnlineTime)}
-                      </span>
-                      {device.type === 'linux' && (
-                        <button
-                          className="btn btn-sm btn-config"
-                          onClick={() => handleConfigClick(device)}
-                          title="Linux 配置管理"
-                        >
-                          配置
-                        </button>
-                      )}
-                      {isAdmin && (
-                        <button
-                          className="btn btn-sm btn-danger"
-                          onClick={() => onDeleteDevice(device)}
-                          title="删除此设备"
-                        >
-                          删除
-                        </button>
-                      )}
-                    </>
+              <td className="occupancy-col-cell">
+                {hasMerchantId ? (
+                  device.isOccupied ? (
+                    <span
+                      className="occupancy-occupied"
+                      title={`借用人: ${device.occupancy?.username || '用户已删除'}`}
+                    >
+                      {device.occupancy?.username || '用户已删除'}
+                    </span>
                   ) : (
+                    <span className="occupancy-free">可借用</span>
+                  )
+                ) : (
+                  <span className="property-empty">——</span>
+                )}
+              </td>
+              <td className="purpose-col-cell" title={purposeDisplay.title}>
+                <span className={purposeDisplay.tone === 'normal' ? 'semantic-value' : `semantic-value semantic-value-${purposeDisplay.tone}`}>
+                  {purposeDisplay.text}
+                </span>
+              </td>
+              <td className="return-col-cell" title={returnDisplay.title}>
+                <span className={returnDisplay.tone === 'normal' ? 'semantic-value' : `semantic-value semantic-value-${returnDisplay.tone}`}>
+                  {returnDisplay.text}
+                </span>
+              </td>
+              <td className="action-col-cell">
+                <div className="action-buttons" onClick={(e) => e.stopPropagation()}>
+                  {canOpen && (
+                    <button
+                      className="btn btn-sm btn-primary"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenDevice(device.ip);
+                      }}
+                    >
+                      打开
+                    </button>
+                  )}
+
+                  {hasMoreActions && (
+                    <div className="action-more-wrap" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className="btn btn-sm btn-secondary btn-more"
+                        onClick={(e) => toggleMoreMenu(e, rowKey)}
+                        aria-expanded={openMenuKey === rowKey}
+                      >
+                        更多
+                      </button>
+
+                      {openMenuKey === rowKey && (
+                        <div
+                          className={`action-dropdown ${openMenuPlacement.direction === 'up' ? 'up' : 'down'}`}
+                          style={{ maxHeight: `${openMenuPlacement.maxHeight}px` }}
+                        >
+                          {isAdmin && hasMerchantId && (
+                            <button
+                              className="action-menu-item"
+                              onClick={(e) => handleMenuAction(e, () => onEditProperty(device))}
+                              title="编辑设备分类"
+                            >
+                              编辑分类
+                            </button>
+                          )}
+
+                          {isLinuxDevice && (
+                            <button
+                              className={`action-menu-item ${!canUseConfig ? 'disabled' : ''}`}
+                              disabled={!canUseConfig}
+                              title={configDisabledReason || 'Linux 配置管理'}
+                              onClick={(e) => handleMenuAction(e, () => handleConfigClick(device))}
+                            >
+                              Linux配置
+                            </button>
+                          )}
+
+                          {showDBConfig && (
+                            <button
+                              className={`action-menu-item ${!canUseConfig ? 'disabled' : ''}`}
+                              disabled={!canUseConfig}
+                              title={configDisabledReason || '数据库配置管理'}
+                              onClick={(e) => handleMenuAction(e, () => handleDbConfigClick(device))}
+                            >
+                              数据库配置
+                            </button>
+                          )}
+
+                          {canManageBorrow && (
+                            <button
+                              className="action-menu-item"
+                              onClick={(e) => handleMenuAction(e, () => onEditOccupancy(device))}
+                              title={device.isOccupied ? '查看借用并可操作归还' : '借用设备'}
+                            >
+                              {device.isOccupied ? '借用管理' : '借用设备'}
+                            </button>
+                          )}
+
+                          {canClaimDevice && (
+                            <button
+                              className="action-menu-item"
+                              onClick={(e) => handleMenuAction(e, () => onClaimDevice(device))}
+                              title="提交认领申请"
+                            >
+                              认领设备
+                            </button>
+                          )}
+
+                          {canResetOwner && (
+                            <button
+                              className="action-menu-item"
+                              onClick={(e) => handleMenuAction(e, () => onResetOwner(device))}
+                              title="重置负责人"
+                            >
+                              重置负责人
+                            </button>
+                          )}
+
+                          {showDelete && (
+                            <button
+                              className="action-menu-item danger"
+                              onClick={(e) => handleMenuAction(e, () => onDeleteDevice(device))}
+                              title="删除此设备"
+                            >
+                              删除设备
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!canOpen && !hasMoreActions && (
                     <span className="property-empty">——</span>
                   )}
+
                 </div>
               </td>
             </tr>
-          ))}
+          )})}
         </tbody>
       </table>
     </div>

@@ -9,6 +9,7 @@ import AdminUsersPage from './pages/AdminUsersPage';
 import ScanPage from './pages/ScanPage';
 import MobileDevicesPage from './pages/MobileDevicesPage';
 import LinuxConfigPage from './pages/LinuxConfigPage';
+import DBConfigPage from './pages/DBConfigPage';
 import WarPackageManagePage from './pages/WarPackageManagePage';
 import BorrowApprovalPage from './pages/BorrowApprovalPage';
 import WorkspacePage from './pages/WorkspacePage';
@@ -143,6 +144,15 @@ function App() {
             <PrivateRoute>
               <MainLayout>
                 <LinuxConfigPage />
+              </MainLayout>
+            </PrivateRoute>
+          } />
+
+          {/* 数据库配置管理 */}
+          <Route path="/db-config/:merchantId" element={
+            <PrivateRoute>
+              <MainLayout>
+                <DBConfigPage />
               </MainLayout>
             </PrivateRoute>
           } />

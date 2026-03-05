@@ -77,6 +77,16 @@ const MyDevicesTab = () => {
     });
   };
 
+  const getPurposeText = (purpose) => {
+    if (purpose === null || purpose === undefined) return '';
+    if (typeof purpose === 'string') return purpose.trim();
+    if (typeof purpose === 'object') {
+      if (typeof purpose.String === 'string') return purpose.String.trim();
+      if (typeof purpose.value === 'string') return purpose.value.trim();
+    }
+    return String(purpose).trim();
+  };
+
   if (loading) {
     return (
       <div style={styles.loading}>
@@ -169,7 +179,7 @@ const MyDevicesTab = () => {
                       </span>
                     </td>
                     <td style={styles.td}>{device.occupancy?.username || device.occupancy?.userId || '——'}</td>
-                    <td style={styles.td}>{device.occupancy?.purpose || '——'}</td>
+                    <td style={styles.td}>{getPurposeText(device.occupancy?.purpose) || '——'}</td>
                     <td style={styles.td}>
                       {device.occupancy ? formatTime(device.occupancy.endTime) : '——'}
                     </td>

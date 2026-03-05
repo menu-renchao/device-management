@@ -1,0 +1,461 @@
+package services
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"device-management/internal/config"
+	"device-management/internal/models"
+	"device-management/internal/repository"
+	appcrypto "device-management/pkg/crypto"
+
+	"github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
+)
+
+type DBConnectionInput struct {
+	DBType       string `json:"db_type"`
+	Host         string `json:"host"`
+	Port         int    `json:"port"`
+	DatabaseName string `json:"database_name"`
+	Username     string `json:"username"`
+	Password     string `json:"password"`
+}
+
+type ExecuteTemplatesInput struct {
+	MerchantID     string `json:"merchant_id"`
+	TemplateIDs    []uint `json:"template_ids"`
+	ForceExecute   bool   `json:"force_execute"`
+	ForceReason    string `json:"force_reason"`
+	DeviceType     string
+	ExecutorUserID uint
+	ExecutorRole   string
+	ClientIP       string
+	UserAgent      string
+}
+
+type RiskSQLBlockedError struct {
+	Risks []SQLRiskResult
+}
+
+func (e *RiskSQLBlockedError) Error() string {
+	return "检测到高风险 SQL，默认禁止执行"
+}
+
+type DBConfigService struct {
+	connectionRepo *repository.DeviceDBConnectionRepository
+	templateRepo   *repository.DBSQLTemplateRepository
+	taskRepo       *repository.DBSQLExecuteTaskRepository
+	lockMap        sync.Map
+}
+
+func NewDBConfigService(
+	connectionRepo *repository.DeviceDBConnectionRepository,
+	templateRepo *repository.DBSQLTemplateRepository,
+	taskRepo *repository.DBSQLExecuteTaskRepository,
+) *DBConfigService {
+	return &DBConfigService{
+		connectionRepo: connectionRepo,
+		templateRepo:   templateRepo,
+		taskRepo:       taskRepo,
+	}
+}
+
+func (s *DBConfigService) GetConnection(merchantID string) (*models.DeviceDBConnection, error) {
+	return s.connectionRepo.GetByMerchantID(merchantID)
+}
+
+func (s *DBConfigService) UpsertConnection(merchantID string, input DBConnectionInput, updatedBy uint) (*models.DeviceDBConnection, error) {
+	if strings.TrimSpace(merchantID) == "" {
+		return nil, fmt.Errorf("merchant_id 不能为空")
+	}
+	if strings.TrimSpace(input.Host) == "" || strings.TrimSpace(input.DatabaseName) == "" || strings.TrimSpace(input.Username) == "" {
+		return nil, fmt.Errorf("主机、数据库名和用户名不能为空")
+	}
+	if input.Port <= 0 {
+		input.Port = 3306
+	}
+	if input.DBType == "" {
+		input.DBType = "mysql"
+	}
+	if input.DBType != "mysql" {
+		return nil, fmt.Errorf("当前仅支持 mysql")
+	}
+
+	existing, err := s.connectionRepo.GetByMerchantID(merchantID)
+	if err != nil {
+		return nil, err
+	}
+
+	encryptedPassword := ""
+	if strings.TrimSpace(input.Password) == "" {
+		if existing == nil {
+			return nil, fmt.Errorf("密码不能为空")
+		}
+		encryptedPassword = existing.PasswordEncrypted
+	} else {
+		encryptedPassword, err = appcrypto.EncryptPassword(input.Password, s.getCipherSecret())
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	conn := &models.DeviceDBConnection{
+		MerchantID:        merchantID,
+		DBType:            input.DBType,
+		Host:              strings.TrimSpace(input.Host),
+		Port:              input.Port,
+		DatabaseName:      strings.TrimSpace(input.DatabaseName),
+		Username:          strings.TrimSpace(input.Username),
+		PasswordEncrypted: encryptedPassword,
+		UpdatedBy:         updatedBy,
+	}
+	if err := s.connectionRepo.Upsert(conn); err != nil {
+		return nil, err
+	}
+	return s.connectionRepo.GetByMerchantID(merchantID)
+}
+
+func (s *DBConfigService) TestConnection(input DBConnectionInput) error {
+	if strings.TrimSpace(input.Host) == "" || strings.TrimSpace(input.DatabaseName) == "" || strings.TrimSpace(input.Username) == "" || strings.TrimSpace(input.Password) == "" {
+		return fmt.Errorf("连接信息不完整")
+	}
+	if input.Port <= 0 {
+		input.Port = 3306
+	}
+
+	db, err := openMySQL(input)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("连接失败: %w", err)
+	}
+	return nil
+}
+
+func (s *DBConfigService) TestConnectionForMerchant(merchantID string, input DBConnectionInput) error {
+	if strings.TrimSpace(merchantID) == "" {
+		return fmt.Errorf("merchant_id 不能为空")
+	}
+	existing, err := s.connectionRepo.GetByMerchantID(merchantID)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		if strings.TrimSpace(input.DBType) == "" {
+			input.DBType = existing.DBType
+		}
+		if strings.TrimSpace(input.Host) == "" {
+			input.Host = existing.Host
+		}
+		if input.Port <= 0 {
+			input.Port = existing.Port
+		}
+		if strings.TrimSpace(input.DatabaseName) == "" {
+			input.DatabaseName = existing.DatabaseName
+		}
+		if strings.TrimSpace(input.Username) == "" {
+			input.Username = existing.Username
+		}
+		if strings.TrimSpace(input.Password) == "" {
+			decrypted, decErr := s.decryptConnection(existing)
+			if decErr != nil {
+				return decErr
+			}
+			input.Password = decrypted.Password
+		}
+	}
+	return s.TestConnection(input)
+}
+
+func (s *DBConfigService) ExecuteTemplates(input ExecuteTemplatesInput) (*models.DBSQLExecuteTask, []models.DBSQLExecuteTaskItem, error) {
+	if strings.TrimSpace(input.MerchantID) == "" {
+		return nil, nil, fmt.Errorf("merchant_id 不能为空")
+	}
+	if len(input.TemplateIDs) == 0 {
+		return nil, nil, fmt.Errorf("请选择至少一个模板")
+	}
+	if input.ForceExecute && input.ExecutorRole != "admin" {
+		return nil, nil, fmt.Errorf("仅管理员可强制执行高风险 SQL")
+	}
+	if input.ForceExecute && strings.TrimSpace(input.ForceReason) == "" {
+		return nil, nil, fmt.Errorf("强制执行时必须填写原因")
+	}
+
+	connection, err := s.connectionRepo.GetByMerchantID(input.MerchantID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if connection == nil {
+		return nil, nil, fmt.Errorf("设备未配置数据库连接信息")
+	}
+	if connection.DBType != "mysql" {
+		return nil, nil, fmt.Errorf("当前仅支持 mysql")
+	}
+
+	dbInput, err := s.decryptConnection(connection)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	templateIDs := uniqueUintIDs(input.TemplateIDs)
+	templates, err := s.templateRepo.GetByIDs(templateIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(templates) == 0 {
+		return nil, nil, fmt.Errorf("未找到可执行模板")
+	}
+
+	type preparedStatement struct {
+		TemplateID   uint
+		TemplateName string
+		SQL          string
+	}
+
+	statements := make([]preparedStatement, 0)
+	onlySQL := make([]string, 0)
+	for _, t := range templates {
+		splitted := SplitSQLStatements(t.SQLContent)
+		for _, stmt := range splitted {
+			statements = append(statements, preparedStatement{
+				TemplateID:   t.ID,
+				TemplateName: t.Name,
+				SQL:          stmt,
+			})
+			onlySQL = append(onlySQL, stmt)
+		}
+	}
+	if len(statements) == 0 {
+		return nil, nil, fmt.Errorf("模板中没有可执行 SQL")
+	}
+
+	risks := FindBlockedRisks(onlySQL)
+	if len(risks) > 0 && !input.ForceExecute {
+		return nil, nil, &RiskSQLBlockedError{Risks: risks}
+	}
+
+	lock := s.getDeviceLock(input.MerchantID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	templateIDPayload, _ := json.Marshal(templateIDs)
+	task := &models.DBSQLExecuteTask{
+		TaskID:          uuid.NewString(),
+		MerchantID:      input.MerchantID,
+		DeviceType:      input.DeviceType,
+		ExecutorUserID:  input.ExecutorUserID,
+		ExecutorRole:    input.ExecutorRole,
+		TemplateIDsJSON: string(templateIDPayload),
+		IsForced:        input.ForceExecute,
+		ForceReason:     input.ForceReason,
+		Status:          "running",
+		TotalCount:      len(statements),
+		SuccessCount:    0,
+		FailedCount:     0,
+		StartedAt:       time.Now(),
+		ClientIP:        input.ClientIP,
+		UserAgent:       input.UserAgent,
+	}
+	if err := s.taskRepo.CreateTask(task); err != nil {
+		return nil, nil, err
+	}
+
+	db, err := openMySQL(dbInput)
+	if err != nil {
+		return s.finishTaskOnError(task, len(statements), fmt.Errorf("创建数据库连接失败: %w", err))
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	pingErr := db.PingContext(ctx)
+	cancel()
+	if pingErr != nil {
+		return s.finishTaskOnError(task, len(statements), fmt.Errorf("数据库连接失败: %w", pingErr))
+	}
+
+	successCount := 0
+	failedCount := 0
+	items := make([]models.DBSQLExecuteTaskItem, 0, len(statements))
+
+	for idx, stmt := range statements {
+		start := time.Now()
+		status := "success"
+		errMsg := ""
+
+		execCtx, execCancel := context.WithTimeout(context.Background(), 12*time.Second)
+		_, execErr := db.ExecContext(execCtx, stmt.SQL)
+		execCancel()
+		if execErr != nil {
+			status = "failed"
+			errMsg = execErr.Error()
+			failedCount++
+		} else {
+			successCount++
+		}
+
+		items = append(items, models.DBSQLExecuteTaskItem{
+			TaskID:               task.TaskID,
+			TemplateID:           stmt.TemplateID,
+			TemplateNameSnapshot: stmt.TemplateName,
+			SQLIndex:             idx + 1,
+			SQLTextSnapshot:      stmt.SQL,
+			Status:               status,
+			ErrorMessage:         errMsg,
+			DurationMS:           time.Since(start).Milliseconds(),
+			ExecutedAt:           time.Now(),
+		})
+	}
+
+	if err := s.taskRepo.CreateTaskItems(items); err != nil {
+		return s.finishTaskOnError(task, len(statements), fmt.Errorf("写入执行明细失败: %w", err))
+	}
+
+	finishedAt := time.Now()
+	finalStatus := "success"
+	if failedCount > 0 && successCount > 0 {
+		finalStatus = "partial_failed"
+	} else if failedCount > 0 {
+		finalStatus = "failed"
+	}
+	if err := s.taskRepo.FinishTask(
+		task.TaskID,
+		finalStatus,
+		successCount,
+		failedCount,
+		finishedAt,
+		finishedAt.Sub(task.StartedAt).Milliseconds(),
+	); err != nil {
+		return nil, nil, err
+	}
+
+	finishedTask, err := s.taskRepo.GetTaskByTaskID(task.TaskID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return finishedTask, items, nil
+}
+
+func (s *DBConfigService) GetTaskDetail(taskID string) (*models.DBSQLExecuteTask, []models.DBSQLExecuteTaskItem, error) {
+	task, err := s.taskRepo.GetTaskByTaskID(taskID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if task == nil {
+		return nil, nil, nil
+	}
+	items, err := s.taskRepo.GetTaskItems(taskID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return task, items, nil
+}
+
+func (s *DBConfigService) ListHistory(page, pageSize int, userID uint, isAdmin bool) ([]models.DBSQLExecuteTask, int64, int64, error) {
+	return s.taskRepo.ListHistory(page, pageSize, userID, isAdmin)
+}
+
+func (s *DBConfigService) finishTaskOnError(task *models.DBSQLExecuteTask, failedCount int, err error) (*models.DBSQLExecuteTask, []models.DBSQLExecuteTaskItem, error) {
+	finishedAt := time.Now()
+	_ = s.taskRepo.FinishTask(
+		task.TaskID,
+		"failed",
+		0,
+		failedCount,
+		finishedAt,
+		finishedAt.Sub(task.StartedAt).Milliseconds(),
+	)
+	finishedTask, _ := s.taskRepo.GetTaskByTaskID(task.TaskID)
+	return finishedTask, nil, err
+}
+
+func (s *DBConfigService) decryptConnection(conn *models.DeviceDBConnection) (DBConnectionInput, error) {
+	plainPassword, err := appcrypto.DecryptPassword(conn.PasswordEncrypted, s.getCipherSecret())
+	if err != nil {
+		return DBConnectionInput{}, fmt.Errorf("解密数据库密码失败: %w", err)
+	}
+	return DBConnectionInput{
+		DBType:       conn.DBType,
+		Host:         conn.Host,
+		Port:         conn.Port,
+		DatabaseName: conn.DatabaseName,
+		Username:     conn.Username,
+		Password:     plainPassword,
+	}, nil
+}
+
+func (s *DBConfigService) getCipherSecret() string {
+	if config.AppConfig != nil && strings.TrimSpace(config.AppConfig.JWT.SecretKey) != "" {
+		return config.AppConfig.JWT.SecretKey
+	}
+	return "db-config-default-secret"
+}
+
+func (s *DBConfigService) getDeviceLock(merchantID string) *sync.Mutex {
+	if merchantID == "" {
+		return &sync.Mutex{}
+	}
+	val, _ := s.lockMap.LoadOrStore(merchantID, &sync.Mutex{})
+	return val.(*sync.Mutex)
+}
+
+func uniqueUintIDs(ids []uint) []uint {
+	if len(ids) == 0 {
+		return ids
+	}
+	seen := make(map[uint]struct{}, len(ids))
+	result := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
+}
+
+func openMySQL(input DBConnectionInput) (*sql.DB, error) {
+	if strings.TrimSpace(input.Host) == "" || strings.TrimSpace(input.DatabaseName) == "" || strings.TrimSpace(input.Username) == "" || strings.TrimSpace(input.Password) == "" {
+		return nil, errors.New("mysql 连接参数不完整")
+	}
+	if input.Port <= 0 {
+		input.Port = 3306
+	}
+
+	cfg := mysql.Config{
+		User:      input.Username,
+		Passwd:    input.Password,
+		Net:       "tcp",
+		Addr:      fmt.Sprintf("%s:%d", input.Host, input.Port),
+		DBName:    input.DatabaseName,
+		ParseTime: true,
+		// 部分门店设备 MySQL 用户仍使用 mysql_native_password，显式开启兼容。
+		AllowNativePasswords: true,
+		Params: map[string]string{
+			"charset": "utf8mb4",
+		},
+	}
+	db, err := sql.Open("mysql", cfg.FormatDSN())
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(30 * time.Second)
+	return db, nil
+}

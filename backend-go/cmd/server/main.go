@@ -67,12 +67,17 @@ func main() {
 		&models.MobileBorrowRequest{},
 		&models.ScanSession{},
 		&models.FileConfig{},
+		&models.DeviceDBConnection{},
+		&models.DBSQLTemplate{},
+		&models.DBSQLExecuteTask{},
+		&models.DBSQLExecuteTaskItem{},
 		&models.SystemConfig{},
 		&models.SystemNotification{},
 		&models.WarPackageMetadata{},
 	); err != nil {
 		logger.Fatal("Failed to migrate database", "error", err)
 	}
+	backfillTemplateNeedRestart(db)
 
 	// Create default admin if not exists
 	var adminCount int64
@@ -104,6 +109,9 @@ func main() {
 	systemConfigRepo := repository.NewSystemConfigRepository(db)
 	notificationRepo := repository.NewNotificationRepository(db)
 	warPackageRepo := repository.NewWarPackageRepository(db)
+	dbConnectionRepo := repository.NewDeviceDBConnectionRepository(db)
+	dbSQLTemplateRepo := repository.NewDBSQLTemplateRepository(db)
+	dbSQLTaskRepo := repository.NewDBSQLExecuteTaskRepository(db)
 
 	// Initialize services
 	authService := services.NewAuthService(userRepo)
@@ -111,6 +119,7 @@ func main() {
 	linuxService := services.NewLinuxService()
 	warDownloadService := services.NewWarDownloadService(systemConfigRepo, warPackageRepo)
 	notificationService := services.NewNotificationService(notificationRepo)
+	dbConfigService := services.NewDBConfigService(dbConnectionRepo, dbSQLTemplateRepo, dbSQLTaskRepo)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
@@ -124,6 +133,7 @@ func main() {
 	warPackageHandler := handlers.NewWarPackageHandler(warPackageRepo)
 	workspaceHandler := handlers.NewWorkspaceHandler(deviceRepo, mobileRepo, userRepo)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
+	dbConfigHandler := handlers.NewDBConfigHandler(dbConfigService, dbSQLTemplateRepo, deviceRepo, userRepo)
 
 	// Create Gin router
 	router := gin.New()
@@ -198,10 +208,10 @@ func main() {
 			mobile.PUT("/devices/:id/owner", middleware.AdminOnly(userRepo), mobileHandler.SetDeviceOwner) // 设置负责人
 
 			// 借用申请
-			mobile.POST("/borrow-requests", mobileHandler.SubmitBorrowRequest)                // 提交借用申请
-			mobile.GET("/borrow-requests", mobileHandler.GetBorrowRequests)                   // 获取借用申请列表
-			mobile.POST("/borrow-requests/:id/approve", mobileHandler.ApproveBorrowRequest)   // 审核通过
-			mobile.POST("/borrow-requests/:id/reject", mobileHandler.RejectBorrowRequest)     // 审核拒绝
+			mobile.POST("/borrow-requests", mobileHandler.SubmitBorrowRequest)              // 提交借用申请
+			mobile.GET("/borrow-requests", mobileHandler.GetBorrowRequests)                 // 获取借用申请列表
+			mobile.POST("/borrow-requests/:id/approve", mobileHandler.ApproveBorrowRequest) // 审核通过
+			mobile.POST("/borrow-requests/:id/reject", mobileHandler.RejectBorrowRequest)   // 审核拒绝
 		}
 
 		// Scan routes (no auth required for basic scanning)
@@ -299,6 +309,25 @@ func main() {
 			linux.DELETE("/war/metadata", warPackageHandler.DeleteMetadata)
 		}
 
+		// Database config routes
+		dbConfig := api.Group("/db-config")
+		dbConfig.Use(middleware.Auth())
+		{
+			dbConfig.GET("/connections/:merchantId", dbConfigHandler.GetConnection)
+			dbConfig.PUT("/connections/:merchantId", dbConfigHandler.UpsertConnection)
+			dbConfig.POST("/connections/:merchantId/test", dbConfigHandler.TestConnection)
+
+			dbConfig.GET("/templates", dbConfigHandler.ListTemplates)
+			dbConfig.GET("/templates/:id", dbConfigHandler.GetTemplate)
+			dbConfig.POST("/templates", dbConfigHandler.CreateTemplate)
+			dbConfig.PUT("/templates/:id", dbConfigHandler.UpdateTemplate)
+			dbConfig.DELETE("/templates/:id", dbConfigHandler.DeleteTemplate)
+
+			dbConfig.POST("/execute", dbConfigHandler.Execute)
+			dbConfig.GET("/execute/history", dbConfigHandler.ListExecuteHistory)
+			dbConfig.GET("/execute/:taskId", dbConfigHandler.GetExecuteTask)
+		}
+
 		// WebSocket routes
 		router.GET("/ws/linux/logs", middleware.Auth(), linuxHandler.RealtimeLog)
 
@@ -338,5 +367,35 @@ func main() {
 	logger.Info("Server starting", "port", port)
 	if err := router.Run(":" + port); err != nil {
 		logger.Fatal("Failed to start server", "error", err)
+	}
+}
+
+func backfillTemplateNeedRestart(db *gorm.DB) {
+	// 兼容历史数据：早期将是否重启写在 remark('true'/'false')，迁移为独立字段 need_restart。
+	trueResult := db.Model(&models.DBSQLTemplate{}).
+		Where("LOWER(TRIM(remark)) = ?", "true").
+		Updates(map[string]interface{}{
+			"need_restart": true,
+			"remark":       "",
+		})
+	if trueResult.Error != nil {
+		logger.Warn("Backfill need_restart(true) failed", "error", trueResult.Error)
+		return
+	}
+
+	falseResult := db.Model(&models.DBSQLTemplate{}).
+		Where("LOWER(TRIM(remark)) = ?", "false").
+		Updates(map[string]interface{}{
+			"need_restart": false,
+			"remark":       "",
+		})
+	if falseResult.Error != nil {
+		logger.Warn("Backfill need_restart(false) failed", "error", falseResult.Error)
+		return
+	}
+
+	affected := trueResult.RowsAffected + falseResult.RowsAffected
+	if affected > 0 {
+		logger.Info("Backfilled template need_restart from remark", "affected", affected)
 	}
 }

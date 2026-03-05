@@ -657,6 +657,82 @@ export const linuxAPI = {
   }
 };
 
+// 设备数据库配置 API
+export const dbConfigAPI = {
+  getConnection: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.get(`/db-config/connections/${encodeURIComponent(merchantId)}`);
+    return response.data;
+  },
+
+  saveConnection: async (merchantId, payload) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.put(`/db-config/connections/${encodeURIComponent(merchantId)}`, payload);
+    return response.data;
+  },
+
+  testConnection: async (merchantId, payload) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post(`/db-config/connections/${encodeURIComponent(merchantId)}/test`, payload);
+    return response.data;
+  },
+
+  getTemplates: async (page = 1, pageSize = 20, keyword = '') => {
+    const authAxios = createAuthAxios();
+    const params = new URLSearchParams({
+      page: page.toString(),
+      page_size: pageSize.toString()
+    });
+    if (keyword) {
+      params.append('keyword', keyword);
+    }
+    const response = await authAxios.get(`/db-config/templates?${params.toString()}`);
+    return response.data;
+  },
+
+  getTemplate: async (id) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.get(`/db-config/templates/${id}`);
+    return response.data;
+  },
+
+  createTemplate: async (payload) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/db-config/templates', payload);
+    return response.data;
+  },
+
+  updateTemplate: async (id, payload) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.put(`/db-config/templates/${id}`, payload);
+    return response.data;
+  },
+
+  deleteTemplate: async (id) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.delete(`/db-config/templates/${id}`);
+    return response.data;
+  },
+
+  executeTemplates: async (payload) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/db-config/execute', payload);
+    return response.data;
+  },
+
+  getExecuteTask: async (taskId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.get(`/db-config/execute/${encodeURIComponent(taskId)}`);
+    return response.data;
+  },
+
+  getExecuteHistory: async (page = 1, pageSize = 20) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.get(`/db-config/execute/history?page=${page}&page_size=${pageSize}`);
+    return response.data;
+  }
+};
+
 // 工作台 API
 export const workspaceAPI = {
   // 获取我的借用申请

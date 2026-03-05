@@ -23,7 +23,7 @@ const ScanPage = () => {
 
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(20);
   const [totalDevices, setTotalDevices] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
@@ -266,6 +266,16 @@ const ScanPage = () => {
     return date.toLocaleDateString('zh-CN');
   };
 
+  const getPurposeText = (purpose) => {
+    if (purpose === null || purpose === undefined) return '';
+    if (typeof purpose === 'string') return purpose.trim();
+    if (typeof purpose === 'object') {
+      if (typeof purpose.String === 'string') return purpose.String.trim();
+      if (typeof purpose.value === 'string') return purpose.value.trim();
+    }
+    return String(purpose).trim();
+  };
+
   // 显示详情
   const handleShowDetails = (device) => {
     setSelectedDevice(device);
@@ -302,7 +312,7 @@ const ScanPage = () => {
   // 编辑设备占用
   const handleEditOccupancy = (device) => {
     setOccupancyModal({ show: true, device });
-    setOccupancyPurpose(device.occupancy?.purpose || '');
+    setOccupancyPurpose(getPurposeText(device.occupancy?.purpose));
     // 默认结束时间为2小时后
     if (device.occupancy?.endTime) {
       setOccupancyEndTime(device.occupancy.endTime.slice(0, 16));
@@ -731,7 +741,7 @@ const ScanPage = () => {
               {occupancyModal.device?.isOccupied && !isAdmin() && occupancyModal.device?.occupancy?.userId !== user?.id ? (
                 <>
                   <p style={styles.modalInfo}>
-                    用途: <strong>{occupancyModal.device?.occupancy?.purpose || '——'}</strong>
+                    用途: <strong>{getPurposeText(occupancyModal.device?.occupancy?.purpose) || '——'}</strong>
                   </p>
                   <p style={styles.modalInfo}>
                     归还时间: <strong>{occupancyModal.device?.occupancy?.endTime ? new Date(occupancyModal.device?.occupancy?.endTime).toLocaleString('zh-CN') : '——'}</strong>
