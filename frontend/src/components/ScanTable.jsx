@@ -67,11 +67,9 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
                     ) : (
                       <span className="error-indicator" title="服务不可用"></span>
                     )
-                  ) : device.isOnline === false ? (
-                    <span className="offline-label">
-                      (离线: {formatLastOnlineTime(device.lastOnlineTime)})
-                    </span>
-                  ) : null}
+                  ) : (
+                    <span className="offline-indicator" title="离线"></span>
+                  )}
                 </div>
               </td>
               <td>{device.type || '——'}</td>
@@ -205,7 +203,9 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
                     </>
                   ) : !device.isOnline ? (
                     <>
-                      <span className="service-unavailable">服务不可用</span>
+                      <span className="offline-label">
+                        离线: {formatLastOnlineTime(device.lastOnlineTime)}
+                      </span>
                       {device.type === 'linux' && (
                         <button
                           className="btn btn-sm btn-config"

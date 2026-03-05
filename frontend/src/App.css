@@ -362,8 +362,16 @@ body {
   letter-spacing: 0.02em;
 }
 
-.scan-table tr:hover {
+.scan-table tbody tr.odd {
+  background: var(--apple-bg);
+}
+
+.scan-table tbody tr.even {
   background: var(--apple-gray-6);
+}
+
+.scan-table tr:hover {
+  background: var(--apple-gray-5) !important;
 }
 
 .remark-input {
@@ -492,6 +500,15 @@ body {
   border-radius: 50%;
   display: inline-block;
   box-shadow: 0 0 4px rgba(255, 59, 48, 0.5);
+}
+
+.offline-indicator {
+  width: 8px;
+  height: 8px;
+  background: #8e8e93;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
 }
 
 .service-unavailable {
