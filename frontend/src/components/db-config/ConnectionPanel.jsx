@@ -6,6 +6,9 @@ const ConnectionPanel = ({
   onTest,
   testing,
   deviceIP,
+  showRestartPOS = false,
+  onRestartPOS,
+  restartingPOS = false,
 }) => {
   const [showPassword, setShowPassword] = useState(false);
 
@@ -86,6 +89,21 @@ const ConnectionPanel = ({
         >
           {testing ? '测试中...' : '测试连接'}
         </button>
+
+        {showRestartPOS && (
+          <button
+            type="button"
+            onClick={onRestartPOS}
+            disabled={restartingPOS || typeof onRestartPOS !== 'function'}
+            style={{
+              ...styles.btn,
+              ...styles.restartBtn,
+              ...(restartingPOS || typeof onRestartPOS !== 'function' ? styles.disabled : {})
+            }}
+          >
+            {restartingPOS ? '重启中...' : '重启POS'}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -181,6 +199,9 @@ const styles = {
   },
   testBtn: {
     backgroundColor: '#5AC8FA',
+  },
+  restartBtn: {
+    backgroundColor: '#FF9500',
   },
   disabled: {
     opacity: 0.6,

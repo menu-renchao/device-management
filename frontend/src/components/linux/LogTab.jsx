@@ -26,6 +26,15 @@ const LogTab = ({ merchantId }) => {
     }
   }, [realtimeLogs, showRealtime]);
 
+  useEffect(() => {
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, []);
+
   const loadLogs = async () => {
     setLoading(true);
     try {
@@ -57,6 +66,11 @@ const LogTab = ({ merchantId }) => {
   };
 
   const startRealtimeLog = (log) => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
     setSelectedLog(log);
     setShowRealtime(true);
     setRealtimeLogs([]);
@@ -87,6 +101,9 @@ const LogTab = ({ merchantId }) => {
 
     ws.onclose = () => {
       console.log('WebSocket 连接已关闭');
+      if (wsRef.current === ws) {
+        wsRef.current = null;
+      }
     };
   };
 
@@ -96,6 +113,9 @@ const LogTab = ({ merchantId }) => {
       wsRef.current = null;
     }
     setShowRealtime(false);
+    setSelectedLog(null);
+    setLogContent('');
+    setRealtimeLogs([]);
   };
 
   const formatSize = (bytes) => {

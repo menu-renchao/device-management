@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"device-management/internal/middleware"
@@ -614,11 +615,28 @@ func (h *LinuxHandler) RealtimeLog(c *gin.Context) {
 	defer conn.Close()
 	log.Printf("[RealtimeLog] WebSocket 升级成功")
 
+	// WebSocket 连接只允许单写，避免 gorilla/websocket 并发写 panic
+	var wsWriteMu sync.Mutex
+	writeWS := func(message []byte) error {
+		wsWriteMu.Lock()
+		defer wsWriteMu.Unlock()
+
+		if err := conn.WriteMessage(websocket.TextMessage, message); err != nil {
+			log.Printf("[RealtimeLog] WebSocket 写入失败: %v", err)
+			return err
+		}
+		return nil
+	}
+
+	// 创建上下文用于协程取消
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// 获取 SSH 会话
 	info, exists := ssh.GetSessionPool().Get(merchantID)
 	if !exists {
 		log.Printf("[RealtimeLog] SSH 会话不存在")
-		conn.WriteMessage(websocket.TextMessage, []byte("错误: SSH 会话不存在"))
+		_ = writeWS([]byte("错误: SSH 会话不存在"))
 		return
 	}
 
@@ -628,10 +646,14 @@ func (h *LinuxHandler) RealtimeLog(c *gin.Context) {
 	lastLines, err := info.Client.ExecuteCommand(lastLinesCmd)
 	if err != nil {
 		log.Printf("[RealtimeLog] 初始命令执行失败: %v", err)
-		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("读取初始日志失败: %v", err)))
+		if err := writeWS([]byte(fmt.Sprintf("读取初始日志失败: %v", err))); err != nil {
+			return
+		}
 	} else if lastLines != "" {
 		log.Printf("[RealtimeLog] 发送初始日志，长度=%d", len(lastLines))
-		conn.WriteMessage(websocket.TextMessage, []byte(lastLines))
+		if err := writeWS([]byte(lastLines)); err != nil {
+			return
+		}
 	}
 
 	// 启动 tail -F 命令
@@ -640,58 +662,100 @@ func (h *LinuxHandler) RealtimeLog(c *gin.Context) {
 	cmdSession, err := info.Client.StartCommand(tailCmd)
 	if err != nil {
 		log.Printf("[RealtimeLog] 启动命令失败: %v", err)
-		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("启动命令失败: %s", err.Error())))
+		_ = writeWS([]byte(fmt.Sprintf("启动命令失败: %s", err.Error())))
 		return
 	}
-	defer cmdSession.Close()
+
+	var closeSessionOnce sync.Once
+	closeCmdSession := func() {
+		closeSessionOnce.Do(func() {
+			if err := cmdSession.Close(); err != nil {
+				log.Printf("[RealtimeLog] 关闭命令会话失败: %v", err)
+			}
+		})
+	}
+	defer closeCmdSession()
+
+	// 任一协程触发 cancel 后，主动关闭命令会话，打断阻塞读取
+	go func() {
+		<-ctx.Done()
+		closeCmdSession()
+	}()
 
 	log.Printf("[RealtimeLog] tail 命令已启动，开始监听")
-	conn.WriteMessage(websocket.TextMessage, []byte("\n--- 开始实时监听 ---\n"))
-
-	// 创建上下文用于取消
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	if err := writeWS([]byte("\n--- 开始实时监听 ---\n")); err != nil {
+		cancel()
+		return
+	}
 
 	// 同时读取 stdout 和 stderr
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[RealtimeLog] stdout goroutine panic: %v", r)
+				cancel()
+			}
+		}()
+
 		buf := make([]byte, 8192)
 		for {
+			n, err := cmdSession.Stdout.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					log.Printf("[RealtimeLog] stdout 读取结束: %v", err)
+				}
+				cancel()
+				return
+			}
+			if n > 0 {
+				log.Printf("[RealtimeLog] stdout 读取了 %d 字节", n)
+				payload := append([]byte(nil), buf[:n]...)
+				if err := writeWS(payload); err != nil {
+					cancel()
+					return
+				}
+			}
+
 			select {
 			case <-ctx.Done():
 				log.Printf("[RealtimeLog] stdout goroutine 收到停止信号")
 				return
 			default:
-				n, err := cmdSession.Stdout.Read(buf)
-				if err != nil {
-					log.Printf("[RealtimeLog] stdout 读取结束: %v", err)
-					return
-				}
-				if n > 0 {
-					log.Printf("[RealtimeLog] stdout 读取了 %d 字节", n)
-					if err := conn.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
-						log.Printf("[RealtimeLog] WebSocket 写入失败: %v", err)
-						return
-					}
-				}
 			}
 		}
 	}()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[RealtimeLog] stderr goroutine panic: %v", r)
+				cancel()
+			}
+		}()
+
 		buf := make([]byte, 8192)
 		for {
+			n, err := cmdSession.Stderr.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					log.Printf("[RealtimeLog] stderr 读取结束: %v", err)
+				}
+				cancel()
+				return
+			}
+			if n > 0 {
+				log.Printf("[RealtimeLog] stderr 读取了 %d 字节: %s", n, string(buf[:n]))
+				payload := append([]byte(nil), buf[:n]...)
+				if err := writeWS(payload); err != nil {
+					cancel()
+					return
+				}
+			}
+
 			select {
 			case <-ctx.Done():
 				return
 			default:
-				n, err := cmdSession.Stderr.Read(buf)
-				if err != nil {
-					return
-				}
-				if n > 0 {
-					log.Printf("[RealtimeLog] stderr 读取了 %d 字节: %s", n, string(buf[:n]))
-					conn.WriteMessage(websocket.TextMessage, buf[:n])
-				}
 			}
 		}
 	}()
@@ -702,7 +766,7 @@ func (h *LinuxHandler) RealtimeLog(c *gin.Context) {
 		if err != nil {
 			log.Printf("[RealtimeLog] WebSocket 客户端断开: %v", err)
 			cancel()
-			break
+			return
 		}
 	}
 }

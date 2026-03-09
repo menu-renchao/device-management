@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { dbConfigAPI } from '../services/api';
+import { dbConfigAPI, linuxAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import ConnectionPanel from '../components/db-config/ConnectionPanel';
@@ -52,6 +52,9 @@ const DBConfigPage = () => {
 
   const [executing, setExecuting] = useState(false);
   const [executeResult, setExecuteResult] = useState(null);
+  const [restartingPOS, setRestartingPOS] = useState(false);
+
+  const isLinuxDevice = (device?.type || '').toLowerCase().includes('linux');
 
   useEffect(() => {
     if (!device) return;
@@ -170,6 +173,30 @@ const DBConfigPage = () => {
       toast.error(error.response?.data?.error || '连接测试失败');
     } finally {
       setTestingConnection(false);
+    }
+  };
+
+  const handleRestartPOS = async () => {
+    if (!merchantId) {
+      toast.warning('未获取到商家ID，无法重启POS');
+      return;
+    }
+
+    const ok = await toast.confirm('确定要重启 POS 服务吗？', {
+      title: '重启 POS',
+      variant: 'primary',
+      confirmText: '重启',
+    });
+    if (!ok) return;
+
+    setRestartingPOS(true);
+    try {
+      const result = await linuxAPI.restartPOS(merchantId);
+      toast.success(result?.message || 'POS 重启成功');
+    } catch (error) {
+      toast.error('重启 POS 失败：' + (error.response?.data?.message || error.message));
+    } finally {
+      setRestartingPOS(false);
     }
   };
 
@@ -353,6 +380,9 @@ const DBConfigPage = () => {
         onTest={handleTestConnection}
         testing={testingConnection}
         deviceIP={deviceIP}
+        showRestartPOS={isLinuxDevice}
+        onRestartPOS={handleRestartPOS}
+        restartingPOS={restartingPOS}
       />
 
       <div style={styles.card}>
