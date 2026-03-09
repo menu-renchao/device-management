@@ -118,6 +118,7 @@ func main() {
 	scanService := services.NewScanService()
 	linuxService := services.NewLinuxService()
 	licenseService := services.NewLicenseService()
+	dbBackupService := services.NewDBBackupService()
 	warDownloadService := services.NewWarDownloadService(systemConfigRepo, warPackageRepo)
 	notificationService := services.NewNotificationService(notificationRepo)
 	dbConfigService := services.NewDBConfigService(dbConnectionRepo, dbSQLTemplateRepo, dbSQLTaskRepo)
@@ -125,7 +126,7 @@ func main() {
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
 	adminHandler := handlers.NewAdminHandler(userRepo, deviceRepo)
-	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService)
+	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, linuxService)
 	mobileHandler := handlers.NewMobileHandler(mobileRepo, userRepo, notificationService)
 	scanHandler := handlers.NewScanHandler(scanService, deviceRepo)
 	linuxHandler := handlers.NewLinuxHandler(linuxService, fileConfigRepo, deviceRepo, userRepo)
@@ -189,6 +190,12 @@ func main() {
 			device.DELETE("/:merchant_id", middleware.AdminOnly(userRepo), deviceHandler.DeleteDevice)
 			device.POST("/license/backup", deviceHandler.BackupLicense)
 			device.POST("/license/import", deviceHandler.ImportLicense)
+			device.POST("/db/backup", deviceHandler.BackupDatabase)
+			device.GET("/db/backups", deviceHandler.ListDatabaseBackups)
+			device.GET("/db/backups/download", deviceHandler.DownloadDatabaseBackup)
+			device.DELETE("/db/backups", deviceHandler.DeleteDatabaseBackup)
+			device.POST("/db/restore/server", deviceHandler.RestoreDatabaseFromServer)
+			device.POST("/db/restore/upload", deviceHandler.RestoreDatabaseFromUpload)
 
 			// POS设备借用申请
 			device.POST("/borrow-requests", deviceHandler.SubmitBorrowRequest)

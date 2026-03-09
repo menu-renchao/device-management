@@ -1,7 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, onEditOccupancy, onDeleteDevice, onClaimDevice, onResetOwner, onBackupLicense, onImportLicense, isAdmin, currentUserId, onConfigNoPermission }) => {
+const ScanTable = ({
+  devices = [],
+  onOpenDevice,
+  onShowDetails,
+  onEditProperty,
+  onEditOccupancy,
+  onDeleteDevice,
+  onClaimDevice,
+  onResetOwner,
+  onBackupLicense,
+  onImportLicense,
+  onBackupDatabase,
+  onRestoreDatabase,
+  isAdmin,
+  currentUserId,
+  onConfigNoPermission
+}) => {
   const navigate = useNavigate();
   const [openMenuKey, setOpenMenuKey] = useState(null);
   const [openMenuPlacement, setOpenMenuPlacement] = useState({ direction: 'down', top: 0, left: 0 });
@@ -220,7 +236,9 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
             const canManageLicense = hasMerchantId && canAccessDeviceConfig(device);
             const canBackupLicense = canManageLicense && typeof onBackupLicense === 'function';
             const canImportLicense = canManageLicense && typeof onImportLicense === 'function';
-            const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow || canBackupLicense || canImportLicense;
+            const canBackupDatabase = canManageLicense && typeof onBackupDatabase === 'function';
+            const canRestoreDatabase = canManageLicense && typeof onRestoreDatabase === 'function';
+            const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow || canBackupLicense || canImportLicense || canBackupDatabase || canRestoreDatabase;
             const offlineTimeText = formatLastOnlineTime(device.lastOnlineTime);
             const statusText = isOnlineDevice
               ? (hasMerchantId ? '在线' : '服务异常')
@@ -409,6 +427,26 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
                               title="导入 License SQL 文件"
                             >
                               License导入
+                            </button>
+                          )}
+
+                          {canBackupDatabase && (
+                            <button
+                              className="action-menu-item"
+                              onClick={(e) => handleMenuAction(e, () => onBackupDatabase(device))}
+                              title="创建数据库全量备份并保存到服务端"
+                            >
+                              数据备份
+                            </button>
+                          )}
+
+                          {canRestoreDatabase && (
+                            <button
+                              className="action-menu-item"
+                              onClick={(e) => handleMenuAction(e, () => onRestoreDatabase(device))}
+                              title="从服务端或本地SQL恢复数据库"
+                            >
+                              数据恢复
                             </button>
                           )}
 

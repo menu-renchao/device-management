@@ -6,6 +6,7 @@ import { adminService } from '../services/authService';
 import ScanTable from '../components/ScanTable';
 import DetailModal from '../components/DetailModal';
 import ConfirmDialog from '../components/ConfirmDialog';
+import DBBackupRestoreModal from '../components/db-backup/DBBackupRestoreModal';
 
 const getOnlyMyDevicesStorageKey = (userId) => `scan_page_only_my_devices_${userId || 'default'}`;
 
@@ -54,6 +55,7 @@ const ScanPage = () => {
   const [confirmDialog, setConfirmDialog] = useState({ show: false, type: null, data: null });
   const licenseFileInputRef = useRef(null);
   const licenseImportDeviceRef = useRef(null);
+  const [dbBackupModal, setDbBackupModal] = useState({ show: false, device: null, tab: 'backup' });
 
   // 获取本地IP列表
   useEffect(() => {
@@ -503,6 +505,30 @@ const ScanPage = () => {
     }
   };
 
+  const handleOpenDatabaseBackup = (device) => {
+    if (!device?.merchantId) {
+      toast.warning('缺少商家ID，无法执行数据备份');
+      return;
+    }
+    setDbBackupModal({
+      show: true,
+      device,
+      tab: 'backup'
+    });
+  };
+
+  const handleOpenDatabaseRestore = (device) => {
+    if (!device?.merchantId) {
+      toast.warning('缺少商家ID，无法执行数据恢复');
+      return;
+    }
+    setDbBackupModal({
+      show: true,
+      device,
+      tab: 'restore'
+    });
+  };
+
   const handleLicenseFileChange = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -803,6 +829,8 @@ const ScanPage = () => {
           onResetOwner={handleResetOwner}
           onBackupLicense={handleBackupLicense}
           onImportLicense={handleImportLicense}
+          onBackupDatabase={handleOpenDatabaseBackup}
+          onRestoreDatabase={handleOpenDatabaseRestore}
           isAdmin={isAdmin()}
           currentUserId={user?.id}
           onConfigNoPermission={handleConfigNoPermission}
@@ -972,6 +1000,13 @@ const ScanPage = () => {
           </div>
         </div>
       )}
+
+      <DBBackupRestoreModal
+        isOpen={dbBackupModal.show}
+        onClose={() => setDbBackupModal({ show: false, device: null, tab: 'backup' })}
+        device={dbBackupModal.device}
+        initialTab={dbBackupModal.tab}
+      />
 
       <input
         ref={licenseFileInputRef}

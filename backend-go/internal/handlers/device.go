@@ -24,14 +24,25 @@ type DeviceHandler struct {
 	userRepo            *repository.UserRepository
 	notificationService *services.NotificationService
 	licenseService      *services.LicenseService
+	dbBackupService     *services.DBBackupService
+	linuxService        *services.LinuxService
 }
 
-func NewDeviceHandler(deviceRepo *repository.DeviceRepository, userRepo *repository.UserRepository, notificationService *services.NotificationService, licenseService *services.LicenseService) *DeviceHandler {
+func NewDeviceHandler(
+	deviceRepo *repository.DeviceRepository,
+	userRepo *repository.UserRepository,
+	notificationService *services.NotificationService,
+	licenseService *services.LicenseService,
+	dbBackupService *services.DBBackupService,
+	linuxService *services.LinuxService,
+) *DeviceHandler {
 	return &DeviceHandler{
 		deviceRepo:          deviceRepo,
 		userRepo:            userRepo,
 		notificationService: notificationService,
 		licenseService:      licenseService,
+		dbBackupService:     dbBackupService,
+		linuxService:        linuxService,
 	}
 }
 

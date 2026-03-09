@@ -264,6 +264,62 @@ export const deviceAPI = {
       }
     });
     return response.data;
+  },
+
+  // 数据库全量备份（保存到服务端）
+  backupDatabase: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/db/backup', {
+      merchant_id: merchantId
+    });
+    return response.data;
+  },
+
+  // 查询服务端备份列表
+  listDatabaseBackups: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.get(`/device/db/backups?merchant_id=${encodeURIComponent(merchantId)}`);
+    return response.data;
+  },
+
+  // 删除服务端备份
+  deleteDatabaseBackup: async (merchantId, fileName) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.delete(`/device/db/backups?merchant_id=${encodeURIComponent(merchantId)}&file_name=${encodeURIComponent(fileName)}`);
+    return response.data;
+  },
+
+  // 生成数据库备份下载 URL
+  downloadDatabaseBackupUrl: (merchantId, fileName) => {
+    const token = localStorage.getItem('access_token');
+    return `${API_BASE_URL}/device/db/backups/download?merchant_id=${encodeURIComponent(merchantId)}&file_name=${encodeURIComponent(fileName)}&token=${token}`;
+  },
+
+  // 从服务端备份恢复
+  restoreDatabaseFromServer: async (merchantId, fileName, restartPosAfterRestore = false) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/db/restore/server', {
+      merchant_id: merchantId,
+      file_name: fileName,
+      restart_pos_after_restore: restartPosAfterRestore
+    });
+    return response.data;
+  },
+
+  // 从本地上传恢复
+  restoreDatabaseFromUpload: async (merchantId, file, restartPosAfterRestore = false) => {
+    const formData = new FormData();
+    formData.append('merchant_id', merchantId);
+    formData.append('file', file);
+    formData.append('restart_pos_after_restore', restartPosAfterRestore ? 'true' : 'false');
+
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/db/restore/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    return response.data;
   }
 };
 
