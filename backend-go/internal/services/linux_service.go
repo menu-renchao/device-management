@@ -229,12 +229,12 @@ func (s *LinuxService) RestartTomcat(merchantID string) (string, error) {
 // GetPOSStatus 获取 POS 状态
 func (s *LinuxService) GetPOSStatus(merchantID string) (map[string]interface{}, error) {
 	// 检查进程状态
-	output, err := s.ExecuteCommand(merchantID, "ps aux | grep -E 'pos|menusifu' | grep -v grep | head -5")
+	output, err := s.ExecuteCommand(merchantID, "ps aux | grep '/opt/menusifu/menusifu_pos_extention' | grep -v grep | head -5")
 	if err != nil {
 		return nil, err
 	}
 
-	running := len(strings.TrimSpace(output)) > 0
+	running := isPOSProcessRunning(output)
 
 	result := map[string]interface{}{
 		"running": running,
@@ -249,6 +249,10 @@ func (s *LinuxService) GetPOSStatus(merchantID string) (map[string]interface{}, 
 	result["systemctl_status"] = strings.TrimSpace(statusOutput)
 
 	return result, nil
+}
+
+func isPOSProcessRunning(output string) bool {
+	return strings.Contains(output, "/opt/menusifu/menusifu_pos_extention")
 }
 
 // UploadTaskInfo 上传任务信息
