@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+﻿import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import Button from '../components/ui/Button';
+import Field from '../components/ui/Field';
 import { authService } from '../services/authService';
 
 const RegisterPage = () => {
@@ -13,12 +15,12 @@ const RegisterPage = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     setError('');
 
     if (password !== confirmPassword) {
-      setError('两次输入的密码不一致');
+      setError('\u4E24\u6B21\u8F93\u5165\u7684\u5BC6\u7801\u4E0D\u4E00\u81F4');
       return;
     }
 
@@ -28,11 +30,12 @@ const RegisterPage = () => {
       const result = await authService.register(username, password, email, name);
       if (result.success) {
         setSuccess(true);
-      } else {
-        setError(result.error);
+        return;
       }
-    } catch (err) {
-      setError('注册失败，请稍后重试');
+
+      setError(result.error);
+    } catch (error) {
+      setError('\u6CE8\u518C\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5');
     } finally {
       setLoading(false);
     }
@@ -40,101 +43,100 @@ const RegisterPage = () => {
 
   if (success) {
     return (
-      <div style={styles.container}>
-        <div style={styles.card}>
-          <div style={styles.successIcon}>
-            <svg viewBox="0 0 24 24" fill="none" style={{ width: 48, height: 48 }}>
-              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="currentColor"/>
-            </svg>
-          </div>
-          <h2 style={styles.title}>注册成功</h2>
-          <p style={styles.successText}>您的注册申请已提交，请等待管理员审核。</p>
-          <button onClick={() => navigate('/login')} style={styles.button}>
-            返回登录
-          </button>
+      <div style={styles.page}>
+        <div style={styles.glow} />
+        <div style={styles.panel}>
+          <div style={styles.successIcon}>OK</div>
+          <h1 style={styles.title}>\u6CE8\u518C\u6210\u529F</h1>
+          <p style={styles.subtitle}>\u60A8\u7684\u6CE8\u518C\u7533\u8BF7\u5DF2\u63D0\u4EA4\uFF0C\u8BF7\u7B49\u5F85\u7BA1\u7406\u5458\u5BA1\u6838\u3002</p>
+          <Button type="button" variant="primary" style={styles.submitButton} onClick={() => navigate('/login')}>
+            \u8FD4\u56DE\u767B\u5F55
+          </Button>
         </div>
       </div>
     );
   }
 
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
-        <img src="/favicon.ico" alt="Logo" style={styles.logo} />
-        <h1 style={styles.title}>创建账户</h1>
-        <p style={styles.subtitle}>注册以使用 Menusifu设备管理平台</p>
+    <div style={styles.page}>
+      <div style={styles.glow} />
+      <div style={styles.panel}>
+        <div style={styles.hero}>
+          <img src="/favicon.ico" alt="Logo" style={styles.logo} />
+          <div style={styles.eyebrow}>Menusifu Device Management</div>
+          <h1 style={styles.title}>\u521B\u5EFA\u8D26\u6237</h1>
+          <p style={styles.subtitle}>\u6CE8\u518C\u4EE5\u4F7F\u7528 Menusifu \u8BBE\u5907\u7BA1\u7406\u5E73\u53F0</p>
+        </div>
 
         <form onSubmit={handleSubmit} style={styles.form}>
-          <div style={styles.field}>
-              <label style={styles.label}>用户名<span style={styles.required}>*</span></label>
+          <Field label="\u7528\u6237\u540D" htmlFor="register-username">
             <input
+              id="register-username"
               type="text"
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              style={styles.input}
-              placeholder="请输入用户名"
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="\u8BF7\u8F93\u5165\u7528\u6237\u540D"
               required
               minLength={3}
             />
-          </div>
-          <div style={styles.field}>
-              <label style={styles.label}>姓名<span style={styles.required}>*</span></label>
+          </Field>
+
+          <Field label="\u59D3\u540D" htmlFor="register-name">
             <input
+              id="register-name"
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
-              style={styles.input}
-              placeholder="请输入真实姓名"
+              onChange={(event) => setName(event.target.value)}
+              placeholder="\u8BF7\u8F93\u5165\u771F\u5B9E\u59D3\u540D"
               required
             />
-          </div>
-          <div style={styles.field}>
-            <label style={styles.label}>邮箱</label>
+          </Field>
+
+          <Field label="\u90AE\u7BB1" htmlFor="register-email" helpText="\u53EF\u9009\u586B\u5199\uFF0C\u7528\u4E8E\u63A5\u6536\u901A\u77E5">
             <input
+              id="register-email"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={styles.input}
-              placeholder="请输入邮箱地址（选填）"
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="\u8BF7\u8F93\u5165\u90AE\u7BB1\u5730\u5740"
             />
-          </div>
-          <div style={styles.field}>
-              <label style={styles.label}>密码<span style={styles.required}>*</span></label>
+          </Field>
+
+          <Field label="\u5BC6\u7801" htmlFor="register-password" helpText="\u81F3\u5C11 6 \u4F4D\u5B57\u7B26">
             <input
+              id="register-password"
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={styles.input}
-              placeholder="请输入密码（至少6位）"
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="\u8BF7\u8F93\u5165\u5BC6\u7801"
               required
               minLength={6}
             />
-          </div>
-          <div style={styles.field}>
-            <label style={styles.label}>确认密码<span style={styles.required}>*</span></label>
+          </Field>
+
+          <Field label="\u786E\u8BA4\u5BC6\u7801" htmlFor="register-confirm-password">
             <input
+              id="register-confirm-password"
               type="password"
               value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              style={styles.input}
-              placeholder="请再次输入密码"
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              placeholder="\u8BF7\u518D\u6B21\u8F93\u5165\u5BC6\u7801"
               required
             />
-          </div>
+          </Field>
 
-          {error && <div style={styles.error}>{error}</div>}
+          {error ? <div style={styles.error}>{error}</div> : null}
 
-          <button type="submit" style={{
-            ...styles.button,
-            ...(loading ? styles.buttonLoading : {})
-          }} disabled={loading}>
-            {loading ? '注册中...' : '注册'}
-          </button>
+          <Button type="submit" variant="primary" loading={loading} style={styles.submitButton}>
+            {loading ? '\u6CE8\u518C\u4E2D...' : '\u6CE8\u518C'}
+          </Button>
         </form>
 
         <div style={styles.footer}>
-          已有账户？
-          <Link to="/login" style={styles.link}>立即登录</Link>
+          <span>\u5DF2\u6709\u8D26\u6237\uFF1F</span>
+          <Link to="/login" style={styles.link}>
+            \u7ACB\u5373\u767B\u5F55
+          </Link>
         </div>
       </div>
     </div>
@@ -142,125 +144,121 @@ const RegisterPage = () => {
 };
 
 const styles = {
-  container: {
+  page: {
+    position: 'relative',
     minHeight: '100vh',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    padding: '16px',
+    overflow: 'hidden',
+    padding: '24px',
+    background: 'radial-gradient(circle at top, rgba(52, 199, 89, 0.14), transparent 34%), linear-gradient(180deg, #f7f8fb 0%, #eff1f6 100%)',
   },
-  card: {
-    backgroundColor: 'white',
-    borderRadius: '16px',
-    padding: '32px 28px',
+  glow: {
+    position: 'absolute',
+    width: '360px',
+    height: '360px',
+    borderRadius: '999px',
+    background: 'rgba(255, 255, 255, 0.72)',
+    filter: 'blur(36px)',
+    top: '-96px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+  },
+  panel: {
+    position: 'relative',
+    zIndex: 1,
     width: '100%',
-    maxWidth: '360px',
-    boxShadow: '0 16px 32px -8px rgba(0, 0, 0, 0.2)',
+    maxWidth: '440px',
+    padding: '28px',
+    borderRadius: '24px',
+    border: '1px solid rgba(229, 229, 234, 0.92)',
+    background: 'rgba(255, 255, 255, 0.88)',
+    boxShadow: '0 20px 50px rgba(15, 23, 42, 0.08)',
+    backdropFilter: 'blur(18px)',
+  },
+  hero: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    textAlign: 'center',
+    marginBottom: '22px',
   },
   logo: {
-    width: '48px',
-    height: '48px',
+    width: '52px',
+    height: '52px',
     objectFit: 'contain',
-    display: 'block',
-    margin: '0 auto 16px',
+    marginBottom: '14px',
   },
-  successIcon: {
-    width: '56px',
-    height: '56px',
-    borderRadius: '50%',
-    background: 'linear-gradient(135deg, #34C759 0%, #30D158 100%)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    margin: '0 auto 16px',
-    color: 'white',
+  eyebrow: {
+    marginBottom: '8px',
+    fontSize: '12px',
+    fontWeight: '600',
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    color: 'var(--text-tertiary)',
   },
   title: {
-    fontSize: '22px',
-    fontWeight: '600',
+    margin: 0,
+    fontSize: '28px',
+    lineHeight: 1.1,
+    fontWeight: '700',
+    color: 'var(--text-primary)',
     textAlign: 'center',
-    color: '#1D1D1F',
-    marginBottom: '4px',
-    letterSpacing: '-0.01em',
   },
   subtitle: {
-    fontSize: '13px',
+    margin: '10px 0 0',
+    fontSize: '14px',
+    lineHeight: 1.5,
+    color: 'var(--text-secondary)',
     textAlign: 'center',
-    color: '#86868B',
-    marginBottom: '24px',
   },
   form: {
     display: 'flex',
     flexDirection: 'column',
     gap: '12px',
   },
-  field: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px',
-  },
-  label: {
-    fontSize: '12px',
-    fontWeight: '600',
-    color: '#1D1D1F',
-  },
-  input: {
-    padding: '10px 12px',
-    border: '1px solid #D1D1D6',
-    borderRadius: '8px',
-    fontSize: '14px',
-    transition: 'all 0.15s ease',
-    outline: 'none',
-  },
-  button: {
-    padding: '12px',
-    background: 'linear-gradient(135deg, #34C759 0%, #30D158 100%)',
-    color: 'white',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '14px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    marginTop: '4px',
-  },
-  buttonLoading: {
-    opacity: '0.7',
-    cursor: 'not-allowed',
-  },
   error: {
     padding: '10px 12px',
-    backgroundColor: '#FFF2F0',
-    border: '1px solid #FFCCC7',
-    borderRadius: '8px',
-    color: '#FF4D4F',
+    borderRadius: 'var(--radius-sm)',
+    border: '1px solid rgba(255, 59, 48, 0.16)',
+    backgroundColor: 'rgba(255, 59, 48, 0.08)',
+    color: 'var(--accent-red)',
     fontSize: '13px',
+    lineHeight: 1.45,
     textAlign: 'center',
   },
-  successText: {
-    textAlign: 'center',
-    color: '#34C759',
+  submitButton: {
+    width: '100%',
+    minHeight: '42px',
+    marginTop: '6px',
+  },
+  successIcon: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '58px',
+    height: '58px',
+    margin: '0 auto 18px',
+    borderRadius: '999px',
+    background: 'rgba(52, 199, 89, 0.12)',
+    color: 'var(--accent-green)',
     fontSize: '14px',
-    marginBottom: '16px',
-    lineHeight: '1.5',
+    fontWeight: '700',
+    letterSpacing: '0.06em',
   },
   footer: {
-    textAlign: 'center',
-    marginTop: '16px',
+    display: 'flex',
+    justifyContent: 'center',
+    gap: '6px',
+    marginTop: '18px',
     fontSize: '13px',
-    color: '#86868B',
-  },
-  required: {
-    color: '#FF4D4F',
-    marginLeft: '2px',
-    fontWeight: 'bold',
+    color: 'var(--text-secondary)',
   },
   link: {
-    color: '#007AFF',
+    color: 'var(--accent-blue)',
     textDecoration: 'none',
-    fontWeight: '500',
-    marginLeft: '3px',
+    fontWeight: '600',
   },
 };
 

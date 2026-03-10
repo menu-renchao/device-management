@@ -1,14 +1,43 @@
-import React, { useEffect } from 'react';
+﻿import React, { useEffect } from 'react';
+
+const TOAST_ANIMATION_ID = 'toast-container-animations';
+
+const ensureAnimationStyles = () => {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  if (document.getElementById(TOAST_ANIMATION_ID)) {
+    return;
+  }
+
+  const styleSheet = document.createElement('style');
+  styleSheet.id = TOAST_ANIMATION_ID;
+  styleSheet.textContent = `
+    @keyframes toastSlideIn {
+      from {
+        transform: translate3d(24px, 0, 0);
+        opacity: 0;
+      }
+      to {
+        transform: translate3d(0, 0, 0);
+        opacity: 1;
+      }
+    }
+  `;
+
+  document.head.appendChild(styleSheet);
+};
 
 const ToastContainer = ({ toasts, removeToast }) => {
+  useEffect(() => {
+    ensureAnimationStyles();
+  }, []);
+
   return (
     <div style={styles.container}>
-      {toasts.map(toast => (
-        <ToastItem
-          key={toast.id}
-          toast={toast}
-          onClose={() => removeToast(toast.id)}
-        />
+      {toasts.map((toast) => (
+        <ToastItem key={toast.id} toast={toast} onClose={() => removeToast(toast.id)} />
       ))}
     </div>
   );
@@ -23,141 +52,115 @@ const ToastItem = ({ toast, onClose }) => {
     return () => clearTimeout(timer);
   }, [onClose]);
 
-  const getIcon = () => {
-    switch (toast.type) {
-      case 'success':
-        return '✓';
-      case 'error':
-        return '✕';
-      case 'warning':
-        return '!';
-      case 'info':
-      default:
-        return 'i';
-    }
-  };
-
-  const getTypeStyles = () => {
-    switch (toast.type) {
-      case 'success':
-        return {
-          backgroundColor: '#F0F9EB',
-          borderColor: '#E1F3D8',
-          iconBg: '#67C23A',
-          color: '#67C23A',
-        };
-      case 'error':
-        return {
-          backgroundColor: '#FEF0F0',
-          borderColor: '#FDE2E2',
-          iconBg: '#F56C6C',
-          color: '#F56C6C',
-        };
-      case 'warning':
-        return {
-          backgroundColor: '#FDF6EC',
-          borderColor: '#FAECD8',
-          iconBg: '#E6A23C',
-          color: '#E6A23C',
-        };
-      case 'info':
-      default:
-        return {
-          backgroundColor: '#F4F4F5',
-          borderColor: '#E9E9EB',
-          iconBg: '#909399',
-          color: '#909399',
-        };
-    }
-  };
-
-  const typeStyles = getTypeStyles();
+  const tone = getToastTone(toast.type);
 
   return (
-    <div style={{
-      ...styles.toast,
-      backgroundColor: typeStyles.backgroundColor,
-      borderColor: typeStyles.borderColor,
-    }}>
-      <div style={{
-        ...styles.icon,
-        backgroundColor: typeStyles.iconBg,
-      }}>
-        {getIcon()}
+    <div
+      style={{
+        ...styles.toast,
+        borderColor: tone.borderColor,
+      }}
+    >
+      <div
+        style={{
+          ...styles.icon,
+          backgroundColor: tone.iconBg,
+        }}
+      >
+        {tone.icon}
       </div>
       <div style={styles.message}>{toast.message}</div>
-      <button onClick={onClose} style={styles.closeBtn}>×</button>
+      <button aria-label="Close notification" onClick={onClose} style={styles.closeBtn}>
+        x
+      </button>
     </div>
   );
+};
+
+const getToastTone = (type) => {
+  switch (type) {
+    case 'success':
+      return {
+        icon: 'OK',
+        iconBg: 'var(--accent-green)',
+        borderColor: 'rgba(52, 199, 89, 0.24)',
+      };
+    case 'error':
+      return {
+        icon: 'x',
+        iconBg: 'var(--accent-red)',
+        borderColor: 'rgba(255, 59, 48, 0.24)',
+      };
+    case 'warning':
+      return {
+        icon: '!',
+        iconBg: 'var(--accent-orange)',
+        borderColor: 'rgba(255, 149, 0, 0.24)',
+      };
+    case 'info':
+    default:
+      return {
+        icon: 'i',
+        iconBg: 'var(--accent-blue)',
+        borderColor: 'var(--border-subtle)',
+      };
+  }
 };
 
 const styles = {
   container: {
     position: 'fixed',
-    top: '16px',
-    right: '16px',
+    top: 'var(--space-4)',
+    right: 'var(--space-4)',
     zIndex: 10000,
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px',
-    maxWidth: '400px',
+    gap: 'var(--space-2)',
+    maxWidth: '420px',
   },
   toast: {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
-    padding: '12px 16px',
-    borderRadius: '8px',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-    border: '1px solid',
-    animation: 'slideIn 0.3s ease',
     minWidth: '280px',
+    padding: '12px 14px',
+    backgroundColor: 'var(--bg-surface)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 'var(--radius-md)',
+    boxShadow: 'var(--shadow-md)',
+    animation: 'toastSlideIn 0.18s ease-out',
   },
   icon: {
-    width: '20px',
-    height: '20px',
-    borderRadius: '50%',
+    width: '22px',
+    height: '22px',
+    borderRadius: '999px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: 'white',
-    fontSize: '12px',
-    fontWeight: 'bold',
+    color: '#fff',
+    fontSize: '10px',
+    fontWeight: '700',
+    letterSpacing: '0.02em',
     flexShrink: 0,
   },
   message: {
     flex: 1,
+    minWidth: 0,
     fontSize: '13px',
-    color: '#1D1D1F',
-    lineHeight: '1.4',
+    lineHeight: 1.45,
+    color: 'var(--text-primary)',
     wordBreak: 'break-word',
   },
   closeBtn: {
-    background: 'none',
     border: 'none',
-    fontSize: '18px',
-    color: '#86868B',
+    background: 'transparent',
+    color: 'var(--text-tertiary)',
     cursor: 'pointer',
     padding: 0,
+    fontSize: '14px',
     lineHeight: 1,
     flexShrink: 0,
   },
 };
-
-// 添加动画样式
-const styleSheet = document.createElement('style');
-styleSheet.textContent = `
-  @keyframes slideIn {
-    from {
-      transform: translateX(100%);
-      opacity: 0;
-    }
-    to {
-      transform: translateX(0);
-      opacity: 1;
-    }
-  }
-`;
-document.head.appendChild(styleSheet);
 
 export default ToastContainer;

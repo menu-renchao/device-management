@@ -1,0 +1,62 @@
+﻿:root {
+  color-scheme: light;
+
+  --bg-canvas: #f5f5f7;
+  --bg-surface: #ffffff;
+  --bg-surface-muted: #f2f2f7;
+  --bg-surface-disabled: #f7f7fa;
+
+  --border-subtle: #e5e5ea;
+  --border-strong: #d1d1d6;
+
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-tertiary: #86868b;
+  --text-disabled: #aeaeb2;
+
+  --accent-blue: #007aff;
+  --accent-blue-hover: #005ecb;
+  --accent-green: #34c759;
+  --accent-red: #ff3b30;
+  --accent-orange: #ff9500;
+
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --focus-ring: 0 0 0 3px rgba(0, 122, 255, 0.14);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
+
+  /* Compatibility aliases for existing page-level styles. */
+  --apple-blue: var(--accent-blue);
+  --apple-blue-hover: var(--accent-blue-hover);
+  --apple-green: var(--accent-green);
+  --apple-red: var(--accent-red);
+  --apple-orange: var(--accent-orange);
+  --apple-gray: var(--text-tertiary);
+  --apple-gray-2: var(--text-disabled);
+  --apple-gray-3: #c7c7cc;
+  --apple-gray-4: var(--border-strong);
+  --apple-gray-5: var(--border-subtle);
+  --apple-gray-6: var(--bg-surface-muted);
+  --apple-text: var(--text-primary);
+  --apple-text-secondary: var(--text-secondary);
+  --apple-bg: var(--bg-canvas);
+  --apple-card-bg: var(--bg-surface);
+  --apple-shadow: var(--shadow-sm);
+  --apple-shadow-lg: var(--shadow-md);
+  --apple-radius: 12px;
+  --apple-radius-sm: var(--radius-sm);
+  --apple-radius-lg: 16px;
+  --apple-transition: all 0.2s ease;
+}

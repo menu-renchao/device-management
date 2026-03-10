@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 
 const ConfirmDialog = ({
   isOpen,
@@ -8,8 +8,7 @@ const ConfirmDialog = ({
   onCancel,
   confirmText,
   cancelText,
-  variant = 'danger', // 'danger' | 'primary'
-  // 输入框相关
+  variant = 'danger',
   showInput = false,
   inputPlaceholder = '',
   inputLabel = '',
@@ -17,32 +16,45 @@ const ConfirmDialog = ({
 }) => {
   const [inputValue, setInputValue] = useState('');
 
-  // 每次打开时清空输入框
   useEffect(() => {
     if (isOpen) {
       setInputValue('');
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  if (!isOpen) {
+    return null;
+  }
 
   const handleConfirm = () => {
     if (showInput && onConfirmWithInput) {
       onConfirmWithInput(inputValue);
-    } else {
-      onConfirm();
+      return;
     }
+
+    onConfirm();
   };
 
   return (
     <div style={styles.overlay}>
-      <div style={{ ...styles.dialog, width: showInput ? '400px' : '360px' }}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        style={{
+          ...styles.dialog,
+          width: showInput ? '400px' : '360px',
+        }}
+      >
         <div style={styles.header}>
-          <svg style={styles.icon} viewBox="0 0 24 24" fill="none">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="#FF9500"/>
+          <svg style={styles.icon} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"
+              fill="var(--accent-orange)"
+            />
           </svg>
           <span style={styles.title}>{title}</span>
         </div>
+
         <div style={styles.body}>
           {message}
           {showInput && (
@@ -58,18 +70,19 @@ const ConfirmDialog = ({
             </div>
           )}
         </div>
+
         <div style={styles.footer}>
           <button onClick={onCancel} style={styles.cancelBtn}>
-            {cancelText || '取消'}
+            {cancelText || '\u53D6\u6D88'}
           </button>
           <button
             onClick={handleConfirm}
             style={{
               ...styles.confirmBtn,
-              backgroundColor: variant === 'primary' ? '#007AFF' : '#FF3B30',
+              backgroundColor: variant === 'primary' ? 'var(--accent-blue)' : 'var(--accent-red)',
             }}
           >
-            {confirmText || '确定'}
+            {confirmText || '\u786E\u5B9A'}
           </button>
         </div>
       </div>
@@ -80,21 +93,22 @@ const ConfirmDialog = ({
 const styles = {
   overlay: {
     position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    inset: 0,
     display: 'flex',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
+    padding: 'var(--space-4)',
+    backgroundColor: 'rgba(15, 23, 42, 0.22)',
+    backdropFilter: 'blur(10px)',
     zIndex: 9999,
   },
   dialog: {
-    backgroundColor: 'white',
-    borderRadius: '12px',
     maxWidth: '90%',
-    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
+    overflow: 'hidden',
+    backgroundColor: 'var(--bg-surface)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 'var(--radius-lg)',
+    boxShadow: 'var(--shadow-md)',
   },
   header: {
     display: 'flex',
@@ -110,62 +124,65 @@ const styles = {
   title: {
     fontSize: '16px',
     fontWeight: '600',
-    color: '#1D1D1F',
+    color: 'var(--text-primary)',
   },
   body: {
     padding: '0 20px 20px',
     fontSize: '14px',
-    color: '#666',
-    lineHeight: '1.5',
+    lineHeight: 1.5,
+    color: 'var(--text-secondary)',
   },
   inputContainer: {
     marginTop: '16px',
   },
   inputLabel: {
     display: 'block',
+    marginBottom: '8px',
     fontSize: '13px',
     fontWeight: '500',
-    color: '#1D1D1F',
-    marginBottom: '8px',
+    color: 'var(--text-primary)',
   },
   textarea: {
     width: '100%',
-    padding: '10px 12px',
-    border: '1px solid #E5E5EA',
-    borderRadius: '8px',
-    fontSize: '14px',
+    minHeight: '84px',
     resize: 'vertical',
-    outline: 'none',
+    padding: '10px 12px',
     fontFamily: 'inherit',
+    fontSize: '14px',
+    color: 'var(--text-primary)',
+    backgroundColor: 'var(--bg-surface)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 'var(--radius-sm)',
+    outline: 'none',
     boxSizing: 'border-box',
   },
   footer: {
     display: 'flex',
     gap: '12px',
     padding: '16px 20px',
-    borderTop: '1px solid #E5E5EA',
+    borderTop: '1px solid var(--border-subtle)',
+    backgroundColor: 'var(--bg-surface-muted)',
   },
   cancelBtn: {
     flex: 1,
     padding: '10px 16px',
-    backgroundColor: '#F2F2F7',
-    border: 'none',
-    borderRadius: '8px',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 'var(--radius-sm)',
+    backgroundColor: 'var(--bg-surface)',
+    color: 'var(--text-primary)',
+    cursor: 'pointer',
     fontSize: '14px',
     fontWeight: '500',
-    color: '#1D1D1F',
-    cursor: 'pointer',
   },
   confirmBtn: {
     flex: 1,
     padding: '10px 16px',
-    backgroundColor: '#FF3B30',
     border: 'none',
-    borderRadius: '8px',
-    fontSize: '14px',
-    fontWeight: '500',
-    color: 'white',
+    borderRadius: 'var(--radius-sm)',
+    color: '#fff',
     cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: '600',
   },
 };
 

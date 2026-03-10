@@ -3,3 +3,4 @@
 /scripts
 /backend-go/logs
 backend-go/db-backups
+backend-go/data.db

@@ -1,0 +1,322 @@
+﻿.ui-page-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ui-page-shell__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 248, 250, 0.94));
+  border: 1px solid rgba(229, 229, 234, 0.9);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.ui-page-shell__heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.ui-page-shell__eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.ui-page-shell__title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.15;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.ui-page-shell__subtitle {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.ui-page-shell__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.ui-page-shell__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ui-section-group {
+  background-color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(229, 229, 234, 0.9);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.ui-section-group__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-3);
+}
+
+.ui-section-group__heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.ui-section-group__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ui-section-group__description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.ui-section-group__extra {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.ui-section-group__body {
+  padding: 0 var(--space-5) var(--space-5);
+}
+
+.ui-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background-color: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(229, 229, 234, 0.9);
+  border-radius: var(--radius-md);
+}
+
+.ui-toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.ui-button:hover {
+  transform: translateY(-1px);
+}
+
+.ui-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.ui-button--primary {
+  background: var(--accent-blue);
+  color: #fff;
+}
+
+.ui-button--secondary {
+  background: var(--bg-surface);
+  border-color: var(--border-subtle);
+}
+
+.ui-button--tertiary {
+  background: var(--bg-surface-muted);
+  color: var(--text-secondary);
+}
+
+.ui-button--danger {
+  background: var(--accent-red);
+  color: #fff;
+}
+
+.ui-button--icon {
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+  border-color: var(--border-subtle);
+}
+
+.ui-button__spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: uiButtonSpin 0.75s linear infinite;
+}
+
+@keyframes uiButtonSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ui-field__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.ui-field__control {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.ui-field__help {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.ui-field__error {
+  font-size: 12px;
+  color: var(--accent-red);
+}
+
+.ui-segmented-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(229, 229, 234, 0.9);
+  border-radius: 999px;
+}
+
+.ui-segmented-control__item {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ui-segmented-control__item--active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.ui-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ui-status-badge__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.ui-status-badge--neutral {
+  color: var(--text-secondary);
+  background: var(--bg-surface-muted);
+  border-color: var(--border-subtle);
+}
+
+.ui-status-badge--info {
+  color: var(--accent-blue);
+  background: rgba(0, 122, 255, 0.08);
+  border-color: rgba(0, 122, 255, 0.16);
+}
+
+.ui-status-badge--success {
+  color: var(--accent-green);
+  background: rgba(52, 199, 89, 0.08);
+  border-color: rgba(52, 199, 89, 0.16);
+}
+
+.ui-status-badge--warning {
+  color: var(--accent-orange);
+  background: rgba(255, 149, 0, 0.08);
+  border-color: rgba(255, 149, 0, 0.16);
+}
+
+.ui-status-badge--danger {
+  color: var(--accent-red);
+  background: rgba(255, 59, 48, 0.08);
+  border-color: rgba(255, 59, 48, 0.16);
+}
+
+@media (max-width: 768px) {
+  .ui-page-shell__header,
+  .ui-toolbar,
+  .ui-section-group__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ui-page-shell__actions,
+  .ui-toolbar__group,
+  .ui-section-group__extra {
+    justify-content: flex-start;
+  }
+}
