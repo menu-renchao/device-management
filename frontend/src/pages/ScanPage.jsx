@@ -55,7 +55,7 @@ const ScanPage = () => {
   const [confirmDialog, setConfirmDialog] = useState({ show: false, type: null, data: null });
   const licenseFileInputRef = useRef(null);
   const licenseImportDeviceRef = useRef(null);
-  const [dbBackupModal, setDbBackupModal] = useState({ show: false, device: null, tab: 'backup' });
+  const [dbBackupModal, setDbBackupModal] = useState({ show: false, device: null });
 
   // 获取本地IP列表
   useEffect(() => {
@@ -505,27 +505,14 @@ const ScanPage = () => {
     }
   };
 
-  const handleOpenDatabaseBackup = (device) => {
+  const handleOpenDatabaseBackupRestore = (device) => {
     if (!device?.merchantId) {
-      toast.warning('缺少商家ID，无法执行数据备份');
+      toast.warning('缺少商家ID，无法执行数据备份/恢复');
       return;
     }
     setDbBackupModal({
       show: true,
-      device,
-      tab: 'backup'
-    });
-  };
-
-  const handleOpenDatabaseRestore = (device) => {
-    if (!device?.merchantId) {
-      toast.warning('缺少商家ID，无法执行数据恢复');
-      return;
-    }
-    setDbBackupModal({
-      show: true,
-      device,
-      tab: 'restore'
+      device
     });
   };
 
@@ -829,8 +816,7 @@ const ScanPage = () => {
           onResetOwner={handleResetOwner}
           onBackupLicense={handleBackupLicense}
           onImportLicense={handleImportLicense}
-          onBackupDatabase={handleOpenDatabaseBackup}
-          onRestoreDatabase={handleOpenDatabaseRestore}
+          onBackupRestoreDatabase={handleOpenDatabaseBackupRestore}
           isAdmin={isAdmin()}
           currentUserId={user?.id}
           onConfigNoPermission={handleConfigNoPermission}
@@ -1003,9 +989,8 @@ const ScanPage = () => {
 
       <DBBackupRestoreModal
         isOpen={dbBackupModal.show}
-        onClose={() => setDbBackupModal({ show: false, device: null, tab: 'backup' })}
+        onClose={() => setDbBackupModal({ show: false, device: null })}
         device={dbBackupModal.device}
-        initialTab={dbBackupModal.tab}
       />
 
       <input

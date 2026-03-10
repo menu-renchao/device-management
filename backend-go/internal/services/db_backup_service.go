@@ -242,7 +242,9 @@ func (s *DBBackupService) backupsRootDir() string {
 	if config.AppConfig != nil && strings.TrimSpace(config.AppConfig.Download.DownloadsDir) != "" {
 		downloadsDir = strings.TrimSpace(config.AppConfig.Download.DownloadsDir)
 	}
-	return filepath.Join(downloadsDir, "db-backups")
+	// db-backups 与 downloads 并列，放在同一父目录下
+	parentDir := filepath.Dir(downloadsDir)
+	return filepath.Join(parentDir, "db-backups")
 }
 
 func (s *DBBackupService) ensureMerchantDir(merchantFolder string) (string, error) {

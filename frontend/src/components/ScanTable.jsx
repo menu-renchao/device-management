@@ -12,8 +12,7 @@ const ScanTable = ({
   onResetOwner,
   onBackupLicense,
   onImportLicense,
-  onBackupDatabase,
-  onRestoreDatabase,
+  onBackupRestoreDatabase,
   isAdmin,
   currentUserId,
   onConfigNoPermission
@@ -236,9 +235,8 @@ const ScanTable = ({
             const canManageLicense = hasMerchantId && canAccessDeviceConfig(device);
             const canBackupLicense = canManageLicense && typeof onBackupLicense === 'function';
             const canImportLicense = canManageLicense && typeof onImportLicense === 'function';
-            const canBackupDatabase = canManageLicense && typeof onBackupDatabase === 'function';
-            const canRestoreDatabase = canManageLicense && typeof onRestoreDatabase === 'function';
-            const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow || canBackupLicense || canImportLicense || canBackupDatabase || canRestoreDatabase;
+            const canBackupRestoreDatabase = canManageLicense && typeof onBackupRestoreDatabase === 'function';
+            const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow || canBackupLicense || canImportLicense || canBackupRestoreDatabase;
             const offlineTimeText = formatLastOnlineTime(device.lastOnlineTime);
             const statusText = isOnlineDevice
               ? (hasMerchantId ? '在线' : '服务异常')
@@ -430,23 +428,13 @@ const ScanTable = ({
                             </button>
                           )}
 
-                          {canBackupDatabase && (
+                          {canBackupRestoreDatabase && (
                             <button
                               className="action-menu-item"
-                              onClick={(e) => handleMenuAction(e, () => onBackupDatabase(device))}
-                              title="创建数据库全量备份并保存到服务端"
+                              onClick={(e) => handleMenuAction(e, () => onBackupRestoreDatabase(device))}
+                              title="创建备份或从服务端/本地上传恢复数据库"
                             >
-                              数据备份
-                            </button>
-                          )}
-
-                          {canRestoreDatabase && (
-                            <button
-                              className="action-menu-item"
-                              onClick={(e) => handleMenuAction(e, () => onRestoreDatabase(device))}
-                              title="从服务端或本地SQL恢复数据库"
-                            >
-                              数据恢复
+                              数据备份/恢复
                             </button>
                           )}
 
