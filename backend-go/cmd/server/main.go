@@ -74,9 +74,6 @@ func main() {
 		&models.SystemConfig{},
 		&models.SystemNotification{},
 		&models.WarPackageMetadata{},
-		&models.TCMProject{},
-		&models.TCMModule{},
-		&models.TCMTestCase{},
 	); err != nil {
 		logger.Fatal("Failed to migrate database", "error", err)
 	}
