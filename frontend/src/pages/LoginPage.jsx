@@ -26,7 +26,7 @@ const LoginPage = () => {
 
       setError(result.error);
     } catch (error) {
-      setError('\u767B\u5F55\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5');
+      setError('登录失败，请稍后重试');
     } finally {
       setLoading(false);
     }
@@ -39,29 +39,29 @@ const LoginPage = () => {
         <div style={styles.hero}>
           <img src="/favicon.ico" alt="Logo" style={styles.logo} />
           <div style={styles.eyebrow}>Menusifu Device Management</div>
-          <h1 style={styles.title}>\u8BBE\u5907\u7BA1\u7406\u5E73\u53F0</h1>
-          <p style={styles.subtitle}>\u767B\u5F55\u60A8\u7684\u8D26\u6237\u4EE5\u7EE7\u7EED</p>
+          <h1 style={styles.title}>设备管理平台</h1>
+          <p style={styles.subtitle}>登录您的账户以继续</p>
         </div>
 
         <form onSubmit={handleSubmit} style={styles.form}>
-          <Field label="\u7528\u6237\u540D" htmlFor="login-username">
+          <Field label="用户名" htmlFor="login-username">
             <input
               id="login-username"
               type="text"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="\u8BF7\u8F93\u5165\u7528\u6237\u540D"
+              placeholder="请输入用户名"
               required
             />
           </Field>
 
-          <Field label="\u5BC6\u7801" htmlFor="login-password">
+          <Field label="密码" htmlFor="login-password">
             <input
               id="login-password"
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="\u8BF7\u8F93\u5165\u5BC6\u7801"
+              placeholder="请输入密码"
               required
             />
           </Field>
@@ -69,14 +69,14 @@ const LoginPage = () => {
           {error ? <div style={styles.error}>{error}</div> : null}
 
           <Button type="submit" variant="primary" loading={loading} style={styles.submitButton}>
-            {loading ? '\u767B\u5F55\u4E2D...' : '\u767B\u5F55'}
+            {loading ? '登录中...' : '登录'}
           </Button>
         </form>
 
         <div style={styles.footer}>
-          <span>\u8FD8\u6CA1\u6709\u8D26\u6237\uFF1F</span>
+          <span>还没有账户？</span>
           <Link to="/register" style={styles.link}>
-            \u7ACB\u5373\u6CE8\u518C
+            立即注册
           </Link>
         </div>
       </div>
@@ -188,3 +188,4 @@ const styles = {
 };
 
 export default LoginPage;
+

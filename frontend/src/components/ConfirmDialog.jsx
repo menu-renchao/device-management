@@ -73,7 +73,7 @@ const ConfirmDialog = ({
 
         <div style={styles.footer}>
           <button onClick={onCancel} style={styles.cancelBtn}>
-            {cancelText || '\u53D6\u6D88'}
+            {cancelText || '取消'}
           </button>
           <button
             onClick={handleConfirm}
@@ -82,7 +82,7 @@ const ConfirmDialog = ({
               backgroundColor: variant === 'primary' ? 'var(--accent-blue)' : 'var(--accent-red)',
             }}
           >
-            {confirmText || '\u786E\u5B9A'}
+            {confirmText || '确定'}
           </button>
         </div>
       </div>
@@ -187,3 +187,4 @@ const styles = {
 };
 
 export default ConfirmDialog;
+

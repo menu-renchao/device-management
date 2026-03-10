@@ -1,5 +1,8 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { getMyRequests } from '../../services/api';
+import SectionGroup from '../ui/SectionGroup';
+import SegmentedControl from '../ui/SegmentedControl';
+import StatusBadge from '../ui/StatusBadge';
 
 const MyRequestsTab = () => {
   const [loading, setLoading] = useState(true);
@@ -18,213 +21,157 @@ const MyRequestsTab = () => {
       setPosRequests(data.posRequests || []);
       setMobileRequests(data.mobileRequests || []);
     } catch (error) {
-      console.error('获取申请列表失败:', error);
+      console.error('Failed to load requests:', error);
     } finally {
       setLoading(false);
     }
   };
 
   const formatTime = (isoString) => {
-    if (!isoString) return '——';
+    if (!isoString) return '--';
     const date = new Date(isoString);
     return date.toLocaleString('zh-CN', {
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
     });
   };
 
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      pending: { bg: 'rgba(255, 149, 0, 0.12)', color: '#FF9500', text: '待审核' },
-      approved: { bg: 'rgba(52, 199, 89, 0.12)', color: '#34C759', text: '已通过' },
-      rejected: { bg: 'rgba(255, 59, 48, 0.12)', color: '#FF3B30', text: '已拒绝' },
-      completed: { bg: 'rgba(142, 142, 147, 0.12)', color: '#8E8E93', text: '已完成' },
-    };
-    const config = statusConfig[status] || statusConfig.pending;
-    return (
-      <span style={{ ...styles.badge, backgroundColor: config.bg, color: config.color }}>
-        {config.text}
-      </span>
-    );
+  const getStatusTone = (status) => {
+    switch (status) {
+      case 'approved':
+        return { tone: 'success', label: '已通过' };
+      case 'rejected':
+        return { tone: 'danger', label: '已拒绝' };
+      case 'completed':
+        return { tone: 'neutral', label: '已完成' };
+      case 'pending':
+      default:
+        return { tone: 'warning', label: '待审核' };
+    }
   };
-
-  if (loading) {
-    return (
-      <div style={styles.loading}>
-        <div style={styles.spinner}></div>
-        <span>加载中...</span>
-      </div>
-    );
-  }
 
   const currentRequests = activeSubTab === 'pos' ? posRequests : mobileRequests;
 
   return (
-    <div>
-      <div style={styles.subTabs}>
-        <button
-          onClick={() => setActiveSubTab('pos')}
-          style={{
-            ...styles.subTab,
-            ...(activeSubTab === 'pos' ? styles.activeSubTab : {}),
-          }}
-        >
-          POS设备 ({posRequests.length})
-        </button>
-        <button
-          onClick={() => setActiveSubTab('mobile')}
-          style={{
-            ...styles.subTab,
-            ...(activeSubTab === 'mobile' ? styles.activeSubTab : {}),
-          }}
-        >
-          移动设备 ({mobileRequests.length})
-        </button>
-      </div>
-
-      {currentRequests.length === 0 ? (
-        <div style={styles.empty}>
-          <svg style={styles.emptyIcon} viewBox="0 0 24 24" fill="none">
-            <path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-4.86 8.86l-3 3.87L9 13.14 6 17h12l-3.86-5.14z" fill="currentColor"/>
-          </svg>
-          <p>暂无{activeSubTab === 'pos' ? 'POS设备' : '移动设备'}借用申请</p>
+    <SectionGroup
+      title="我的申请"
+      description="查看当前申请的审核状态、归还时间和拒绝原因。"
+      extra={
+        <SegmentedControl
+          options={[
+            { value: 'pos', label: `POS (${posRequests.length})` },
+            { value: 'mobile', label: `移动 (${mobileRequests.length})` },
+          ]}
+          value={activeSubTab}
+          onChange={setActiveSubTab}
+        />
+      }
+    >
+      {loading ? (
+        <div style={styles.state}>Loading...</div>
+      ) : currentRequests.length === 0 ? (
+        <div style={styles.state}>
+          {activeSubTab === 'pos' ? '暂无 POS 借用申请' : '暂无移动设备借用申请'}
         </div>
       ) : (
-        <div style={styles.tableContainer}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>设备名称</th>
-                {activeSubTab === 'pos' && <th style={styles.th}>IP</th>}
-                <th style={styles.th}>借用目的</th>
-                <th style={styles.th}>预计归还</th>
-                <th style={styles.th}>状态</th>
-                <th style={styles.th}>拒绝原因</th>
-                <th style={styles.th}>申请时间</th>
-              </tr>
-            </thead>
-            <tbody>
-              {currentRequests.map((req) => (
-                <tr key={req.id} style={styles.tr}>
-                  <td style={{ ...styles.td, fontWeight: '500' }}>{req.deviceName}</td>
-                  {activeSubTab === 'pos' && <td style={styles.td}>{req.ip || '——'}</td>}
-                  <td style={{ ...styles.td, ...styles.tdWrap }}>{req.purpose || '——'}</td>
-                  <td style={styles.td}>{formatTime(req.endTime)}</td>
-                  <td style={styles.td}>{getStatusBadge(req.status)}</td>
-                  <td style={{ ...styles.td, ...styles.tdWrap }}>
-                    {req.status === 'rejected' && req.rejectionReason ? (
-                      <span style={{ color: '#FF3B30', whiteSpace: 'pre-wrap' }}>{req.rejectionReason}</span>
-                    ) : '——'}
-                  </td>
-                  <td style={styles.td}>{formatTime(req.createdAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div style={styles.list}>
+          {currentRequests.map((request) => {
+            const status = getStatusTone(request.status);
+            return (
+              <div key={request.id} style={styles.item}>
+                <div style={styles.itemHeader}>
+                  <div>
+                    <div style={styles.itemTitle}>{request.deviceName}</div>
+                    <div style={styles.itemMeta}>
+                      {activeSubTab === 'pos' ? request.ip || '--' : '移动设备'}
+                    </div>
+                  </div>
+                  <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+                </div>
+                <div style={styles.detailGrid}>
+                  <Detail label="借用目的" value={request.purpose || '--'} />
+                  <Detail label="预计归还" value={formatTime(request.endTime)} />
+                  <Detail label="申请时间" value={formatTime(request.createdAt)} />
+                  <Detail
+                    label="拒绝原因"
+                    value={request.status === 'rejected' && request.rejectionReason ? request.rejectionReason : '--'}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
-    </div>
+    </SectionGroup>
   );
 };
 
+const Detail = ({ label, value }) => (
+  <div style={styles.detailItem}>
+    <div style={styles.detailLabel}>{label}</div>
+    <div style={styles.detailValue}>{value}</div>
+  </div>
+);
+
 const styles = {
-  loading: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '60px',
-    color: '#86868B',
-  },
-  spinner: {
-    width: '32px',
-    height: '32px',
-    border: '3px solid #E5E5EA',
-    borderTopColor: '#007AFF',
-    borderRadius: '50%',
-    animation: 'spin 0.8s linear infinite',
-    marginBottom: '12px',
-  },
-  empty: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '60px',
-    color: '#86868B',
-  },
-  emptyIcon: {
-    width: '48px',
-    height: '48px',
-    color: '#C7C7CC',
-    marginBottom: '12px',
-  },
-  subTabs: {
-    display: 'flex',
-    gap: '8px',
-    marginBottom: '16px',
-  },
-  subTab: {
-    padding: '6px 12px',
-    border: '1px solid #E5E5EA',
-    backgroundColor: 'white',
-    borderRadius: '6px',
-    cursor: 'pointer',
+  state: {
+    padding: '32px 12px',
+    textAlign: 'center',
+    color: 'var(--text-secondary)',
     fontSize: '13px',
-    color: '#86868B',
   },
-  activeSubTab: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
-    color: 'white',
+  list: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 'var(--space-3)',
   },
-  tableContainer: {
-    backgroundColor: 'white',
-    borderRadius: '12px',
-    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
-    overflow: 'hidden',
+  item: {
+    padding: '16px',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 'var(--radius-md)',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
   },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
+  itemHeader: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 'var(--space-3)',
+    marginBottom: '12px',
   },
-  th: {
-    padding: '12px 16px',
-    textAlign: 'left',
+  itemTitle: {
+    fontSize: '14px',
+    fontWeight: '700',
+    color: 'var(--text-primary)',
+  },
+  itemMeta: {
+    marginTop: '4px',
+    fontSize: '12px',
+    color: 'var(--text-tertiary)',
+  },
+  detailGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: '12px',
+  },
+  detailItem: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+  },
+  detailLabel: {
     fontSize: '12px',
     fontWeight: '600',
-    color: '#86868B',
-    backgroundColor: '#F9F9F9',
-    borderBottom: '1px solid #E5E5EA',
+    color: 'var(--text-tertiary)',
   },
-  tr: {
-    borderBottom: '1px solid #F2F2F7',
-  },
-  td: {
-    padding: '12px 16px',
+  detailValue: {
     fontSize: '13px',
-    color: '#1D1D1F',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    maxWidth: '150px',
-  },
-  tdWrap: {
-    whiteSpace: 'pre-wrap',
-    overflow: 'visible',
-    textOverflow: 'clip',
-    maxWidth: '200px',
+    lineHeight: 1.45,
+    color: 'var(--text-primary)',
     wordBreak: 'break-word',
-  },
-  badge: {
-    display: 'inline-block',
-    padding: '4px 10px',
-    borderRadius: '6px',
-    fontSize: '12px',
-    fontWeight: '500',
   },
 };
 
 export default MyRequestsTab;
+
