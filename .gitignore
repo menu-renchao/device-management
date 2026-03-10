@@ -1,1 +1,5 @@
 /backend-go/downloads
+/generated-codex-skills
+/scripts
+/backend-go/logs
+backend-go/db-backups
