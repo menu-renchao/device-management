@@ -421,6 +421,60 @@ func (h *LinuxHandler) GetUploadProgress(c *gin.Context) {
 	response.Success(c, taskInfo)
 }
 
+// UploadUpgradeTaskLocalFile binds a browser-selected WAR file to an existing upgrade task.
+func (h *LinuxHandler) UploadUpgradeTaskLocalFile(c *gin.Context) {
+	taskID := c.Param("taskId")
+	if taskID == "" {
+		response.BadRequest(c, "taskId 不能为空")
+		return
+	}
+
+	task, exists := h.linuxService.GetUpgradeTask(taskID)
+	if !exists {
+		response.NotFound(c, "升级任务不存在")
+		return
+	}
+
+	if !h.checkDevicePermission(c, task.MerchantID) {
+		return
+	}
+
+	if !h.linuxService.IsConnected(task.MerchantID) {
+		response.BadRequest(c, "未连接")
+		return
+	}
+
+	file, _, err := c.Request.FormFile("file")
+	if err != nil {
+		response.BadRequest(c, "上传文件无效")
+		return
+	}
+	defer file.Close()
+
+	tempFile, err := os.CreateTemp("", "upgrade-task-*.war")
+	if err != nil {
+		response.InternalError(c, "创建临时文件失败")
+		return
+	}
+	defer tempFile.Close()
+
+	if _, err := io.Copy(tempFile, file); err != nil {
+		_ = os.Remove(tempFile.Name())
+		response.InternalError(c, "保存临时文件失败")
+		return
+	}
+
+	if err := task.AttachLocalUpload(tempFile.Name()); err != nil {
+		_ = os.Remove(tempFile.Name())
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	response.SuccessWithMessage(c, "本地 WAR 文件已绑定到升级任务", gin.H{
+		"task_id": task.ID,
+	})
+}
+
 // CreateBackup 创建备份
 func (h *LinuxHandler) CreateBackup(c *gin.Context) {
 	var req struct {
@@ -1087,6 +1141,7 @@ func (h *LinuxHandler) StartUpgradeTask(c *gin.Context) {
 		WarPath    string `json:"war_path"`
 		PackageDir string `json:"package_dir"`
 		Env        string `json:"env"`
+		SourceType string `json:"source_type"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "请求格式无效")
@@ -1107,13 +1162,16 @@ func (h *LinuxHandler) StartUpgradeTask(c *gin.Context) {
 	if req.Env == "" {
 		req.Env = "QA"
 	}
+	if req.SourceType == "" {
+		req.SourceType = "server"
+	}
 
 	// 创建升级任务
 	var task *services.UpgradeTask
 	if req.Type == "direct" {
-		task = h.linuxService.GetUpgradeTaskManager().CreateDirectUpgradeTask(req.MerchantID)
+		task = h.linuxService.GetUpgradeTaskManager().CreateDirectUpgradeTask(req.MerchantID, req.SourceType)
 	} else if req.Type == "package" {
-		task = h.linuxService.GetUpgradeTaskManager().CreatePackageUpgradeTask(req.MerchantID)
+		task = h.linuxService.GetUpgradeTaskManager().CreatePackageUpgradeTask(req.MerchantID, req.SourceType)
 	} else {
 		response.BadRequest(c, "无效的升级类型")
 		return
@@ -1142,6 +1200,19 @@ func (h *LinuxHandler) StartUpgradeTask(c *gin.Context) {
 	})
 }
 
+func (h *LinuxHandler) waitForTaskLocalUpload(task *services.UpgradeTask, stepIndex int) (string, error) {
+	task.StartStep(stepIndex)
+	task.UpdateStepProgress(stepIndex, 5, "等待本地 WAR 文件上传...")
+
+	localPath, err := task.WaitForLocalUpload(10 * time.Minute)
+	if err != nil {
+		return "", err
+	}
+
+	task.UpdateStepProgress(stepIndex, 15, "已接收本地 WAR 文件，开始上传到设备...")
+	return localPath, nil
+}
+
 // executeDirectUpgradeWithTask 执行直接替换升级（带任务进度）
 func (h *LinuxHandler) executeDirectUpgradeWithTask(task *services.UpgradeTask, merchantID, warPath, env string) {
 	task.Start()
@@ -1158,12 +1229,26 @@ func (h *LinuxHandler) executeDirectUpgradeWithTask(task *services.UpgradeTask, 
 	task.CompleteStep(0)
 
 	// 步骤 1: 上传/复制 WAR 包 (10-40%)
-	task.StartStep(1)
-	task.UpdateStepProgress(1, 10, "正在准备 WAR 包...")
+	stepOneWarPath := warPath
+	if task.SourceType == "local" {
+		stepOneWarPath, err = h.waitForTaskLocalUpload(task, 1)
+		if err != nil {
+			task.FailStep(1, err.Error())
+			task.Fail(err.Error())
+			return
+		}
+		defer os.Remove(stepOneWarPath)
 
-	err = h.linuxService.CopyWarForDirectUpgrade(merchantID, warPath, func(progress int, message string) {
-		task.UpdateStepProgress(1, progress, message)
-	})
+		err = h.linuxService.UploadLocalWarForDirectUpgrade(merchantID, stepOneWarPath, func(progress int, message string) {
+			task.UpdateStepProgress(1, progress, message)
+		})
+	} else {
+		task.StartStep(1)
+		task.UpdateStepProgress(1, 10, "正在准备 WAR 包...")
+		err = h.linuxService.CopyWarForDirectUpgrade(merchantID, stepOneWarPath, func(progress int, message string) {
+			task.UpdateStepProgress(1, progress, message)
+		})
+	}
 	if err != nil {
 		task.FailStep(1, err.Error())
 		task.Fail(err.Error())
@@ -1226,11 +1311,26 @@ func (h *LinuxHandler) executePackageUpgradeWithTask(task *services.UpgradeTask,
 	task.CompleteStep(0)
 
 	// 步骤 1: 复制/上传 WAR 包 (10-30%)
-	task.StartStep(1)
-	task.UpdateStepProgress(1, 10, "正在准备 WAR 包...")
-	err = h.linuxService.CopyWarForPackageUpgrade(merchantID, packageDir, warPath, func(progress int, message string) {
-		task.UpdateStepProgress(1, progress, message)
-	})
+	stepOneWarPath := warPath
+	if task.SourceType == "local" {
+		stepOneWarPath, err = h.waitForTaskLocalUpload(task, 1)
+		if err != nil {
+			task.FailStep(1, err.Error())
+			task.Fail(err.Error())
+			return
+		}
+		defer os.Remove(stepOneWarPath)
+
+		err = h.linuxService.UploadLocalWarForPackageUpgrade(merchantID, packageDir, stepOneWarPath, func(progress int, message string) {
+			task.UpdateStepProgress(1, progress, message)
+		})
+	} else {
+		task.StartStep(1)
+		task.UpdateStepProgress(1, 10, "正在准备 WAR 包...")
+		err = h.linuxService.CopyWarForPackageUpgrade(merchantID, packageDir, stepOneWarPath, func(progress int, message string) {
+			task.UpdateStepProgress(1, progress, message)
+		})
+	}
 	if err != nil {
 		task.FailStep(1, err.Error())
 		task.Fail(err.Error())

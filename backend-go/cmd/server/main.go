@@ -300,6 +300,7 @@ func main() {
 
 			// SSE upgrade progress
 			linux.POST("/upgrade/task", linuxHandler.StartUpgradeTask)
+			linux.POST("/upgrade/task/:taskId/upload-local", linuxHandler.UploadUpgradeTaskLocalFile)
 			linux.GET("/upgrade/stream/:taskId", linuxHandler.StreamUpgradeProgress)
 			linux.GET("/upgrade/status/:taskId", linuxHandler.GetUpgradeTaskStatus)
 

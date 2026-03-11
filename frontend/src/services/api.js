@@ -732,6 +732,26 @@ export const linuxAPI = {
     return response.data;
   },
 
+  uploadUpgradeTaskLocalFile: async (taskId, file, onProgress) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const token = localStorage.getItem('access_token');
+    const response = await axios.post(`${API_BASE_URL}/linux/upgrade/task/${taskId}/upload-local`, formData, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'multipart/form-data'
+      },
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percentCompleted);
+        }
+      }
+    });
+    return response.data;
+  },
+
   // 获取升级任务状态
   getUpgradeTaskStatus: async (taskId) => {
     const authAxios = createAuthAxios();
