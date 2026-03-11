@@ -7,7 +7,12 @@ import ScanTable from '../components/ScanTable';
 import DetailModal from '../components/DetailModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import DBBackupRestoreModal from '../components/db-backup/DBBackupRestoreModal';
-import { getAutoScanDisplayMode, shouldLoadAutoScanPanel } from './scanPageUtils';
+import {
+  getAutoScanDisplayMode,
+  getFilterButtonActiveStyle,
+  getMineOnlyToggleActiveStyle,
+  shouldLoadAutoScanPanel
+} from './scanPageUtils';
 
 const getOnlyMyDevicesStorageKey = (userId) => `scan_page_only_my_devices_${userId || 'default'}`;
 
@@ -950,7 +955,7 @@ const ScanPage = () => {
               onClick={(e) => { e.stopPropagation(); setShowTypeDropdown(!showTypeDropdown); setShowPropertyDropdown(false); }}
               style={{
                 ...styles.filterBtn,
-                ...(filterTypes.length > 0 ? styles.filterBtnActive : {})
+                ...(filterTypes.length > 0 ? getFilterButtonActiveStyle() : {})
               }}
             >
               类型 {filterTypes.length > 0 && `(${filterTypes.length})`}
@@ -982,7 +987,7 @@ const ScanPage = () => {
               onClick={(e) => { e.stopPropagation(); setShowPropertyDropdown(!showPropertyDropdown); setShowTypeDropdown(false); }}
               style={{
                 ...styles.filterBtn,
-                ...(filterProperties.length > 0 ? styles.filterBtnActive : {})
+                ...(filterProperties.length > 0 ? getFilterButtonActiveStyle() : {})
               }}
             >
               分类 {filterProperties.length > 0 && `(${filterProperties.length})`}
@@ -1011,7 +1016,7 @@ const ScanPage = () => {
           <label
             style={{
               ...styles.mineOnlyToggle,
-              ...(onlyMyDevices ? styles.mineOnlyToggleActive : {})
+              ...(onlyMyDevices ? getMineOnlyToggleActiveStyle() : {})
             }}
             title="仅显示我负责或我借用的POS设备"
           >
@@ -1820,11 +1825,6 @@ const styles = {
     cursor: 'pointer',
     whiteSpace: 'nowrap',
   },
-  filterBtnActive: {
-    backgroundColor: '#007AFF',
-    color: '#fff',
-    borderColor: '#007AFF',
-  },
   dropdownArrow: {
     fontSize: '10px',
     marginLeft: '4px',
@@ -1871,11 +1871,6 @@ const styles = {
     cursor: 'pointer',
     whiteSpace: 'nowrap',
     userSelect: 'none',
-  },
-  mineOnlyToggleActive: {
-    borderColor: '#007AFF',
-    backgroundColor: 'rgba(0, 122, 255, 0.08)',
-    color: '#007AFF',
   },
   mineOnlyCheckbox: {
     margin: 0,

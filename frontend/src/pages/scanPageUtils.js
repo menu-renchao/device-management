@@ -11,3 +11,19 @@ export function getAutoScanDisplayMode(isAdminFn, isDialogOpen) {
   }
   return isDialogOpen ? 'dialog' : 'button';
 }
+
+export function getFilterButtonActiveStyle() {
+  return {
+    backgroundColor: '#007AFF',
+    color: '#fff',
+    border: '1px solid #007AFF',
+  };
+}
+
+export function getMineOnlyToggleActiveStyle() {
+  return {
+    border: '1px solid #007AFF',
+    backgroundColor: 'rgba(0, 122, 255, 0.08)',
+    color: '#007AFF',
+  };
+}

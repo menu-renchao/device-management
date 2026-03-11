@@ -1,24 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { scanAPI } from '../services/api';
+import { getDetailModalState } from './detailModalState';
 
 const DetailModal = ({ device, onClose }) => {
   const [fullData, setFullData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // 获取设备详情
   useEffect(() => {
     if (!device?.ip) return;
 
     const fetchDetails = async () => {
       setLoading(true);
       setError(null);
+      setFullData(null);
+
       try {
         const response = await scanAPI.getDeviceDetails(device.ip);
-        if (response.data?.success && response.data?.data) {
-          setFullData(response.data.data);
+        const detailState = getDetailModalState(response.data);
+
+        if (detailState.status === 'success') {
+          setFullData(detailState.data);
+        } else if (detailState.status === 'error') {
+          setError(`获取详情失败：${detailState.message}`);
         } else {
-          setError('获取详情失败');
+          setError(detailState.message);
         }
       } catch (err) {
         console.error('获取设备详情失败:', err);
@@ -33,20 +39,19 @@ const DetailModal = ({ device, onClose }) => {
 
   if (!device) return null;
 
-  // 获取类型标签颜色
   const getTypeColor = (type) => {
     const colors = {
-      'POS': '#1890ff',
-      'POS_ANDROID': '#52c41a',
-      'POS_IOS': '#722ed1',
-      'KIOSK': '#fa8c16',
-      'EMENU': '#13c2c2',
-      'KITCHEN_DISPLAY': '#eb2f96',
+      POS: '#1890ff',
+      POS_ANDROID: '#52c41a',
+      POS_IOS: '#722ed1',
+      KIOSK: '#fa8c16',
+      EMENU: '#13c2c2',
+      KITCHEN_DISPLAY: '#eb2f96',
     };
+
     return colors[type] || '#666';
   };
 
-  // 渲染 AppInstance 列表
   const renderAppInstances = (instances) => {
     if (!instances || instances.length === 0) return null;
 
@@ -81,7 +86,6 @@ const DetailModal = ({ device, onClose }) => {
     );
   };
 
-  // 渲染营业时间
   const renderHours = (hours) => {
     if (!hours || hours.length === 0) return null;
 
@@ -101,7 +105,6 @@ const DetailModal = ({ device, onClose }) => {
     );
   };
 
-  // 渲染图片列表
   const renderImages = (images) => {
     if (!images || images.length === 0) return null;
 
@@ -119,7 +122,6 @@ const DetailModal = ({ device, onClose }) => {
     );
   };
 
-  // 渲染 AppInfo
   const renderAppInfo = (appInfo) => {
     if (!appInfo) return null;
 
@@ -129,12 +131,12 @@ const DetailModal = ({ device, onClose }) => {
         <div className="info-grid">
           <div className="info-item">
             <span className="info-label">版本</span>
-            <span className="info-value">{appInfo.version}</span>
+            <span className="info-value">{appInfo.version || '-'}</span>
           </div>
           <div className="info-item">
-            <span className="info-label">许可状态</span>
+            <span className="info-label">License 状态</span>
             <span className={`info-value status-badge ${appInfo.licenseStatus?.toLowerCase()}`}>
-              {appInfo.licenseStatus}
+              {appInfo.licenseStatus || '-'}
             </span>
           </div>
           <div className="info-item">
@@ -152,7 +154,6 @@ const DetailModal = ({ device, onClose }) => {
     );
   };
 
-  // 渲染公司信息
   const renderCompanyInfo = (company) => {
     if (!company) return null;
 
@@ -162,39 +163,39 @@ const DetailModal = ({ device, onClose }) => {
         <div className="info-grid">
           <div className="info-item full-width">
             <span className="info-label">公司名称</span>
-            <span className="info-value company-name">{company.name}</span>
+            <span className="info-value company-name">{company.name || '-'}</span>
           </div>
           <div className="info-item">
-            <span className="info-label">商户ID</span>
-            <span className="info-value">{company.merchantId}</span>
+            <span className="info-label">商户 ID</span>
+            <span className="info-value">{company.merchantId || '-'}</span>
           </div>
           <div className="info-item">
-            <span className="info-label">商户组ID</span>
-            <span className="info-value">{company.merchantGroupId}</span>
+            <span className="info-label">商户组 ID</span>
+            <span className="info-value">{company.merchantGroupId || '-'}</span>
           </div>
           <div className="info-item">
-            <span className="info-label">业务ID</span>
-            <span className="info-value">{company.businessId}</span>
+            <span className="info-label">业务 ID</span>
+            <span className="info-value">{company.businessId || '-'}</span>
           </div>
           <div className="info-item">
             <span className="info-label">电话</span>
-            <span className="info-value">{company.telephone1}</span>
+            <span className="info-value">{company.telephone1 || '-'}</span>
           </div>
           <div className="info-item">
             <span className="info-label">城市</span>
-            <span className="info-value">{company.city}</span>
+            <span className="info-value">{company.city || '-'}</span>
           </div>
           <div className="info-item">
             <span className="info-label">州/省</span>
-            <span className="info-value">{company.state}</span>
+            <span className="info-value">{company.state || '-'}</span>
           </div>
           <div className="info-item">
             <span className="info-label">邮编</span>
-            <span className="info-value">{company.zipcode}</span>
+            <span className="info-value">{company.zipcode || '-'}</span>
           </div>
           <div className="info-item">
             <span className="info-label">地址</span>
-            <span className="info-value">{company.address1}</span>
+            <span className="info-value">{company.address1 || '-'}</span>
           </div>
           {company.connectedToCloudService !== undefined && (
             <div className="info-item">
@@ -214,7 +215,7 @@ const DetailModal = ({ device, onClose }) => {
           )}
           {company.paymentServiceProviderId && (
             <div className="info-item">
-              <span className="info-label">支付服务商ID</span>
+              <span className="info-label">支付服务商 ID</span>
               <span className="info-value">{company.paymentServiceProviderId}</span>
             </div>
           )}
@@ -229,7 +230,6 @@ const DetailModal = ({ device, onClose }) => {
     );
   };
 
-  // 渲染结果信息
   const renderResult = (result) => {
     if (!result) return null;
 
@@ -260,7 +260,6 @@ const DetailModal = ({ device, onClose }) => {
     );
   };
 
-  // 主渲染逻辑
   const renderContent = () => {
     if (loading) {
       return (
@@ -272,11 +271,15 @@ const DetailModal = ({ device, onClose }) => {
     }
 
     if (error) {
-      return <p className="error-message">{error}</p>;
+      return (
+        <div className="loading-container">
+          <p className="error-message">{error}</p>
+        </div>
+      );
     }
 
     if (!fullData) {
-      return <p className="no-data">无数据</p>;
+      return <p className="no-data">暂无设备详情</p>;
     }
 
     const { company, result } = fullData;
