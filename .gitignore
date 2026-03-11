@@ -4,3 +4,4 @@
 /backend-go/logs
 backend-go/db-backups
 /.worktrees
+backend-go/data.db
