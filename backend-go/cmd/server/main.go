@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"device-management/internal/config"
 	"device-management/internal/handlers"
@@ -66,6 +68,8 @@ func main() {
 		&models.MobileDevice{},
 		&models.MobileBorrowRequest{},
 		&models.ScanSession{},
+		&models.AutoScanConfig{},
+		&models.ScanJobLog{},
 		&models.FileConfig{},
 		&models.DeviceDBConnection{},
 		&models.DBSQLTemplate{},
@@ -112,6 +116,8 @@ func main() {
 	dbConnectionRepo := repository.NewDeviceDBConnectionRepository(db)
 	dbSQLTemplateRepo := repository.NewDBSQLTemplateRepository(db)
 	dbSQLTaskRepo := repository.NewDBSQLExecuteTaskRepository(db)
+	autoScanConfigRepo := repository.NewAutoScanConfigRepository(db)
+	scanJobLogRepo := repository.NewScanJobLogRepository(db)
 
 	// Initialize services
 	authService := services.NewAuthService(userRepo)
@@ -122,13 +128,14 @@ func main() {
 	warDownloadService := services.NewWarDownloadService(systemConfigRepo, warPackageRepo)
 	notificationService := services.NewNotificationService(notificationRepo)
 	dbConfigService := services.NewDBConfigService(dbConnectionRepo, dbSQLTemplateRepo, dbSQLTaskRepo)
+	autoScanScheduler := services.NewAutoScanScheduler(scanService, autoScanConfigRepo, scanJobLogRepo, deviceRepo, time.Minute)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
 	adminHandler := handlers.NewAdminHandler(userRepo, deviceRepo)
 	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, linuxService)
 	mobileHandler := handlers.NewMobileHandler(mobileRepo, userRepo, notificationService)
-	scanHandler := handlers.NewScanHandler(scanService, deviceRepo)
+	scanHandler := handlers.NewScanHandler(scanService, deviceRepo, autoScanConfigRepo, scanJobLogRepo, autoScanScheduler)
 	linuxHandler := handlers.NewLinuxHandler(linuxService, fileConfigRepo, deviceRepo, userRepo)
 	fileConfigHandler := handlers.NewFileConfigHandler(fileConfigRepo, linuxService)
 	warDownloadHandler := handlers.NewWarDownloadHandler(warDownloadService, systemConfigRepo, warPackageRepo)
@@ -232,6 +239,10 @@ func main() {
 			scan.GET("/status", scanHandler.GetScanStatus)
 			scan.POST("/stop", scanHandler.StopScan)
 			scan.GET("/device/:ip/details", scanHandler.GetDeviceDetails)
+			scan.GET("/auto-config", scanHandler.GetAutoScanConfig)
+			scan.PUT("/auto-config", scanHandler.UpdateAutoScanConfig)
+			scan.GET("/jobs", scanHandler.ListScanJobs)
+			scan.POST("/auto-run", scanHandler.RunAutoScanNow)
 		}
 
 		// Linux device management routes
@@ -375,6 +386,7 @@ func main() {
 	}
 
 	logger.Info("Server starting", "port", port)
+	go autoScanScheduler.Start(context.Background())
 	if err := router.Run(":" + port); err != nil {
 		logger.Fatal("Failed to start server", "error", err)
 	}

@@ -23,6 +23,20 @@ const ScanPage = () => {
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [lastScanAt, setLastScanAt] = useState(null);
+  const [autoScanConfig, setAutoScanConfig] = useState({
+    enabled: false,
+    interval_minutes: 60,
+    cidr_blocks: [],
+    port: 22080,
+    connect_timeout_seconds: 2,
+    request_timeout_seconds: 5,
+    max_probe_workers: 200,
+    max_fetch_workers: 100
+  });
+  const [autoScanCIDRText, setAutoScanCIDRText] = useState('');
+  const [autoScanJobs, setAutoScanJobs] = useState([]);
+  const [savingAutoScan, setSavingAutoScan] = useState(false);
+  const [runningAutoScan, setRunningAutoScan] = useState(false);
 
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1);
@@ -76,6 +90,31 @@ const ScanPage = () => {
     fetchLocalIPs();
   }, []);
 
+  const loadAutoScanConfig = async () => {
+    try {
+      const response = await scanAPI.getAutoConfig();
+      const data = response.data?.data || {};
+      setAutoScanConfig(prev => ({
+        ...prev,
+        ...data,
+        cidr_blocks: data.cidr_blocks || []
+      }));
+      setAutoScanCIDRText((data.cidr_blocks || []).join('\n'));
+    } catch (error) {
+      console.error('加载自动扫描配置失败:', error);
+    }
+  };
+
+  const loadAutoScanJobs = async () => {
+    try {
+      const response = await scanAPI.getJobs(1, 10);
+      const data = response.data?.data || {};
+      setAutoScanJobs(data.items || []);
+    } catch (error) {
+      console.error('加载自动扫描日志失败:', error);
+    }
+  };
+
   // 加载设备列表（分页+搜索+筛选）
   const loadDevices = async (
     page = currentPage,
@@ -123,6 +162,8 @@ const ScanPage = () => {
     setCurrentPage(1);
     loadDevices(1, pageSize, '', [], [], savedOnlyMyDevices);
     loadFilterOptions();
+    loadAutoScanConfig();
+    loadAutoScanJobs();
   }, [user?.id]);
 
   // 加载筛选选项
@@ -233,6 +274,63 @@ const ScanPage = () => {
   };
 
   // 搜索处理（后端搜索）
+  const handleSaveAutoScanConfig = async () => {
+    const cidrBlocks = autoScanCIDRText
+      .split('\n')
+      .map(item => item.trim())
+      .filter(Boolean);
+
+    if (cidrBlocks.length === 0) {
+      toast.warning('请至少配置一个 CIDR 网段');
+      return;
+    }
+
+    try {
+      setSavingAutoScan(true);
+      const response = await scanAPI.updateAutoConfig({
+        ...autoScanConfig,
+        interval_minutes: Number(autoScanConfig.interval_minutes) || 60,
+        port: Number(autoScanConfig.port) || 22080,
+        connect_timeout_seconds: Number(autoScanConfig.connect_timeout_seconds) || 2,
+        request_timeout_seconds: Number(autoScanConfig.request_timeout_seconds) || 5,
+        max_probe_workers: Number(autoScanConfig.max_probe_workers) || 200,
+        max_fetch_workers: Number(autoScanConfig.max_fetch_workers) || 100,
+        cidr_blocks: cidrBlocks
+      });
+
+      if (response.data?.success) {
+        toast.success('自动扫描配置已保存');
+        await loadAutoScanConfig();
+      } else {
+        toast.error(response.data?.error || '保存失败');
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.error || '保存失败');
+    } finally {
+      setSavingAutoScan(false);
+    }
+  };
+
+  const handleRunAutoScan = async () => {
+    try {
+      setRunningAutoScan(true);
+      const response = await scanAPI.runAutoScan();
+      if (response.data?.success) {
+        toast.success('自动扫描已触发');
+        setTimeout(() => {
+          loadAutoScanJobs();
+          loadDevices(1, pageSize, searchText, filterTypes, filterProperties, onlyMyDevices);
+        }, 1000);
+      } else {
+        toast.error(response.data?.error || '触发失败');
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.error || '触发失败');
+    } finally {
+      setRunningAutoScan(false);
+    }
+  };
+
   const handleSearch = () => {
     setCurrentPage(1);
     loadDevices(1, pageSize, searchText, filterTypes, filterProperties);
@@ -658,6 +756,81 @@ const ScanPage = () => {
 
   return (
     <div style={styles.page}>
+      <div style={styles.autoScanCard}>
+        <div style={styles.autoScanHeader}>
+          <div>
+            <div style={styles.autoScanTitle}>自动扫描</div>
+            <div style={styles.autoScanSubtitle}>后台按周期扫描指定 CIDR 网段</div>
+          </div>
+          <label style={styles.autoScanToggle}>
+            <input
+              type="checkbox"
+              checked={!!autoScanConfig.enabled}
+              onChange={(e) => setAutoScanConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+            />
+            <span>启用</span>
+          </label>
+        </div>
+
+        <div style={styles.autoScanGrid}>
+          <label style={styles.autoScanField}>
+            <span>周期(分钟)</span>
+            <input
+              type="number"
+              min="1"
+              value={autoScanConfig.interval_minutes}
+              onChange={(e) => setAutoScanConfig(prev => ({ ...prev, interval_minutes: e.target.value }))}
+              style={styles.input}
+            />
+          </label>
+
+          <label style={styles.autoScanField}>
+            <span>端口</span>
+            <input
+              type="number"
+              min="1"
+              value={autoScanConfig.port}
+              onChange={(e) => setAutoScanConfig(prev => ({ ...prev, port: e.target.value }))}
+              style={styles.input}
+            />
+          </label>
+        </div>
+
+        <label style={styles.autoScanField}>
+          <span>CIDR 列表(一行一个)</span>
+          <textarea
+            value={autoScanCIDRText}
+            onChange={(e) => setAutoScanCIDRText(e.target.value)}
+            rows={4}
+            style={styles.autoScanTextarea}
+            placeholder={'192.168.1.0/24\n10.0.0.0/24'}
+          />
+        </label>
+
+        <div style={styles.autoScanActions}>
+          <button onClick={handleSaveAutoScanConfig} disabled={savingAutoScan} style={styles.btnSave}>
+            {savingAutoScan ? '保存中...' : '保存配置'}
+          </button>
+          <button onClick={handleRunAutoScan} disabled={runningAutoScan} style={styles.scanBtn}>
+            {runningAutoScan ? '触发中...' : '立即执行一次'}
+          </button>
+        </div>
+
+        <div style={styles.autoScanJobList}>
+          {autoScanJobs.length === 0 ? (
+            <div style={styles.autoScanJobEmpty}>暂无自动扫描日志</div>
+          ) : (
+            autoScanJobs.map((job) => (
+              <div key={job.id} style={styles.autoScanJobItem}>
+                <span>{job.trigger_type}</span>
+                <span>{job.status}</span>
+                <span>{job.devices_found || 0} 台</span>
+                <span>{job.started_at ? new Date(job.started_at).toLocaleString('zh-CN') : '-'}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
       {/* 合并的控制栏：扫描控制 + 搜索 */}
       <div style={styles.toolbar}>
         <div style={styles.toolbarLeft}>
@@ -1018,6 +1191,88 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '12px',
+  },
+  autoScanCard: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+    padding: '16px',
+    backgroundColor: 'white',
+    borderRadius: '10px',
+    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
+  },
+  autoScanHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '12px',
+    flexWrap: 'wrap',
+  },
+  autoScanTitle: {
+    fontSize: '16px',
+    fontWeight: '600',
+    color: '#1D1D1F',
+  },
+  autoScanSubtitle: {
+    fontSize: '12px',
+    color: '#86868B',
+    marginTop: '4px',
+  },
+  autoScanToggle: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '13px',
+    color: '#1D1D1F',
+  },
+  autoScanGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: '12px',
+  },
+  autoScanField: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    fontSize: '12px',
+    color: '#86868B',
+  },
+  autoScanTextarea: {
+    width: '100%',
+    padding: '10px 12px',
+    border: '1px solid #D1D1D6',
+    borderRadius: '8px',
+    fontSize: '14px',
+    outline: 'none',
+    resize: 'vertical',
+    minHeight: '96px',
+  },
+  autoScanActions: {
+    display: 'flex',
+    gap: '10px',
+    flexWrap: 'wrap',
+  },
+  autoScanJobList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  autoScanJobItem: {
+    display: 'grid',
+    gridTemplateColumns: '100px 100px 80px 1fr',
+    gap: '8px',
+    fontSize: '12px',
+    color: '#4A4A4A',
+    padding: '10px 12px',
+    backgroundColor: '#F7F7FA',
+    borderRadius: '8px',
+  },
+  autoScanJobEmpty: {
+    padding: '12px',
+    fontSize: '12px',
+    color: '#86868B',
+    backgroundColor: '#F7F7FA',
+    borderRadius: '8px',
   },
   toolbar: {
     display: 'flex',

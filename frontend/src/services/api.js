@@ -97,7 +97,15 @@ export const scanAPI = {
   },
 
   // 获取设备详情
-  getDeviceDetails: (ip) => api.get(`/scan/device/${ip}/details`)
+  getDeviceDetails: (ip) => api.get(`/scan/device/${ip}/details`),
+
+  getAutoConfig: () => api.get('/scan/auto-config'),
+
+  updateAutoConfig: (payload) => api.put('/scan/auto-config', payload),
+
+  getJobs: (page = 1, pageSize = 20) => api.get(`/scan/jobs?page=${page}&page_size=${pageSize}`),
+
+  runAutoScan: () => api.post('/scan/auto-run')
 };
 
 // 设备占用 API（需要认证）

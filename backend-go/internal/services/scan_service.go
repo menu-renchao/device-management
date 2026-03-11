@@ -3,16 +3,20 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+const maxAutoScanHosts = 4096
 
 // ScanStatus represents the current scan status
 type ScanStatus struct {
@@ -26,22 +30,44 @@ type ScanStatus struct {
 	MerchantIDs  []string                 `json:"merchant_ids"`
 }
 
+type ScanRunConfig struct {
+	TriggerType           string
+	CIDRBlocks            []string
+	Port                  int
+	ConnectTimeoutSeconds int
+	RequestTimeoutSeconds int
+	MaxProbeWorkers       int
+	MaxFetchWorkers       int
+	TriggeredBy           string
+}
+
 // ScanService handles network scanning operations
 type ScanService struct {
-	status *ScanStatus
-	cancel context.CancelFunc
-	mu     sync.Mutex
+	status          *ScanStatus
+	cancel          context.CancelFunc
+	mu              sync.Mutex
+	performScanFunc func(ctx context.Context, cfg ScanRunConfig, onResult func(result map[string]interface{}))
 }
 
 // NewScanService creates a new scan service
 func NewScanService() *ScanService {
-	return &ScanService{
+	service := &ScanService{
 		status: &ScanStatus{
 			IsScanning: false,
 			Progress:   0,
 			Results:    make([]map[string]interface{}, 0),
 		},
 	}
+	service.performScanFunc = service.performScan
+	return service
+}
+
+func (s *ScanService) SetPerformScanFunc(fn func(ctx context.Context, cfg ScanRunConfig, onResult func(result map[string]interface{}))) {
+	if fn == nil {
+		s.performScanFunc = s.performScan
+		return
+	}
+	s.performScanFunc = fn
 }
 
 // GetStatus returns the current scan status
@@ -110,11 +136,31 @@ func (s *ScanService) GetLocalIPs() ([]string, error) {
 
 // StartScan initiates a network scan
 func (s *ScanService) StartScan(localIP string, onResult func(result map[string]interface{})) error {
+	cfg, err := buildManualScanConfig(localIP)
+	if err != nil {
+		return err
+	}
+	return s.RunScanWithConfig(cfg, onResult)
+}
+
+func (s *ScanService) RunScanWithConfig(cfg ScanRunConfig, onResult func(result map[string]interface{})) error {
 	s.mu.Lock()
 	if s.status.IsScanning {
 		s.mu.Unlock()
 		return fmt.Errorf("scan already in progress")
 	}
+
+	normalizedCIDRs, err := normalizeCIDRBlocks(cfg.CIDRBlocks)
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	cfg.CIDRBlocks = normalizedCIDRs
+	if err := validateCIDRBlocks(cfg.CIDRBlocks); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	cfg = withScanDefaults(cfg)
 
 	// Reset status
 	s.status.mu.Lock()
@@ -131,7 +177,7 @@ func (s *ScanService) StartScan(localIP string, onResult func(result map[string]
 	s.cancel = cancel
 	s.mu.Unlock()
 
-	go s.performScan(ctx, localIP, onResult)
+	go s.performScanFunc(ctx, cfg, onResult)
 
 	return nil
 }
@@ -150,25 +196,40 @@ func (s *ScanService) StopScan() {
 }
 
 // performScan executes the actual network scan
-func (s *ScanService) performScan(ctx context.Context, localIP string, onResult func(result map[string]interface{})) {
+func (s *ScanService) performScan(ctx context.Context, cfg ScanRunConfig, onResult func(result map[string]interface{})) {
 	defer func() {
 		s.status.mu.Lock()
 		s.status.IsScanning = false
 		s.status.mu.Unlock()
 	}()
 
-	// Get network range
-	_, ipNet, err := net.ParseCIDR(localIP + "/23")
-	if err != nil {
+	hosts := make([]string, 0)
+	seenHosts := make(map[string]struct{})
+	for _, cidr := range cfg.CIDRBlocks {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			s.status.mu.Lock()
+			s.status.Error = err.Error()
+			s.status.mu.Unlock()
+			return
+		}
+
+		for _, host := range generateHosts(ipNet) {
+			if _, ok := seenHosts[host]; ok {
+				continue
+			}
+			seenHosts[host] = struct{}{}
+			hosts = append(hosts, host)
+		}
+	}
+	totalHosts := len(hosts)
+	if totalHosts == 0 {
 		s.status.mu.Lock()
-		s.status.Error = err.Error()
+		s.status.Progress = 100
+		s.status.CurrentIP = ""
 		s.status.mu.Unlock()
 		return
 	}
-
-	// Generate all hosts in the network
-	hosts := generateHosts(ipNet)
-	totalHosts := len(hosts)
 
 	// Scan ports concurrently
 	openIPs := make([]string, 0)
@@ -176,7 +237,7 @@ func (s *ScanService) performScan(ctx context.Context, localIP string, onResult 
 	var scannedCount int
 
 	// Use worker pool pattern
-	workerCount := 200
+	workerCount := cfg.MaxProbeWorkers
 	ipChan := make(chan string, workerCount)
 	resultChan := make(chan string, workerCount)
 
@@ -192,7 +253,7 @@ func (s *ScanService) performScan(ctx context.Context, localIP string, onResult 
 				case <-ctx.Done():
 					return
 				default:
-					if s.scanPort(ip, 22080, 2) {
+					if s.scanPort(ip, cfg.Port, cfg.ConnectTimeoutSeconds) {
 						resultChan <- ip
 					}
 					// Update progress more smoothly
@@ -507,4 +568,122 @@ func broadcast(ipNet *net.IPNet) net.IP {
 // FetchDeviceDetails fetches detailed information for a specific device
 func (s *ScanService) FetchDeviceDetails(ip string) (map[string]interface{}, error) {
 	return s.fetchCompanyProfile(ip, 22080, 5, 2), nil
+}
+
+func buildManualScanConfig(localIP string) (ScanRunConfig, error) {
+	localIP = strings.TrimSpace(localIP)
+	if localIP == "" {
+		return ScanRunConfig{}, errors.New("local ip is required")
+	}
+
+	cidr := localIP + "/23"
+	if err := validateCIDRBlocks([]string{cidr}); err != nil {
+		return ScanRunConfig{}, err
+	}
+
+	return withScanDefaults(ScanRunConfig{
+		TriggerType: "manual",
+		CIDRBlocks:  []string{cidr},
+		TriggeredBy: "manual",
+	}), nil
+}
+
+func withScanDefaults(cfg ScanRunConfig) ScanRunConfig {
+	if cfg.Port <= 0 {
+		cfg.Port = 22080
+	}
+	if cfg.ConnectTimeoutSeconds <= 0 {
+		cfg.ConnectTimeoutSeconds = 2
+	}
+	if cfg.RequestTimeoutSeconds <= 0 {
+		cfg.RequestTimeoutSeconds = 5
+	}
+	if cfg.MaxProbeWorkers <= 0 {
+		cfg.MaxProbeWorkers = 200
+	}
+	if cfg.MaxFetchWorkers <= 0 {
+		cfg.MaxFetchWorkers = 100
+	}
+	return cfg
+}
+
+func normalizeCIDRBlocks(blocks []string) ([]string, error) {
+	if len(blocks) == 0 {
+		return nil, errors.New("at least one cidr block is required")
+	}
+
+	seen := make(map[string]struct{}, len(blocks))
+	normalized := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		trimmed := strings.TrimSpace(block)
+		if trimmed == "" {
+			return nil, errors.New("cidr block cannot be empty")
+		}
+		if _, _, err := net.ParseCIDR(trimmed); err != nil {
+			return nil, fmt.Errorf("invalid cidr block %q: %w", trimmed, err)
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+
+	sort.Strings(normalized)
+	return normalized, nil
+}
+
+func NormalizeCIDRBlocks(blocks []string) ([]string, error) {
+	return normalizeCIDRBlocks(blocks)
+}
+
+func validateCIDRBlocks(blocks []string) error {
+	normalized, err := normalizeCIDRBlocks(blocks)
+	if err != nil {
+		return err
+	}
+
+	totalHosts := 0
+	for _, block := range normalized {
+		hostCount, err := estimateHostCount(block)
+		if err != nil {
+			return err
+		}
+		totalHosts += hostCount
+		if totalHosts > maxAutoScanHosts {
+			return fmt.Errorf("total host count %d exceeds limit %d", totalHosts, maxAutoScanHosts)
+		}
+	}
+
+	return nil
+}
+
+func ValidateCIDRBlocks(blocks []string) error {
+	return validateCIDRBlocks(blocks)
+}
+
+func estimateHostCount(cidr string) (int, error) {
+	_, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid cidr block %q: %w", cidr, err)
+	}
+
+	ones, bits := ipNet.Mask.Size()
+	if bits != 32 {
+		return 0, fmt.Errorf("only ipv4 cidr blocks are supported")
+	}
+	if ones < 16 {
+		return 0, fmt.Errorf("cidr block %q is too large", cidr)
+	}
+
+	hostBits := bits - ones
+	total := 1 << hostBits
+	switch {
+	case total <= 1:
+		return 0, nil
+	case total == 2:
+		return 2, nil
+	default:
+		return total - 2, nil
+	}
 }
