@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { scanAPI, deviceAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -6,6 +6,14 @@ import { adminService } from '../services/authService';
 import ScanTable from '../components/ScanTable';
 import DetailModal from '../components/DetailModal';
 import ConfirmDialog from '../components/ConfirmDialog';
+import DBBackupRestoreModal from '../components/db-backup/DBBackupRestoreModal';
+import LicenseBackupRestoreModal from '../components/license-backup/LicenseBackupRestoreModal';
+import {
+  getAutoScanDisplayMode,
+  getFilterButtonActiveStyle,
+  getMineOnlyToggleActiveStyle,
+  shouldLoadAutoScanPanel
+} from './scanPageUtils';
 
 const getOnlyMyDevicesStorageKey = (userId) => `scan_page_only_my_devices_${userId || 'default'}`;
 
@@ -22,6 +30,23 @@ const ScanPage = () => {
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [lastScanAt, setLastScanAt] = useState(null);
+  const [autoScanConfig, setAutoScanConfig] = useState({
+    enabled: false,
+    interval_minutes: 60,
+    cidr_blocks: [],
+    port: 22080,
+    connect_timeout_seconds: 2,
+    request_timeout_seconds: 5,
+    max_probe_workers: 200,
+    max_fetch_workers: 100
+  });
+  const [autoScanCIDRText, setAutoScanCIDRText] = useState('');
+  const [autoScanJobs, setAutoScanJobs] = useState([]);
+  const autoScanJobPage = 1;
+  const autoScanJobTotal = autoScanJobs.length;
+  const [savingAutoScan, setSavingAutoScan] = useState(false);
+  const [runningAutoScan, setRunningAutoScan] = useState(false);
+  const [showAutoScanDialog, setShowAutoScanDialog] = useState(false);
 
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1);
@@ -52,8 +77,8 @@ const ScanPage = () => {
 
   // 确认对话框
   const [confirmDialog, setConfirmDialog] = useState({ show: false, type: null, data: null });
-  const licenseFileInputRef = useRef(null);
-  const licenseImportDeviceRef = useRef(null);
+  const [licenseBackupModal, setLicenseBackupModal] = useState({ show: false, device: null });
+  const [dbBackupModal, setDbBackupModal] = useState({ show: false, device: null });
 
   // 获取本地IP列表
   useEffect(() => {
@@ -73,6 +98,31 @@ const ScanPage = () => {
     };
     fetchLocalIPs();
   }, []);
+
+  const loadAutoScanConfig = async () => {
+    try {
+      const response = await scanAPI.getAutoConfig();
+      const data = response.data?.data || {};
+      setAutoScanConfig(prev => ({
+        ...prev,
+        ...data,
+        cidr_blocks: data.cidr_blocks || []
+      }));
+      setAutoScanCIDRText((data.cidr_blocks || []).join('\n'));
+    } catch (error) {
+      console.error('加载自动扫描配置失败:', error);
+    }
+  };
+
+  const loadAutoScanJobs = async () => {
+    try {
+      const response = await scanAPI.getJobs(1, 10);
+      const data = response.data?.data || {};
+      setAutoScanJobs(data.items || []);
+    } catch (error) {
+      console.error('加载自动扫描日志失败:', error);
+    }
+  };
 
   // 加载设备列表（分页+搜索+筛选）
   const loadDevices = async (
@@ -121,6 +171,10 @@ const ScanPage = () => {
     setCurrentPage(1);
     loadDevices(1, pageSize, '', [], [], savedOnlyMyDevices);
     loadFilterOptions();
+    if (shouldLoadAutoScanPanel(isAdmin)) {
+      loadAutoScanConfig();
+      loadAutoScanJobs();
+    }
   }, [user?.id]);
 
   // 加载筛选选项
@@ -231,6 +285,63 @@ const ScanPage = () => {
   };
 
   // 搜索处理（后端搜索）
+  const handleSaveAutoScanConfig = async () => {
+    const cidrBlocks = autoScanCIDRText
+      .split('\n')
+      .map(item => item.trim())
+      .filter(Boolean);
+
+    if (cidrBlocks.length === 0) {
+      toast.warning('请至少配置一个 CIDR 网段');
+      return;
+    }
+
+    try {
+      setSavingAutoScan(true);
+      const response = await scanAPI.updateAutoConfig({
+        ...autoScanConfig,
+        interval_minutes: Number(autoScanConfig.interval_minutes) || 60,
+        port: Number(autoScanConfig.port) || 22080,
+        connect_timeout_seconds: Number(autoScanConfig.connect_timeout_seconds) || 2,
+        request_timeout_seconds: Number(autoScanConfig.request_timeout_seconds) || 5,
+        max_probe_workers: Number(autoScanConfig.max_probe_workers) || 200,
+        max_fetch_workers: Number(autoScanConfig.max_fetch_workers) || 100,
+        cidr_blocks: cidrBlocks
+      });
+
+      if (response.data?.success) {
+        toast.success('自动扫描配置已保存');
+        await loadAutoScanConfig();
+      } else {
+        toast.error(response.data?.error || '保存失败');
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.error || '保存失败');
+    } finally {
+      setSavingAutoScan(false);
+    }
+  };
+
+  const handleRunAutoScan = async () => {
+    try {
+      setRunningAutoScan(true);
+      const response = await scanAPI.runAutoScan();
+      if (response.data?.success) {
+        toast.success('自动扫描已触发');
+        setTimeout(() => {
+          loadAutoScanJobs();
+          loadDevices(1, pageSize, searchText, filterTypes, filterProperties, onlyMyDevices);
+        }, 1000);
+      } else {
+        toast.error(response.data?.error || '触发失败');
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.error || '触发失败');
+    } finally {
+      setRunningAutoScan(false);
+    }
+  };
+
   const handleSearch = () => {
     setCurrentPage(1);
     loadDevices(1, pageSize, searchText, filterTypes, filterProperties);
@@ -304,26 +415,6 @@ const ScanPage = () => {
       if (typeof purpose.value === 'string') return purpose.value.trim();
     }
     return String(purpose).trim();
-  };
-
-  const extractFilenameFromDisposition = (contentDisposition = '') => {
-    if (!contentDisposition) return '';
-
-    const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
-    if (utf8Match && utf8Match[1]) {
-      try {
-        return decodeURIComponent(utf8Match[1]);
-      } catch (_) {
-        return utf8Match[1];
-      }
-    }
-
-    const normalMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
-    if (normalMatch && normalMatch[1]) {
-      return normalMatch[1];
-    }
-
-    return '';
   };
 
   // 显示详情
@@ -437,120 +528,26 @@ const ScanPage = () => {
     setConfirmDialog({ show: true, type: 'resetOwner', data: device });
   };
 
-  const handleBackupLicense = async (device) => {
+  const handleOpenLicenseBackupRestore = (device) => {
     if (!device?.merchantId) {
-      toast.warning('缺少商家ID，无法备份License');
+      toast.warning('缺少商家ID，无法执行 License 备份/导入');
       return;
     }
-
-    const ok = await toast.confirm(
-      `确定要备份设备 ${device.name || device.merchantId} 的 License 配置吗？`,
-      {
-        title: '确认备份',
-        variant: 'primary',
-        confirmText: '开始备份'
-      }
-    );
-    if (!ok) return;
-
-    try {
-      const response = await deviceAPI.backupLicense(device.merchantId);
-      const blob = response.data;
-      if (!(blob instanceof Blob)) {
-        toast.error('License备份失败');
-        return;
-      }
-
-      const contentDisposition = response.headers?.['content-disposition'] || '';
-      const fallbackName = `License${device.merchantId}_${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 15)}.sql`;
-      const filename = extractFilenameFromDisposition(contentDisposition) || fallbackName;
-
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(downloadUrl);
-
-      toast.success('License备份成功');
-    } catch (error) {
-      const errorPayload = error.response?.data;
-      if (errorPayload instanceof Blob) {
-        try {
-          const text = await errorPayload.text();
-          const parsed = JSON.parse(text);
-          toast.error(parsed.error || 'License备份失败');
-          return;
-        } catch (_) {
-          // ignore parse error and fallback to generic message
-        }
-      }
-      toast.error(error.response?.data?.error || 'License备份失败');
-    }
+    setLicenseBackupModal({
+      show: true,
+      device
+    });
   };
 
-  const handleImportLicense = (device) => {
+  const handleOpenDatabaseBackupRestore = (device) => {
     if (!device?.merchantId) {
-      toast.warning('缺少商家ID，无法导入License');
+      toast.warning('缺少商家ID，无法执行数据备份/恢复');
       return;
     }
-    licenseImportDeviceRef.current = device;
-    if (licenseFileInputRef.current) {
-      licenseFileInputRef.current.value = '';
-      licenseFileInputRef.current.click();
-    }
-  };
-
-  const handleLicenseFileChange = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-
-    if (!file) {
-      licenseImportDeviceRef.current = null;
-      return;
-    }
-
-    const targetDevice = licenseImportDeviceRef.current;
-    if (!targetDevice?.merchantId) {
-      licenseImportDeviceRef.current = null;
-      toast.warning('缺少商家ID，无法导入License');
-      return;
-    }
-
-    if (!file.name.toLowerCase().endsWith('.sql')) {
-      licenseImportDeviceRef.current = null;
-      toast.warning('仅支持上传 .sql 文件');
-      return;
-    }
-
-    const ok = await toast.confirm(
-      `确定要向设备 ${targetDevice.name || targetDevice.merchantId} 导入 License 文件 ${file.name} 吗？导入失败将自动回滚。`,
-      {
-        title: '确认导入',
-        confirmText: '导入'
-      }
-    );
-    if (!ok) {
-      licenseImportDeviceRef.current = null;
-      return;
-    }
-
-    try {
-      const result = await deviceAPI.importLicense(targetDevice.merchantId, file);
-      if (result.success) {
-        const executedCount = Number(result.data?.executed_count || 0);
-        toast.success(`License导入成功，执行 ${executedCount} 条SQL`);
-        loadDevices(currentPage, pageSize, searchText, filterTypes, filterProperties, onlyMyDevices);
-      } else {
-        toast.error(result.error || 'License导入失败');
-      }
-    } catch (error) {
-      toast.error(error.response?.data?.error || 'License导入失败');
-    } finally {
-      licenseImportDeviceRef.current = null;
-    }
+    setDbBackupModal({
+      show: true,
+      device
+    });
   };
 
   // 确认操作
@@ -643,11 +640,163 @@ const ScanPage = () => {
     toast.warning('您没有权限访问此设备的配置页面，只有管理员、负责人或借用人才能访问');
   };
 
+  const latestAutoScanJob = autoScanJobs[0] || null;
+  const latestAutoScanFinishedAt = autoScanConfig.last_auto_scan_finished_at || latestAutoScanJob?.finished_at || latestAutoScanJob?.started_at || null;
+
+  const formatAutoScanTime = (value) => {
+    if (!value) {
+      return '暂无记录';
+    }
+    return new Date(value).toLocaleString('zh-CN');
+  };
+
+  const getAutoScanStatusLabel = (status) => {
+    switch (status) {
+      case 'success':
+        return '成功';
+      case 'failed':
+        return '失败';
+      case 'running':
+        return '进行中';
+      case 'cancelled':
+        return '已取消';
+      case 'skipped':
+        return '已跳过';
+      default:
+        return status || '未知';
+    }
+  };
+
+  const getAutoScanStatusTone = (status) => {
+    switch (status) {
+      case 'success':
+        return styles.autoScanStatusSuccess;
+      case 'failed':
+        return styles.autoScanStatusFailed;
+      case 'running':
+        return styles.autoScanStatusRunning;
+      case 'cancelled':
+        return styles.autoScanStatusCancelled;
+      case 'skipped':
+        return styles.autoScanStatusSkipped;
+      default:
+        return styles.autoScanStatusNeutral;
+    }
+  };
+
+  const autoScanDisplayMode = getAutoScanDisplayMode(isAdmin, showAutoScanDialog);
+
   return (
     <div style={styles.page}>
+      {false && shouldLoadAutoScanPanel(isAdmin) && (
+      <div style={styles.autoScanCard}>
+        <div style={styles.autoScanHeader}>
+          <div>
+            <div style={styles.autoScanTitle}>自动扫描</div>
+            <div style={styles.autoScanSubtitle}>后台按周期扫描指定 CIDR 网段</div>
+          </div>
+          <label style={styles.autoScanToggle}>
+            <input
+              type="checkbox"
+              checked={!!autoScanConfig.enabled}
+              onChange={(e) => setAutoScanConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+            />
+            <span>启用</span>
+          </label>
+        </div>
+
+        <div style={styles.autoScanGrid}>
+          <label style={styles.autoScanField}>
+            <span>周期(分钟)</span>
+            <input
+              type="number"
+              min="1"
+              value={autoScanConfig.interval_minutes}
+              onChange={(e) => setAutoScanConfig(prev => ({ ...prev, interval_minutes: e.target.value }))}
+              style={styles.input}
+            />
+          </label>
+
+          <label style={styles.autoScanField}>
+            <span>端口</span>
+            <input
+              type="number"
+              min="1"
+              value={autoScanConfig.port}
+              onChange={(e) => setAutoScanConfig(prev => ({ ...prev, port: e.target.value }))}
+              style={styles.input}
+            />
+          </label>
+        </div>
+
+        <label style={styles.autoScanField}>
+          <span>CIDR 列表(一行一个)</span>
+          <textarea
+            value={autoScanCIDRText}
+            onChange={(e) => setAutoScanCIDRText(e.target.value)}
+            rows={4}
+            style={styles.autoScanTextarea}
+            placeholder={'192.168.1.0/24\n10.0.0.0/24'}
+          />
+        </label>
+
+        <div style={styles.autoScanActions}>
+          <button onClick={handleSaveAutoScanConfig} disabled={savingAutoScan} style={styles.btnSave}>
+            {savingAutoScan ? '保存中...' : '保存配置'}
+          </button>
+          <button onClick={handleRunAutoScan} disabled={runningAutoScan} style={styles.scanBtn}>
+            {runningAutoScan ? '触发中...' : '立即执行一次'}
+          </button>
+        </div>
+
+        <div style={styles.autoScanJobList}>
+          {autoScanJobs.length === 0 ? (
+            <div style={styles.autoScanJobEmpty}>暂无自动扫描日志</div>
+          ) : (
+            <>
+              {autoScanJobs.map((job) => (
+                <div key={job.id} style={styles.autoScanJobItem}>
+                  <span>{job.trigger_type}</span>
+                  <span>{job.status}</span>
+                  <span>{job.devices_found || 0} 台</span>
+                  <span>{job.started_at ? new Date(job.started_at).toLocaleString('zh-CN') : '-'}</span>
+                </div>
+              ))}
+              {autoScanJobTotal > 10 && (
+                <div style={styles.autoScanPager}>
+                  <button
+                    style={styles.pageBtn}
+                    disabled={autoScanJobPage <= 1}
+                    onClick={() => loadAutoScanJobs(autoScanJobPage - 1)}
+                  >
+                    上一页
+                  </button>
+                  <span style={styles.pageNum}>日志页 {autoScanJobPage}</span>
+                  <button
+                    style={styles.pageBtn}
+                    disabled={autoScanJobPage * 10 >= autoScanJobTotal}
+                    onClick={() => loadAutoScanJobs(autoScanJobPage + 1)}
+                  >
+                    下一页
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+      )}
       {/* 合并的控制栏：扫描控制 + 搜索 */}
       <div style={styles.toolbar}>
         <div style={styles.toolbarLeft}>
+          {autoScanDisplayMode !== 'hidden' && (
+            <button
+              onClick={() => setShowAutoScanDialog(true)}
+              style={{ ...styles.scanBtn, ...styles.autoScanBtn }}
+            >
+              自动扫描
+            </button>
+          )}
           <div style={styles.ipGroup}>
             <label style={styles.label}>网段</label>
             <select
@@ -681,7 +830,7 @@ const ScanPage = () => {
               onClick={(e) => { e.stopPropagation(); setShowTypeDropdown(!showTypeDropdown); setShowPropertyDropdown(false); }}
               style={{
                 ...styles.filterBtn,
-                ...(filterTypes.length > 0 ? styles.filterBtnActive : {})
+                ...(filterTypes.length > 0 ? getFilterButtonActiveStyle() : {})
               }}
             >
               类型 {filterTypes.length > 0 && `(${filterTypes.length})`}
@@ -713,7 +862,7 @@ const ScanPage = () => {
               onClick={(e) => { e.stopPropagation(); setShowPropertyDropdown(!showPropertyDropdown); setShowTypeDropdown(false); }}
               style={{
                 ...styles.filterBtn,
-                ...(filterProperties.length > 0 ? styles.filterBtnActive : {})
+                ...(filterProperties.length > 0 ? getFilterButtonActiveStyle() : {})
               }}
             >
               分类 {filterProperties.length > 0 && `(${filterProperties.length})`}
@@ -742,7 +891,7 @@ const ScanPage = () => {
           <label
             style={{
               ...styles.mineOnlyToggle,
-              ...(onlyMyDevices ? styles.mineOnlyToggleActive : {})
+              ...(onlyMyDevices ? getMineOnlyToggleActiveStyle() : {})
             }}
             title="仅显示我负责或我借用的POS设备"
           >
@@ -801,8 +950,8 @@ const ScanPage = () => {
           onDeleteDevice={handleDeleteDevice}
           onClaimDevice={handleClaimDevice}
           onResetOwner={handleResetOwner}
-          onBackupLicense={handleBackupLicense}
-          onImportLicense={handleImportLicense}
+          onManageLicenseBackup={handleOpenLicenseBackupRestore}
+          onBackupRestoreDatabase={handleOpenDatabaseBackupRestore}
           isAdmin={isAdmin()}
           currentUserId={user?.id}
           onConfigNoPermission={handleConfigNoPermission}
@@ -973,12 +1122,159 @@ const ScanPage = () => {
         </div>
       )}
 
-      <input
-        ref={licenseFileInputRef}
-        type="file"
-        accept=".sql,text/sql,application/sql"
-        style={{ display: 'none' }}
-        onChange={handleLicenseFileChange}
+      {autoScanDisplayMode === 'dialog' && (
+        <div style={styles.modalOverlay}>
+          <div style={{ ...styles.modalContent, ...styles.autoScanDialog }}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.autoScanDialogTitle}>自动扫描配置</h3>
+              <button onClick={() => setShowAutoScanDialog(false)} style={styles.closeBtn}>×</button>
+            </div>
+            <div style={{ ...styles.modalBody, ...styles.autoScanDialogBody }}>
+              <div style={styles.autoScanHero}>
+                <div>
+                  <div style={styles.autoScanTitle}>自动扫描</div>
+                  <div style={styles.autoScanSubtitle}>后台按配置周期扫描指定 CIDR 网段，结果会同步回 POS 列表。</div>
+                </div>
+                <label style={styles.autoScanToggle}>
+                  <input
+                    type="checkbox"
+                    checked={!!autoScanConfig.enabled}
+                    onChange={(e) => setAutoScanConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                  />
+                  <span>{autoScanConfig.enabled ? '已启用' : '已关闭'}</span>
+                </label>
+              </div>
+
+              <div style={styles.autoScanPanelGrid}>
+                <div style={styles.autoScanPanel}>
+                  <div style={styles.autoScanPanelTitle}>扫描设置</div>
+                  <div style={styles.autoScanGrid}>
+                    <label style={styles.autoScanField}>
+                      <span>周期(分钟)</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={autoScanConfig.interval_minutes}
+                        onChange={(e) => setAutoScanConfig(prev => ({ ...prev, interval_minutes: e.target.value }))}
+                        style={styles.input}
+                      />
+                    </label>
+
+                    <label style={styles.autoScanField}>
+                      <span>端口</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={autoScanConfig.port}
+                        onChange={(e) => setAutoScanConfig(prev => ({ ...prev, port: e.target.value }))}
+                        style={styles.input}
+                      />
+                    </label>
+                  </div>
+
+                  <label style={styles.autoScanField}>
+                    <span>CIDR 列表(一行一个)</span>
+                    <textarea
+                      value={autoScanCIDRText}
+                      onChange={(e) => setAutoScanCIDRText(e.target.value)}
+                      rows={5}
+                      style={styles.autoScanTextarea}
+                      placeholder={'192.168.1.0/24\n10.0.0.0/24'}
+                    />
+                  </label>
+
+                  <div style={styles.autoScanActions}>
+                    <button onClick={handleSaveAutoScanConfig} disabled={savingAutoScan} style={styles.btnSave}>
+                      {savingAutoScan ? '保存中...' : '保存配置'}
+                    </button>
+                    <button onClick={handleRunAutoScan} disabled={runningAutoScan} style={styles.scanBtn}>
+                      {runningAutoScan ? '触发中...' : '立即执行一次'}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ ...styles.autoScanPanel, ...styles.autoScanSummaryPanel }}>
+                  <div style={styles.autoScanPanelTitle}>运行摘要</div>
+                  <div style={styles.autoScanStats}>
+                    <div style={styles.autoScanStatCard}>
+                      <span style={styles.autoScanStatLabel}>当前状态</span>
+                      <span style={{ ...styles.autoScanStatusBadge, ...getAutoScanStatusTone(latestAutoScanJob?.status) }}>
+                        {getAutoScanStatusLabel(latestAutoScanJob?.status)}
+                      </span>
+                    </div>
+                    <div style={styles.autoScanStatCard}>
+                      <span style={styles.autoScanStatLabel}>最近执行</span>
+                      <strong style={styles.autoScanStatValue}>{formatAutoScanTime(latestAutoScanFinishedAt)}</strong>
+                    </div>
+                    <div style={styles.autoScanStatCard}>
+                      <span style={styles.autoScanStatLabel}>最近发现设备</span>
+                      <strong style={styles.autoScanStatValue}>{latestAutoScanJob?.devices_found || 0} 台</strong>
+                    </div>
+                    <div style={styles.autoScanStatCard}>
+                      <span style={styles.autoScanStatLabel}>触发方式</span>
+                      <strong style={styles.autoScanStatValue}>{latestAutoScanJob?.trigger_type || 'auto'}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={styles.autoScanTimelineSection}>
+                <div style={styles.autoScanSectionHeader}>
+                  <div>
+                    <div style={styles.autoScanSectionTitle}>最近历史</div>
+                    <div style={styles.autoScanSectionSubtitle}>查看自动扫描的执行结果和失败原因。</div>
+                  </div>
+                </div>
+
+                <div style={styles.autoScanJobList}>
+                  {autoScanJobs.length === 0 ? (
+                    <div style={styles.autoScanJobEmpty}>暂无自动扫描日志</div>
+                  ) : (
+                    autoScanJobs.map((job, index) => (
+                      <div key={job.id} style={styles.autoScanTimelineItem}>
+                        <div style={styles.autoScanTimelineRail}>
+                          <span style={{ ...styles.autoScanTimelineDot, ...getAutoScanStatusTone(job.status) }}></span>
+                          {index < autoScanJobs.length - 1 && <span style={styles.autoScanTimelineLine}></span>}
+                        </div>
+                        <div style={styles.autoScanTimelineCard}>
+                          <div style={styles.autoScanTimelineTopRow}>
+                            <span style={{ ...styles.autoScanStatusBadge, ...getAutoScanStatusTone(job.status) }}>
+                              {getAutoScanStatusLabel(job.status)}
+                            </span>
+                            <span style={styles.autoScanTimelineTime}>{formatAutoScanTime(job.started_at)}</span>
+                          </div>
+                          <div style={styles.autoScanTimelineSummary}>
+                            {job.trigger_type || 'auto'} / 发现 {job.devices_found || 0} 台 / 端口 {job.port || autoScanConfig.port}
+                          </div>
+                          <div style={styles.autoScanTimelineMeta}>
+                            CIDR: {(job.cidr_blocks || []).join(', ') || '未配置'}
+                          </div>
+                          {job.error_message && (
+                            <div style={styles.autoScanTimelineError}>{job.error_message}</div>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <DBBackupRestoreModal
+        isOpen={dbBackupModal.show}
+        onClose={() => setDbBackupModal({ show: false, device: null })}
+        device={dbBackupModal.device}
+      />
+
+      <LicenseBackupRestoreModal
+        isOpen={licenseBackupModal.show}
+        onClose={() => setLicenseBackupModal({ show: false, device: null })}
+        device={licenseBackupModal.device}
+        onCompleted={() => loadDevices(currentPage, pageSize, searchText, filterTypes, filterProperties, onlyMyDevices)}
       />
 
       <ConfirmDialog
@@ -998,6 +1294,299 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '12px',
+  },
+  autoScanCard: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+    padding: '16px',
+    backgroundColor: 'white',
+    borderRadius: '10px',
+    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
+  },
+  autoScanHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '12px',
+    flexWrap: 'wrap',
+  },
+  autoScanHero: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: '16px',
+    padding: '18px 20px',
+    background: 'linear-gradient(135deg, #F5F9FF 0%, #EEF3FF 100%)',
+    border: '1px solid #D9E6FF',
+    borderRadius: '16px',
+    marginBottom: '16px',
+  },
+  autoScanTitle: {
+    fontSize: '18px',
+    fontWeight: '700',
+    color: '#1D1D1F',
+  },
+  autoScanSubtitle: {
+    fontSize: '13px',
+    lineHeight: 1.6,
+    color: '#51607A',
+    marginTop: '6px',
+  },
+  autoScanToggle: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '13px',
+    color: '#1D1D1F',
+    padding: '8px 12px',
+    backgroundColor: 'rgba(255, 255, 255, 0.78)',
+    borderRadius: '999px',
+    border: '1px solid rgba(11, 99, 206, 0.12)',
+  },
+  autoScanGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: '14px',
+    marginBottom: '14px',
+  },
+  autoScanPanelGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1.45fr) minmax(280px, 1fr)',
+    gap: '16px',
+    alignItems: 'start',
+  },
+  autoScanPanel: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '14px',
+    padding: '18px',
+    backgroundColor: '#FFFFFF',
+    border: '1px solid #E7ECF4',
+    borderRadius: '16px',
+    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.04)',
+  },
+  autoScanSummaryPanel: {
+    background: 'linear-gradient(180deg, #FFFFFF 0%, #F8FAFD 100%)',
+  },
+  autoScanPanelTitle: {
+    fontSize: '14px',
+    fontWeight: '700',
+    color: '#24324A',
+  },
+  autoScanField: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#61708A',
+  },
+  autoScanTextarea: {
+    width: '100%',
+    padding: '12px 14px',
+    border: '1px solid #D7DEEA',
+    borderRadius: '12px',
+    fontSize: '14px',
+    outline: 'none',
+    resize: 'vertical',
+    minHeight: '112px',
+    lineHeight: 1.6,
+    backgroundColor: '#FBFCFE',
+  },
+  autoScanActions: {
+    display: 'flex',
+    gap: '12px',
+    flexWrap: 'wrap',
+    marginTop: '4px',
+  },
+  autoScanStats: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+    gap: '12px',
+  },
+  autoScanStatCard: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    padding: '14px',
+    borderRadius: '14px',
+    backgroundColor: '#F6F8FC',
+    border: '1px solid #E5EBF5',
+  },
+  autoScanStatLabel: {
+    fontSize: '12px',
+    color: '#73829C',
+  },
+  autoScanStatValue: {
+    fontSize: '14px',
+    fontWeight: '700',
+    color: '#1D1D1F',
+  },
+  autoScanSectionHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '14px',
+  },
+  autoScanSectionTitle: {
+    fontSize: '15px',
+    fontWeight: '700',
+    color: '#24324A',
+  },
+  autoScanSectionSubtitle: {
+    marginTop: '4px',
+    fontSize: '12px',
+    color: '#7B879B',
+  },
+  autoScanTimelineSection: {
+    marginTop: '18px',
+    padding: '18px',
+    borderRadius: '16px',
+    backgroundColor: '#F7F9FC',
+    border: '1px solid #E7ECF4',
+  },
+  autoScanJobList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '14px',
+  },
+  autoScanTimelineItem: {
+    display: 'grid',
+    gridTemplateColumns: '20px minmax(0, 1fr)',
+    gap: '12px',
+    alignItems: 'stretch',
+  },
+  autoScanTimelineRail: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+  },
+  autoScanTimelineDot: {
+    width: '12px',
+    height: '12px',
+    borderRadius: '999px',
+    marginTop: '8px',
+    border: '2px solid currentColor',
+    backgroundColor: '#FFFFFF',
+  },
+  autoScanTimelineLine: {
+    flex: 1,
+    width: '2px',
+    backgroundColor: '#D7DEEA',
+    marginTop: '6px',
+    borderRadius: '999px',
+  },
+  autoScanTimelineCard: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    padding: '14px 16px',
+    backgroundColor: '#FFFFFF',
+    borderRadius: '14px',
+    border: '1px solid #E5EBF5',
+    boxShadow: '0 6px 18px rgba(15, 23, 42, 0.04)',
+  },
+  autoScanTimelineTopRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '12px',
+    flexWrap: 'wrap',
+  },
+  autoScanStatusBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '4px 10px',
+    borderRadius: '999px',
+    fontSize: '12px',
+    fontWeight: '700',
+    border: '1px solid currentColor',
+  },
+  autoScanStatusNeutral: {
+    color: '#607085',
+    backgroundColor: '#EFF3F8',
+  },
+  autoScanStatusSuccess: {
+    color: '#1E8E5A',
+    backgroundColor: '#EAF7F0',
+  },
+  autoScanStatusFailed: {
+    color: '#C4382B',
+    backgroundColor: '#FCECEA',
+  },
+  autoScanStatusRunning: {
+    color: '#0B63CE',
+    backgroundColor: '#EAF2FF',
+  },
+  autoScanStatusCancelled: {
+    color: '#8A5A00',
+    backgroundColor: '#FFF3D9',
+  },
+  autoScanStatusSkipped: {
+    color: '#6C58B5',
+    backgroundColor: '#F1ECFF',
+  },
+  autoScanTimelineTime: {
+    fontSize: '12px',
+    color: '#7B879B',
+  },
+  autoScanTimelineSummary: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#24324A',
+  },
+  autoScanTimelineMeta: {
+    fontSize: '12px',
+    lineHeight: 1.6,
+    color: '#6C7B92',
+  },
+  autoScanTimelineError: {
+    padding: '10px 12px',
+    borderRadius: '10px',
+    backgroundColor: '#FFF3F1',
+    color: '#B44836',
+    fontSize: '12px',
+    lineHeight: 1.5,
+  },
+  autoScanJobEmpty: {
+    padding: '18px',
+    fontSize: '13px',
+    color: '#7B879B',
+    backgroundColor: '#FFFFFF',
+    border: '1px dashed #D7DEEA',
+    borderRadius: '14px',
+    textAlign: 'center',
+  },
+  autoScanPager: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: '8px',
+    marginTop: '16px',
+  },
+  autoScanBtn: {
+    backgroundColor: '#F2F7FF',
+    color: '#0B63CE',
+    border: '1px solid #C9DDFC',
+  },
+  autoScanDialog: {
+    width: 'min(720px, calc(100vw - 32px))',
+    maxHeight: 'min(80vh, 760px)',
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  autoScanDialogBody: {
+    overflowY: 'auto',
+  },
+  autoScanDialogTitle: {
+    margin: 0,
+    fontSize: '18px',
+    fontWeight: '600',
+    color: '#1D1D1F',
   },
   toolbar: {
     display: 'flex',
@@ -1109,11 +1698,6 @@ const styles = {
     cursor: 'pointer',
     whiteSpace: 'nowrap',
   },
-  filterBtnActive: {
-    backgroundColor: '#007AFF',
-    color: '#fff',
-    borderColor: '#007AFF',
-  },
   dropdownArrow: {
     fontSize: '10px',
     marginLeft: '4px',
@@ -1160,11 +1744,6 @@ const styles = {
     cursor: 'pointer',
     whiteSpace: 'nowrap',
     userSelect: 'none',
-  },
-  mineOnlyToggleActive: {
-    borderColor: '#007AFF',
-    backgroundColor: 'rgba(0, 122, 255, 0.08)',
-    color: '#007AFF',
   },
   mineOnlyCheckbox: {
     margin: 0,

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"device-management/internal/config"
 	"device-management/internal/handlers"
@@ -66,6 +68,8 @@ func main() {
 		&models.MobileDevice{},
 		&models.MobileBorrowRequest{},
 		&models.ScanSession{},
+		&models.AutoScanConfig{},
+		&models.ScanJobLog{},
 		&models.FileConfig{},
 		&models.DeviceDBConnection{},
 		&models.DBSQLTemplate{},
@@ -112,22 +116,26 @@ func main() {
 	dbConnectionRepo := repository.NewDeviceDBConnectionRepository(db)
 	dbSQLTemplateRepo := repository.NewDBSQLTemplateRepository(db)
 	dbSQLTaskRepo := repository.NewDBSQLExecuteTaskRepository(db)
+	autoScanConfigRepo := repository.NewAutoScanConfigRepository(db)
+	scanJobLogRepo := repository.NewScanJobLogRepository(db)
 
 	// Initialize services
 	authService := services.NewAuthService(userRepo)
 	scanService := services.NewScanService()
 	linuxService := services.NewLinuxService()
 	licenseService := services.NewLicenseService()
+	dbBackupService := services.NewDBBackupService()
 	warDownloadService := services.NewWarDownloadService(systemConfigRepo, warPackageRepo)
 	notificationService := services.NewNotificationService(notificationRepo)
 	dbConfigService := services.NewDBConfigService(dbConnectionRepo, dbSQLTemplateRepo, dbSQLTaskRepo)
+	autoScanScheduler := services.NewAutoScanScheduler(scanService, autoScanConfigRepo, scanJobLogRepo, deviceRepo, time.Minute)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
 	adminHandler := handlers.NewAdminHandler(userRepo, deviceRepo)
-	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService)
+	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, linuxService)
 	mobileHandler := handlers.NewMobileHandler(mobileRepo, userRepo, notificationService)
-	scanHandler := handlers.NewScanHandler(scanService, deviceRepo)
+	scanHandler := handlers.NewScanHandler(scanService, deviceRepo, autoScanConfigRepo, scanJobLogRepo, autoScanScheduler)
 	linuxHandler := handlers.NewLinuxHandler(linuxService, fileConfigRepo, deviceRepo, userRepo)
 	fileConfigHandler := handlers.NewFileConfigHandler(fileConfigRepo, linuxService)
 	warDownloadHandler := handlers.NewWarDownloadHandler(warDownloadService, systemConfigRepo, warPackageRepo)
@@ -187,8 +195,19 @@ func main() {
 			device.POST("/claim/:id/reject", middleware.AdminOnly(userRepo), deviceHandler.RejectClaim)
 			device.DELETE("/:merchant_id/owner", middleware.AdminOnly(userRepo), deviceHandler.ResetOwner)
 			device.DELETE("/:merchant_id", middleware.AdminOnly(userRepo), deviceHandler.DeleteDevice)
-			device.POST("/license/backup", deviceHandler.BackupLicense)
+			device.POST("/license/backup", deviceHandler.CreateLicenseBackup)
 			device.POST("/license/import", deviceHandler.ImportLicense)
+			device.GET("/license/backups", deviceHandler.ListLicenseBackups)
+			device.GET("/license/backups/download", deviceHandler.DownloadLicenseBackup)
+			device.DELETE("/license/backups", deviceHandler.DeleteLicenseBackup)
+			device.POST("/license/restore/server", deviceHandler.RestoreLicenseFromServer)
+			device.POST("/license/restore/upload", deviceHandler.RestoreLicenseFromUpload)
+			device.POST("/db/backup", deviceHandler.BackupDatabase)
+			device.GET("/db/backups", deviceHandler.ListDatabaseBackups)
+			device.GET("/db/backups/download", deviceHandler.DownloadDatabaseBackup)
+			device.DELETE("/db/backups", deviceHandler.DeleteDatabaseBackup)
+			device.POST("/db/restore/server", deviceHandler.RestoreDatabaseFromServer)
+			device.POST("/db/restore/upload", deviceHandler.RestoreDatabaseFromUpload)
 
 			// POS设备借用申请
 			device.POST("/borrow-requests", deviceHandler.SubmitBorrowRequest)
@@ -225,6 +244,16 @@ func main() {
 			scan.GET("/status", scanHandler.GetScanStatus)
 			scan.POST("/stop", scanHandler.StopScan)
 			scan.GET("/device/:ip/details", scanHandler.GetDeviceDetails)
+
+			scanAdmin := scan.Group("")
+			scanAdmin.Use(middleware.Auth())
+			scanAdmin.Use(middleware.AdminOnly(userRepo))
+			{
+				scanAdmin.GET("/auto-config", scanHandler.GetAutoScanConfig)
+				scanAdmin.PUT("/auto-config", scanHandler.UpdateAutoScanConfig)
+				scanAdmin.GET("/jobs", scanHandler.ListScanJobs)
+				scanAdmin.POST("/auto-run", scanHandler.RunAutoScanNow)
+			}
 		}
 
 		// Linux device management routes
@@ -276,6 +305,7 @@ func main() {
 
 			// SSE upgrade progress
 			linux.POST("/upgrade/task", linuxHandler.StartUpgradeTask)
+			linux.POST("/upgrade/task/:taskId/upload-local", linuxHandler.UploadUpgradeTaskLocalFile)
 			linux.GET("/upgrade/stream/:taskId", linuxHandler.StreamUpgradeProgress)
 			linux.GET("/upgrade/status/:taskId", linuxHandler.GetUpgradeTaskStatus)
 
@@ -368,6 +398,7 @@ func main() {
 	}
 
 	logger.Info("Server starting", "port", port)
+	go autoScanScheduler.Start(context.Background())
 	if err := router.Run(":" + port); err != nil {
 		logger.Fatal("Failed to start server", "error", err)
 	}

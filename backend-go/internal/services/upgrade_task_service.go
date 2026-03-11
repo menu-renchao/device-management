@@ -22,6 +22,7 @@ type UpgradeTask struct {
 	ID          string        `json:"id"`
 	MerchantID  string        `json:"merchant_id"`
 	Type        string        `json:"type"` // "direct" | "package"
+	SourceType  string        `json:"source_type"`
 	Status      string        `json:"status"` // "pending", "running", "completed", "failed"
 	Progress    int           `json:"progress"` // 总进度 0-100
 	Message     string        `json:"message"`
@@ -31,6 +32,7 @@ type UpgradeTask struct {
 	StartTime   time.Time     `json:"start_time"`
 	EndTime     *time.Time    `json:"end_time,omitempty"`
 	eventChan   chan UpgradeEvent
+	localUpload chan string
 	mu          sync.RWMutex
 }
 
@@ -45,6 +47,7 @@ type UpgradeTaskSnapshot struct {
 	ID          string        `json:"id"`
 	MerchantID  string        `json:"merchant_id"`
 	Type        string        `json:"type"`
+	SourceType  string        `json:"source_type"`
 	Status      string        `json:"status"`
 	Progress    int           `json:"progress"`
 	Message     string        `json:"message"`
@@ -70,6 +73,7 @@ func (t *UpgradeTask) toSnapshotLocked() *UpgradeTaskSnapshot {
 		ID:          t.ID,
 		MerchantID:  t.MerchantID,
 		Type:        t.Type,
+		SourceType:  t.SourceType,
 		Status:      t.Status,
 		Progress:    t.Progress,
 		Message:     t.Message,
@@ -95,11 +99,16 @@ func NewUpgradeTaskManager() *UpgradeTaskManager {
 }
 
 // CreateDirectUpgradeTask 创建直接替换 WAR 升级任务
-func (m *UpgradeTaskManager) CreateDirectUpgradeTask(merchantID string) *UpgradeTask {
+func (m *UpgradeTaskManager) CreateDirectUpgradeTask(merchantID, sourceType string) *UpgradeTask {
+	if sourceType == "" {
+		sourceType = "server"
+	}
+
 	task := &UpgradeTask{
 		ID:         uuid.New().String(),
 		MerchantID: merchantID,
 		Type:       "direct",
+		SourceType: sourceType,
 		Status:     "pending",
 		Progress:   0,
 		Message:    "准备升级",
@@ -114,6 +123,9 @@ func (m *UpgradeTaskManager) CreateDirectUpgradeTask(merchantID string) *Upgrade
 		},
 		CurrentStep: 0,
 	}
+	if sourceType == "local" {
+		task.localUpload = make(chan string, 1)
+	}
 
 	m.mu.Lock()
 	m.tasks[task.ID] = task
@@ -123,11 +135,16 @@ func (m *UpgradeTaskManager) CreateDirectUpgradeTask(merchantID string) *Upgrade
 }
 
 // CreatePackageUpgradeTask 创建升级包升级任务
-func (m *UpgradeTaskManager) CreatePackageUpgradeTask(merchantID string) *UpgradeTask {
+func (m *UpgradeTaskManager) CreatePackageUpgradeTask(merchantID, sourceType string) *UpgradeTask {
+	if sourceType == "" {
+		sourceType = "server"
+	}
+
 	task := &UpgradeTask{
 		ID:         uuid.New().String(),
 		MerchantID: merchantID,
 		Type:       "package",
+		SourceType: sourceType,
 		Status:     "pending",
 		Progress:   0,
 		Message:    "准备升级",
@@ -141,6 +158,9 @@ func (m *UpgradeTaskManager) CreatePackageUpgradeTask(merchantID string) *Upgrad
 			{Name: "重启 POS 服务", Status: "pending", Progress: 0},
 		},
 		CurrentStep: 0,
+	}
+	if sourceType == "local" {
+		task.localUpload = make(chan string, 1)
 	}
 
 	m.mu.Lock()
@@ -180,6 +200,42 @@ func (m *UpgradeTaskManager) GetEventChannel(taskID string) (<-chan UpgradeEvent
 		return nil, false
 	}
 	return task.eventChan, true
+}
+
+// AttachLocalUpload binds a local browser upload to an upgrade task.
+func (t *UpgradeTask) AttachLocalUpload(path string) error {
+	t.mu.RLock()
+	if t.SourceType != "local" || t.localUpload == nil {
+		t.mu.RUnlock()
+		return fmt.Errorf("task does not accept local uploads")
+	}
+	ch := t.localUpload
+	t.mu.RUnlock()
+
+	select {
+	case ch <- path:
+		return nil
+	default:
+		return fmt.Errorf("local upload already attached")
+	}
+}
+
+// WaitForLocalUpload waits for the browser file to be attached to the task.
+func (t *UpgradeTask) WaitForLocalUpload(timeout time.Duration) (string, error) {
+	t.mu.RLock()
+	if t.SourceType != "local" || t.localUpload == nil {
+		t.mu.RUnlock()
+		return "", fmt.Errorf("task does not require local upload")
+	}
+	ch := t.localUpload
+	t.mu.RUnlock()
+
+	select {
+	case path := <-ch:
+		return path, nil
+	case <-time.After(timeout):
+		return "", fmt.Errorf("timed out waiting for local upload")
+	}
 }
 
 // RemoveTask 移除任务

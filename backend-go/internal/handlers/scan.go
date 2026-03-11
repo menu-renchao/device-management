@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
+	"strconv"
 	"time"
 
+	"device-management/internal/middleware"
 	"device-management/internal/models"
 	"device-management/internal/repository"
 	"device-management/internal/services"
@@ -15,17 +17,40 @@ import (
 type ScanHandler struct {
 	scanService *services.ScanService
 	deviceRepo  *repository.DeviceRepository
+	configRepo  *repository.AutoScanConfigRepository
+	jobRepo     *repository.ScanJobLogRepository
+	scheduler   *services.AutoScanScheduler
 }
 
-func NewScanHandler(scanService *services.ScanService, deviceRepo *repository.DeviceRepository) *ScanHandler {
+func NewScanHandler(
+	scanService *services.ScanService,
+	deviceRepo *repository.DeviceRepository,
+	configRepo *repository.AutoScanConfigRepository,
+	jobRepo *repository.ScanJobLogRepository,
+	scheduler *services.AutoScanScheduler,
+) *ScanHandler {
 	return &ScanHandler{
 		scanService: scanService,
 		deviceRepo:  deviceRepo,
+		configRepo:  configRepo,
+		jobRepo:     jobRepo,
+		scheduler:   scheduler,
 	}
 }
 
 type StartScanRequest struct {
 	LocalIP string `json:"local_ip" binding:"required"`
+}
+
+type UpdateAutoScanConfigRequest struct {
+	Enabled               bool     `json:"enabled"`
+	IntervalMinutes       int      `json:"interval_minutes"`
+	CIDRBlocks            []string `json:"cidr_blocks"`
+	Port                  int      `json:"port"`
+	ConnectTimeoutSeconds int      `json:"connect_timeout_seconds"`
+	RequestTimeoutSeconds int      `json:"request_timeout_seconds"`
+	MaxProbeWorkers       int      `json:"max_probe_workers"`
+	MaxFetchWorkers       int      `json:"max_fetch_workers"`
 }
 
 // GetLocalIPs returns all local IP addresses
@@ -90,6 +115,144 @@ func (h *ScanHandler) StartScan(c *gin.Context) {
 func (h *ScanHandler) GetScanStatus(c *gin.Context) {
 	status := h.scanService.GetStatus()
 	response.Success(c, status)
+}
+
+func (h *ScanHandler) GetAutoScanConfig(c *gin.Context) {
+	if !requireAdminUser(c) {
+		return
+	}
+
+	config, err := h.configRepo.GetOrCreateDefault()
+	if err != nil {
+		response.InternalError(c, "获取自动扫描配置失败")
+		return
+	}
+
+	blocks, err := config.GetCIDRBlocks()
+	if err != nil {
+		response.InternalError(c, "解析自动扫描配置失败")
+		return
+	}
+
+	response.Success(c, gin.H{
+		"id":                       config.ID,
+		"enabled":                  config.Enabled,
+		"interval_minutes":         config.IntervalMinutes,
+		"cidr_blocks":              blocks,
+		"port":                     config.Port,
+		"connect_timeout_seconds":  config.ConnectTimeoutSeconds,
+		"request_timeout_seconds":  config.RequestTimeoutSeconds,
+		"max_probe_workers":        config.MaxProbeWorkers,
+		"max_fetch_workers":        config.MaxFetchWorkers,
+		"last_auto_scan_started_at":  config.LastAutoScanStartedAt,
+		"last_auto_scan_finished_at": config.LastAutoScanFinishedAt,
+	})
+}
+
+func (h *ScanHandler) UpdateAutoScanConfig(c *gin.Context) {
+	if !requireAdminUser(c) {
+		return
+	}
+
+	var req UpdateAutoScanConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "请求格式无效")
+		return
+	}
+
+	normalizedCIDRs, err := services.NormalizeCIDRBlocks(req.CIDRBlocks)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	if err := services.ValidateCIDRBlocks(normalizedCIDRs); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	if req.IntervalMinutes <= 0 {
+		response.BadRequest(c, "扫描周期必须大于 0")
+		return
+	}
+
+	config, err := h.configRepo.GetOrCreateDefault()
+	if err != nil {
+		response.InternalError(c, "加载自动扫描配置失败")
+		return
+	}
+
+	config.Enabled = req.Enabled
+	config.IntervalMinutes = req.IntervalMinutes
+	config.Port = req.Port
+	config.ConnectTimeoutSeconds = req.ConnectTimeoutSeconds
+	config.RequestTimeoutSeconds = req.RequestTimeoutSeconds
+	config.MaxProbeWorkers = req.MaxProbeWorkers
+	config.MaxFetchWorkers = req.MaxFetchWorkers
+	if err := config.SetCIDRBlocks(normalizedCIDRs); err != nil {
+		response.InternalError(c, "保存自动扫描配置失败")
+		return
+	}
+	if err := h.configRepo.Update(config); err != nil {
+		response.InternalError(c, "保存自动扫描配置失败")
+		return
+	}
+
+	response.SuccessWithMessage(c, "自动扫描配置已保存", gin.H{
+		"enabled":           config.Enabled,
+		"interval_minutes":  config.IntervalMinutes,
+		"cidr_blocks":       normalizedCIDRs,
+		"port":              config.Port,
+	})
+}
+
+func (h *ScanHandler) ListScanJobs(c *gin.Context) {
+	if !requireAdminUser(c) {
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	jobs, total, err := h.jobRepo.List(page, pageSize)
+	if err != nil {
+		response.InternalError(c, "获取扫描任务日志失败")
+		return
+	}
+
+	items := make([]gin.H, 0, len(jobs))
+	for _, job := range jobs {
+		blocks, _ := job.GetCIDRBlocks()
+		items = append(items, gin.H{
+			"id":                 job.ID,
+			"trigger_type":       job.TriggerType,
+			"status":             job.Status,
+			"started_at":         job.StartedAt,
+			"finished_at":        job.FinishedAt,
+			"cidr_blocks":        blocks,
+			"port":               job.Port,
+			"devices_found":      job.DevicesFound,
+			"merchant_ids_found": job.MerchantIDsFound,
+			"error_message":      job.ErrorMessage,
+			"triggered_by":       job.TriggeredBy,
+		})
+	}
+
+	response.Success(c, gin.H{
+		"items":     items,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
+}
+
+func (h *ScanHandler) RunAutoScanNow(c *gin.Context) {
+	if !requireAdminUser(c) {
+		return
+	}
+
+	if err := h.scheduler.RunNow(c.Request.Context()); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.SuccessWithMessage(c, "自动扫描已触发", nil)
 }
 
 // StopScan stops the current scan
@@ -249,4 +412,17 @@ func filterData(data interface{}) interface{} {
 	default:
 		return data
 	}
+}
+
+func requireAdminUser(c *gin.Context) bool {
+	user := middleware.GetCurrentUser(c)
+	if user == nil {
+		response.Unauthorized(c, "未授权")
+		return false
+	}
+	if user.Role != "admin" {
+		response.Forbidden(c, "需要管理员权限")
+		return false
+	}
+	return true
 }

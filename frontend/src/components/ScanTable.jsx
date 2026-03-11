@@ -1,7 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, onEditOccupancy, onDeleteDevice, onClaimDevice, onResetOwner, onBackupLicense, onImportLicense, isAdmin, currentUserId, onConfigNoPermission }) => {
+const ScanTable = ({
+  devices = [],
+  onOpenDevice,
+  onShowDetails,
+  onEditProperty,
+  onEditOccupancy,
+  onDeleteDevice,
+  onClaimDevice,
+  onResetOwner,
+  onManageLicenseBackup,
+  onBackupRestoreDatabase,
+  isAdmin,
+  currentUserId,
+  onConfigNoPermission
+}) => {
   const navigate = useNavigate();
   const [openMenuKey, setOpenMenuKey] = useState(null);
   const [openMenuPlacement, setOpenMenuPlacement] = useState({ direction: 'down', top: 0, left: 0 });
@@ -218,9 +232,9 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
             const canResetOwner = isAdmin && hasMerchantId && (!!device.owner || !!device.ownerId);
             const canManageBorrow = hasMerchantId;
             const canManageLicense = hasMerchantId && canAccessDeviceConfig(device);
-            const canBackupLicense = canManageLicense && typeof onBackupLicense === 'function';
-            const canImportLicense = canManageLicense && typeof onImportLicense === 'function';
-            const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow || canBackupLicense || canImportLicense;
+            const canManageLicenseBackup = canManageLicense && typeof onManageLicenseBackup === 'function';
+            const canBackupRestoreDatabase = canManageLicense && typeof onBackupRestoreDatabase === 'function';
+            const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow || canManageLicenseBackup || canBackupRestoreDatabase;
             const offlineTimeText = formatLastOnlineTime(device.lastOnlineTime);
             const statusText = isOnlineDevice
               ? (hasMerchantId ? '在线' : '服务异常')
@@ -392,23 +406,23 @@ const ScanTable = ({ devices = [], onOpenDevice, onShowDetails, onEditProperty, 
                             </button>
                           )}
 
-                          {canBackupLicense && (
+                          {canManageLicenseBackup && (
                             <button
                               className="action-menu-item"
-                              onClick={(e) => handleMenuAction(e, () => onBackupLicense(device))}
-                              title="导出 License 备份 SQL 文件"
+                              onClick={(e) => handleMenuAction(e, () => onManageLicenseBackup(device))}
+                              title="打开 License 备份与导入弹窗"
                             >
-                              License备份
+                              License备份/导入
                             </button>
                           )}
 
-                          {canImportLicense && (
+                          {canBackupRestoreDatabase && (
                             <button
                               className="action-menu-item"
-                              onClick={(e) => handleMenuAction(e, () => onImportLicense(device))}
-                              title="导入 License SQL 文件"
+                              onClick={(e) => handleMenuAction(e, () => onBackupRestoreDatabase(device))}
+                              title="创建备份或从服务端/本地上传恢复数据库"
                             >
-                              License导入
+                              数据备份/恢复
                             </button>
                           )}
 

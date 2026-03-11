@@ -449,6 +449,319 @@ body {
   background: var(--apple-gray-5) !important;
 }
 
+/* 数据备份/恢复弹窗 - 与整体风格一致 */
+.db-backup-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1300;
+}
+
+.db-backup-modal {
+  width: min(1080px, 92vw);
+  height: min(680px, 82vh);
+  max-height: 82vh;
+  overflow: hidden;
+  background: var(--apple-card-bg);
+  border-radius: var(--apple-radius-lg);
+  box-shadow: var(--apple-shadow-lg), 0 0 1px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+}
+
+.db-backup-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--apple-gray-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.db-backup-modal-header-left {
+  min-width: 0;
+}
+
+.db-backup-modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--apple-text);
+  letter-spacing: -0.02em;
+}
+
+.db-backup-modal-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--apple-gray);
+}
+
+.db-backup-modal-close {
+  border: none;
+  background: var(--apple-gray-6);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apple-gray);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: var(--apple-transition);
+}
+
+.db-backup-modal-close:hover {
+  background: var(--apple-gray-5);
+  color: var(--apple-text);
+}
+
+.db-backup-modal-body {
+  padding: 16px 20px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.db-backup-hint {
+  font-size: 12px;
+  color: #8E5C00;
+  background: rgba(255, 149, 0, 0.1);
+  border-radius: var(--apple-radius-sm);
+  padding: 10px 12px;
+}
+
+.db-backup-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--apple-text);
+  cursor: pointer;
+}
+
+.db-backup-toolbar {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.db-backup-btn {
+  border: none;
+  border-radius: var(--apple-radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: var(--apple-transition);
+}
+
+.db-backup-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.db-backup-btn-primary {
+  background: var(--apple-blue);
+  color: #fff;
+}
+
+.db-backup-btn-primary:hover:not(:disabled) {
+  background: var(--apple-blue-hover);
+}
+
+.db-backup-btn-secondary {
+  background: var(--apple-card-bg);
+  color: var(--apple-text);
+  border: 1px solid var(--apple-gray-4);
+}
+
+.db-backup-btn-secondary:hover:not(:disabled) {
+  background: var(--apple-gray-6);
+}
+
+.db-backup-btn-warning {
+  background: var(--apple-orange);
+  color: #fff;
+}
+
+.db-backup-btn-warning:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.db-backup-table-wrap {
+  border-radius: var(--apple-radius);
+  overflow: hidden;
+  background: var(--apple-card-bg);
+  border: 1px solid var(--apple-gray-5);
+  flex: 1;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+}
+
+.db-backup-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.db-backup-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--apple-text-secondary);
+  padding: 10px 12px;
+  background: var(--apple-gray-6);
+  border-bottom: 1px solid var(--apple-gray-5);
+  letter-spacing: 0.02em;
+}
+
+.db-backup-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--apple-gray-5);
+  color: var(--apple-text);
+  vertical-align: middle;
+}
+
+.db-backup-table tbody tr:hover {
+  background: var(--apple-gray-6);
+}
+
+.db-backup-cell-filename {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-backup-row-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.db-backup-action {
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: var(--apple-transition);
+}
+
+.db-backup-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.db-backup-action-download {
+  background: rgba(0, 122, 255, 0.12);
+  color: var(--apple-blue);
+}
+
+.db-backup-action-download:hover:not(:disabled) {
+  background: rgba(0, 122, 255, 0.2);
+}
+
+.db-backup-action-restore {
+  background: rgba(255, 149, 0, 0.15);
+  color: #b37400;
+}
+
+.db-backup-action-restore:hover:not(:disabled) {
+  background: rgba(255, 149, 0, 0.25);
+}
+
+.db-backup-action-delete {
+  background: rgba(255, 59, 48, 0.12);
+  color: var(--apple-red);
+}
+
+.db-backup-action-delete:hover:not(:disabled) {
+  background: rgba(255, 59, 48, 0.2);
+}
+
+.db-backup-empty {
+  font-size: 13px;
+  color: var(--apple-gray);
+  text-align: center;
+  padding: 40px 12px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.db-backup-upload-card {
+  padding: 14px 16px;
+  background: var(--apple-gray-6);
+  border-radius: var(--apple-radius);
+  border: 1px solid var(--apple-gray-5);
+  flex-shrink: 0;
+}
+
+.db-backup-upload-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--apple-text);
+  margin-bottom: 10px;
+}
+
+.db-backup-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.db-backup-file-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: var(--apple-radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  background: var(--apple-card-bg);
+  color: var(--apple-text);
+  border: 1px solid var(--apple-gray-4);
+  transition: var(--apple-transition);
+}
+
+.db-backup-file-label:hover {
+  background: var(--apple-gray-6);
+  border-color: var(--apple-gray-3);
+}
+
+.db-backup-file-input {
+  position: absolute;
+  width: 0.1px;
+  height: 0.1px;
+  opacity: 0;
+  overflow: hidden;
+  z-index: -1;
+}
+
+.db-backup-file-label-text {
+  pointer-events: none;
+}
+
+.db-backup-upload-meta {
+  font-size: 12px;
+  color: var(--apple-gray);
+  margin-top: 6px;
+}
+
 .remark-input {
   width: 100%;
   padding: 8px 12px;

@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import FileConfigModal from './FileConfigModal';
 import DownloadConfigModal from './DownloadConfigModal';
+import { createUpgradeSteps } from './upgradeStepTemplates.js';
 
 const UpgradeTab = ({ merchantId }) => {
   const { isAdmin } = useAuth();
@@ -71,6 +72,29 @@ const UpgradeTab = ({ merchantId }) => {
   // Config execution states (单独执行配置修改)
   const [executingConfigs, setExecutingConfigs] = useState(false);
   const [configExecuteResults, setConfigExecuteResults] = useState(null);
+
+  const updateUpgradeStep = useCallback((index, status, message = '') => {
+    setUpgradeSteps((current) => current.map((step, stepIndex) => {
+      if (stepIndex !== index) {
+        return step;
+      }
+
+      if (status === 'completed') {
+        return {
+          name: step.name,
+          status: 'completed',
+          progress: 100,
+        };
+      }
+
+      return {
+        ...step,
+        status,
+        ...(typeof step.progress === 'number' ? { progress: step.progress } : {}),
+        ...(message ? { message } : {}),
+      };
+    }));
+  }, []);
 
   // 页面离开提示（升级过程中）
   useEffect(() => {
@@ -591,36 +615,20 @@ const UpgradeTab = ({ merchantId }) => {
     setExecuteResult(null);
     setExecuteError('');
     setExecuteMessage('准备升级...');
-    setUpgradeSteps([]);
+    setUpgradeSteps(createUpgradeSteps(upgradeMode));
     setCurrentStepIndex(-1);
 
     try {
-      // 如果是本地上传模式，需要先上传文件
-      if (selectMode === 'local' && file) {
-        setExecuteMessage('正在上传 WAR 包...');
-        setExecuteProgress(10);
-
-        const uploadResult = await linuxAPI.uploadWAR(merchantId, file, (progress) => {
-          // 上传进度 10-50%
-          setExecuteProgress(10 + progress * 0.4);
-        }, warPath);
-
-        // 等待上传完成
-        if (uploadResult.data?.task_id) {
-          setExecuteMessage('正在写入远程文件...');
-          await pollUploadCompletion(uploadResult.data.task_id);
-        }
-      }
-
       // 创建升级任务
       setExecuteMessage('创建升级任务...');
-      setExecuteProgress(50);
+      setExecuteProgress(5);
 
       const taskParams = {
         merchant_id: merchantId,
         type: upgradeMode,
         war_path: warPath,
         env: env,
+        source_type: selectMode === 'local' ? 'local' : 'server',
       };
 
       if (upgradeMode === 'package') {
@@ -639,6 +647,22 @@ const UpgradeTab = ({ merchantId }) => {
 
       // 使用 SSE 监听进度
       startSSEUpgrade(newTaskId);
+
+      if (selectMode === 'local' && file) {
+        updateUpgradeStep(1, 'running', '正在接收本地 WAR 文件...');
+        setCurrentStepIndex(1);
+        setExecuteMessage('正在接收本地 WAR 文件...');
+        setExecuteProgress(10);
+
+        await linuxAPI.uploadUpgradeTaskLocalFile(newTaskId, file, (progress) => {
+          setExecuteProgress(10 + progress * 0.2);
+          setUpgradeSteps((current) => current.map((step, stepIndex) => (
+            stepIndex === 1
+              ? { ...step, status: 'running', progress, message: `正在接收本地 WAR 文件... ${progress}%` }
+              : step
+          )));
+        });
+      }
 
     } catch (error) {
       setExecuteResult('error');
@@ -1189,7 +1213,7 @@ const UpgradeTab = ({ merchantId }) => {
             )}
 
             {/* Upload Progress */}
-            {uploading && (
+            {uploading && !executing && (
               <div style={styles.progressCard}>
                 <div style={styles.progressHeader}>
                   <span style={styles.progressLabel}>
@@ -1224,7 +1248,7 @@ const UpgradeTab = ({ merchantId }) => {
             )}
 
             {/* Upload Complete Status */}
-            {uploadComplete && file && (
+            {uploadComplete && file && !executing && (
               <div style={styles.successCard}>
                 <span>✓ 上传完成</span>
               </div>

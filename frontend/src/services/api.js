@@ -97,7 +97,15 @@ export const scanAPI = {
   },
 
   // 获取设备详情
-  getDeviceDetails: (ip) => api.get(`/scan/device/${ip}/details`)
+  getDeviceDetails: (ip) => api.get(`/scan/device/${ip}/details`),
+
+  getAutoConfig: () => api.get('/scan/auto-config'),
+
+  updateAutoConfig: (payload) => api.put('/scan/auto-config', payload),
+
+  getJobs: (page = 1, pageSize = 20) => api.get(`/scan/jobs?page=${page}&page_size=${pageSize}`),
+
+  runAutoScan: () => api.post('/scan/auto-run')
 };
 
 // 设备占用 API（需要认证）
@@ -241,17 +249,7 @@ export const deviceAPI = {
     return response.data;
   },
 
-  // License 备份（返回文件流）
-  backupLicense: async (merchantId) => {
-    const authAxios = createAuthAxios();
-    return authAxios.post('/device/license/backup', {
-      merchant_id: merchantId
-    }, {
-      responseType: 'blob'
-    });
-  },
-
-  // License 导入（上传 .sql 文件）
+  // License 导入（兼容旧入口）
   importLicense: async (merchantId, file) => {
     const formData = new FormData();
     formData.append('merchant_id', merchantId);
@@ -259,6 +257,110 @@ export const deviceAPI = {
 
     const authAxios = createAuthAxios();
     const response = await authAxios.post('/device/license/import', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    return response.data;
+  },
+
+  createLicenseBackup: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/license/backup', {
+      merchant_id: merchantId
+    });
+    return response.data;
+  },
+
+  listLicenseBackups: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.get(`/device/license/backups?merchant_id=${encodeURIComponent(merchantId)}`);
+    return response.data;
+  },
+
+  deleteLicenseBackup: async (merchantId, fileName) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.delete(`/device/license/backups?merchant_id=${encodeURIComponent(merchantId)}&file_name=${encodeURIComponent(fileName)}`);
+    return response.data;
+  },
+
+  downloadLicenseBackupUrl: (merchantId, fileName) => {
+    const token = localStorage.getItem('access_token');
+    return `${API_BASE_URL}/device/license/backups/download?merchant_id=${encodeURIComponent(merchantId)}&file_name=${encodeURIComponent(fileName)}&token=${token}`;
+  },
+
+  restoreLicenseFromServer: async (merchantId, fileName) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/license/restore/server', {
+      merchant_id: merchantId,
+      file_name: fileName
+    });
+    return response.data;
+  },
+
+  restoreLicenseFromUpload: async (merchantId, file) => {
+    const formData = new FormData();
+    formData.append('merchant_id', merchantId);
+    formData.append('file', file);
+
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/license/restore/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    return response.data;
+  },
+
+  // 数据库全量备份（保存到服务端）
+  backupDatabase: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/db/backup', {
+      merchant_id: merchantId
+    });
+    return response.data;
+  },
+
+  // 查询服务端备份列表
+  listDatabaseBackups: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.get(`/device/db/backups?merchant_id=${encodeURIComponent(merchantId)}`);
+    return response.data;
+  },
+
+  // 删除服务端备份
+  deleteDatabaseBackup: async (merchantId, fileName) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.delete(`/device/db/backups?merchant_id=${encodeURIComponent(merchantId)}&file_name=${encodeURIComponent(fileName)}`);
+    return response.data;
+  },
+
+  // 生成数据库备份下载 URL
+  downloadDatabaseBackupUrl: (merchantId, fileName) => {
+    const token = localStorage.getItem('access_token');
+    return `${API_BASE_URL}/device/db/backups/download?merchant_id=${encodeURIComponent(merchantId)}&file_name=${encodeURIComponent(fileName)}&token=${token}`;
+  },
+
+  // 从服务端备份恢复
+  restoreDatabaseFromServer: async (merchantId, fileName, restartPosAfterRestore = false) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/db/restore/server', {
+      merchant_id: merchantId,
+      file_name: fileName,
+      restart_pos_after_restore: restartPosAfterRestore
+    });
+    return response.data;
+  },
+
+  // 从本地上传恢复
+  restoreDatabaseFromUpload: async (merchantId, file, restartPosAfterRestore = false) => {
+    const formData = new FormData();
+    formData.append('merchant_id', merchantId);
+    formData.append('file', file);
+    formData.append('restart_pos_after_restore', restartPosAfterRestore ? 'true' : 'false');
+
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/db/restore/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       }
@@ -665,6 +767,26 @@ export const linuxAPI = {
   startUpgradeTask: async (params) => {
     const authAxios = createAuthAxios();
     const response = await authAxios.post('/linux/upgrade/task', params);
+    return response.data;
+  },
+
+  uploadUpgradeTaskLocalFile: async (taskId, file, onProgress) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const token = localStorage.getItem('access_token');
+    const response = await axios.post(`${API_BASE_URL}/linux/upgrade/task/${taskId}/upload-local`, formData, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'multipart/form-data'
+      },
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percentCompleted);
+        }
+      }
+    });
     return response.data;
   },
 

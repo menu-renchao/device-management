@@ -24,10 +24,10 @@ import (
 
 // LinuxService Linux 设备服务
 type LinuxService struct {
-	pool             *ssh.SessionPool
-	uploadTasks      map[string]*ssh.UploadTask
-	upgradeTaskMgr   *UpgradeTaskManager
-	mu               sync.RWMutex
+	pool           *ssh.SessionPool
+	uploadTasks    map[string]*ssh.UploadTask
+	upgradeTaskMgr *UpgradeTaskManager
+	mu             sync.RWMutex
 }
 
 // NewLinuxService 创建 Linux 服务
@@ -229,12 +229,12 @@ func (s *LinuxService) RestartTomcat(merchantID string) (string, error) {
 // GetPOSStatus 获取 POS 状态
 func (s *LinuxService) GetPOSStatus(merchantID string) (map[string]interface{}, error) {
 	// 检查进程状态
-	output, err := s.ExecuteCommand(merchantID, "ps aux | grep -E 'pos|menusifu' | grep -v grep | head -5")
+	output, err := s.ExecuteCommand(merchantID, "ps aux | grep '/opt/menusifu/menusifu_pos_extention' | grep -v grep | head -5")
 	if err != nil {
 		return nil, err
 	}
 
-	running := len(strings.TrimSpace(output)) > 0
+	running := isPOSProcessRunning(output)
 
 	result := map[string]interface{}{
 		"running": running,
@@ -249,6 +249,10 @@ func (s *LinuxService) GetPOSStatus(merchantID string) (map[string]interface{}, 
 	result["systemctl_status"] = strings.TrimSpace(statusOutput)
 
 	return result, nil
+}
+
+func isPOSProcessRunning(output string) bool {
+	return strings.Contains(output, "/opt/menusifu/menusifu_pos_extention")
 }
 
 // UploadTaskInfo 上传任务信息
@@ -992,6 +996,67 @@ func (s *LinuxService) GetUpgradeEventChannel(taskID string) (<-chan UpgradeEven
 	return s.upgradeTaskMgr.GetEventChannel(taskID)
 }
 
+func resolveLocalWarSourcePath(warPath string) (string, bool) {
+	localPath := warPath
+	if strings.HasPrefix(warPath, "downloads/") && !filepath.IsAbs(localPath) {
+		wd, _ := os.Getwd()
+		localPath = filepath.Join(wd, warPath)
+	}
+
+	if localPath == "" {
+		return "", false
+	}
+
+	if !filepath.IsAbs(localPath) && !strings.HasPrefix(warPath, "downloads/") {
+		return "", false
+	}
+
+	if _, err := os.Stat(localPath); err == nil {
+		return localPath, true
+	}
+
+	return "", false
+}
+
+func (s *LinuxService) uploadLocalWarToRemote(merchantID, localPath, remotePath string, progressCallback func(int, string)) error {
+	info, exists := s.pool.Get(merchantID)
+	if !exists {
+		return fmt.Errorf("未连接")
+	}
+
+	if _, err := os.Stat(localPath); err != nil {
+		return fmt.Errorf("WAR 包文件不存在: %w", err)
+	}
+
+	if progressCallback != nil {
+		progressCallback(10, "正在上传 WAR 包...")
+	}
+
+	err := info.SFTPClient.UploadFile(localPath, remotePath, func(transferred, total int64, percentage float64) {
+		if progressCallback != nil {
+			progressCallback(int(percentage), fmt.Sprintf("上传中 %.0f%%", percentage))
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("上传 WAR 包失败: %w", err)
+	}
+
+	if progressCallback != nil {
+		progressCallback(100, "WAR 包上传完成")
+	}
+
+	return nil
+}
+
+func (s *LinuxService) UploadLocalWarForDirectUpgrade(merchantID, localPath string, progressCallback func(int, string)) error {
+	return s.uploadLocalWarToRemote(merchantID, localPath, "/opt/tomcat7/webapps/kpos.war", progressCallback)
+}
+
+func (s *LinuxService) UploadLocalWarForPackageUpgrade(merchantID, packageDir, localPath string, progressCallback func(int, string)) error {
+	targetWarPath := fmt.Sprintf("%s/kpos.war", packageDir)
+	return s.uploadLocalWarToRemote(merchantID, localPath, targetWarPath, progressCallback)
+}
+
 // CopyWarForDirectUpgrade 为直接替换升级复制 WAR 包
 func (s *LinuxService) CopyWarForDirectUpgrade(merchantID, warPath string, progressCallback func(int, string)) error {
 	info, exists := s.pool.Get(merchantID)
@@ -1048,12 +1113,12 @@ func (s *LinuxService) CopyWarForDirectUpgrade(merchantID, warPath string, progr
 
 		_, err := s.ExecuteCommand(merchantID, fmt.Sprintf("cp %s %s", warPath, targetPath))
 		if err != nil {
-				return fmt.Errorf("复制 WAR 包失败: %w", err)
-			}
+			return fmt.Errorf("复制 WAR 包失败: %w", err)
+		}
 
 		if progressCallback != nil {
-				progressCallback(100, "WAR 包准备完成")
-			}
+			progressCallback(100, "WAR 包准备完成")
+		}
 	} else {
 		if progressCallback != nil {
 			progressCallback(100, "WAR 包已在目标位置")
@@ -1128,8 +1193,8 @@ func (s *LinuxService) ExecuteConfigsForUpgrade(merchantID, env string, configRe
 	total := len(configs)
 	for i, config := range configs {
 		if progressCallback != nil {
-				progress := ((i + 1) * 100) / total
-				progressCallback(progress, fmt.Sprintf("执行配置修改: %s (%d/%d)", config.Name, i+1, total))
+			progress := ((i + 1) * 100) / total
+			progressCallback(progress, fmt.Sprintf("执行配置修改: %s (%d/%d)", config.Name, i+1, total))
 		}
 
 		_, execErr := s.ExecuteFileConfig(merchantID, &config, env)
