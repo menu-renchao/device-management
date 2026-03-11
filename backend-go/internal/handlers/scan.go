@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
+	"strconv"
 	"time"
 
+	"device-management/internal/middleware"
 	"device-management/internal/models"
 	"device-management/internal/repository"
 	"device-management/internal/services"
@@ -116,6 +118,10 @@ func (h *ScanHandler) GetScanStatus(c *gin.Context) {
 }
 
 func (h *ScanHandler) GetAutoScanConfig(c *gin.Context) {
+	if !requireAdminUser(c) {
+		return
+	}
+
 	config, err := h.configRepo.GetOrCreateDefault()
 	if err != nil {
 		response.InternalError(c, "获取自动扫描配置失败")
@@ -144,6 +150,10 @@ func (h *ScanHandler) GetAutoScanConfig(c *gin.Context) {
 }
 
 func (h *ScanHandler) UpdateAutoScanConfig(c *gin.Context) {
+	if !requireAdminUser(c) {
+		return
+	}
+
 	var req UpdateAutoScanConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "请求格式无效")
@@ -195,7 +205,13 @@ func (h *ScanHandler) UpdateAutoScanConfig(c *gin.Context) {
 }
 
 func (h *ScanHandler) ListScanJobs(c *gin.Context) {
-	jobs, total, err := h.jobRepo.List(1, 20)
+	if !requireAdminUser(c) {
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	jobs, total, err := h.jobRepo.List(page, pageSize)
 	if err != nil {
 		response.InternalError(c, "获取扫描任务日志失败")
 		return
@@ -220,12 +236,18 @@ func (h *ScanHandler) ListScanJobs(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{
-		"items": items,
-		"total": total,
+		"items":     items,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
 	})
 }
 
 func (h *ScanHandler) RunAutoScanNow(c *gin.Context) {
+	if !requireAdminUser(c) {
+		return
+	}
+
 	if err := h.scheduler.RunNow(c.Request.Context()); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -390,4 +412,17 @@ func filterData(data interface{}) interface{} {
 	default:
 		return data
 	}
+}
+
+func requireAdminUser(c *gin.Context) bool {
+	user := middleware.GetCurrentUser(c)
+	if user == nil {
+		response.Unauthorized(c, "未授权")
+		return false
+	}
+	if user.Role != "admin" {
+		response.Forbidden(c, "需要管理员权限")
+		return false
+	}
+	return true
 }

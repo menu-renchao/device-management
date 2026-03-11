@@ -35,6 +35,8 @@ const ScanPage = () => {
   });
   const [autoScanCIDRText, setAutoScanCIDRText] = useState('');
   const [autoScanJobs, setAutoScanJobs] = useState([]);
+  const [autoScanJobPage, setAutoScanJobPage] = useState(1);
+  const [autoScanJobTotal, setAutoScanJobTotal] = useState(0);
   const [savingAutoScan, setSavingAutoScan] = useState(false);
   const [runningAutoScan, setRunningAutoScan] = useState(false);
 
@@ -105,11 +107,13 @@ const ScanPage = () => {
     }
   };
 
-  const loadAutoScanJobs = async () => {
+  const loadAutoScanJobs = async (page = autoScanJobPage) => {
     try {
-      const response = await scanAPI.getJobs(1, 10);
+      const response = await scanAPI.getJobs(page, 10);
       const data = response.data?.data || {};
       setAutoScanJobs(data.items || []);
+      setAutoScanJobPage(data.page || page);
+      setAutoScanJobTotal(data.total || 0);
     } catch (error) {
       console.error('加载自动扫描日志失败:', error);
     }
@@ -318,7 +322,7 @@ const ScanPage = () => {
       if (response.data?.success) {
         toast.success('自动扫描已触发');
         setTimeout(() => {
-          loadAutoScanJobs();
+          loadAutoScanJobs(autoScanJobPage);
           loadDevices(1, pageSize, searchText, filterTypes, filterProperties, onlyMyDevices);
         }, 1000);
       } else {
@@ -820,14 +824,35 @@ const ScanPage = () => {
           {autoScanJobs.length === 0 ? (
             <div style={styles.autoScanJobEmpty}>暂无自动扫描日志</div>
           ) : (
-            autoScanJobs.map((job) => (
-              <div key={job.id} style={styles.autoScanJobItem}>
-                <span>{job.trigger_type}</span>
-                <span>{job.status}</span>
-                <span>{job.devices_found || 0} 台</span>
-                <span>{job.started_at ? new Date(job.started_at).toLocaleString('zh-CN') : '-'}</span>
-              </div>
-            ))
+            <>
+              {autoScanJobs.map((job) => (
+                <div key={job.id} style={styles.autoScanJobItem}>
+                  <span>{job.trigger_type}</span>
+                  <span>{job.status}</span>
+                  <span>{job.devices_found || 0} 台</span>
+                  <span>{job.started_at ? new Date(job.started_at).toLocaleString('zh-CN') : '-'}</span>
+                </div>
+              ))}
+              {autoScanJobTotal > 10 && (
+                <div style={styles.autoScanPager}>
+                  <button
+                    style={styles.pageBtn}
+                    disabled={autoScanJobPage <= 1}
+                    onClick={() => loadAutoScanJobs(autoScanJobPage - 1)}
+                  >
+                    上一页
+                  </button>
+                  <span style={styles.pageNum}>日志页 {autoScanJobPage}</span>
+                  <button
+                    style={styles.pageBtn}
+                    disabled={autoScanJobPage * 10 >= autoScanJobTotal}
+                    onClick={() => loadAutoScanJobs(autoScanJobPage + 1)}
+                  >
+                    下一页
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -1273,6 +1298,12 @@ const styles = {
     color: '#86868B',
     backgroundColor: '#F7F7FA',
     borderRadius: '8px',
+  },
+  autoScanPager: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: '8px',
   },
   toolbar: {
     display: 'flex',

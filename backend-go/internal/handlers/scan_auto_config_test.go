@@ -50,7 +50,10 @@ func TestGetAutoScanConfig(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := newScanHandlerForTest(t)
 	router := gin.New()
-	router.GET("/scan/auto-config", handler.GetAutoScanConfig)
+	router.GET("/scan/auto-config", func(c *gin.Context) {
+		c.Set("user", &models.User{ID: 1, Role: "admin"})
+		handler.GetAutoScanConfig(c)
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/scan/auto-config", nil)
 	rec := httptest.NewRecorder()
@@ -68,7 +71,10 @@ func TestUpdateAutoScanConfigRejectsInvalidCIDR(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := newScanHandlerForTest(t)
 	router := gin.New()
-	router.PUT("/scan/auto-config", handler.UpdateAutoScanConfig)
+	router.PUT("/scan/auto-config", func(c *gin.Context) {
+		c.Set("user", &models.User{ID: 1, Role: "admin"})
+		handler.UpdateAutoScanConfig(c)
+	})
 
 	body, err := json.Marshal(map[string]interface{}{
 		"enabled":          true,
@@ -86,6 +92,34 @@ func TestUpdateAutoScanConfigRejectsInvalidCIDR(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestUpdateAutoScanConfigRequiresAdmin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newScanHandlerForTest(t)
+	router := gin.New()
+	router.PUT("/scan/auto-config", func(c *gin.Context) {
+		c.Set("user", &models.User{ID: 2, Role: "user"})
+		handler.UpdateAutoScanConfig(c)
+	})
+
+	body, err := json.Marshal(map[string]interface{}{
+		"enabled":          true,
+		"interval_minutes": 60,
+		"cidr_blocks":      []string{"192.168.1.0/24"},
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/scan/auto-config", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusForbidden, rec.Body.String())
 	}
 }
 
@@ -120,7 +154,10 @@ func TestRunAutoScanNowStartsScan(t *testing.T) {
 	scheduler := services.NewAutoScanScheduler(scanService, configRepo, jobRepo, deviceRepo, time.Minute)
 	handler := NewScanHandler(scanService, deviceRepo, configRepo, jobRepo, scheduler)
 	router := gin.New()
-	router.POST("/scan/auto-run", handler.RunAutoScanNow)
+	router.POST("/scan/auto-run", func(c *gin.Context) {
+		c.Set("user", &models.User{ID: 1, Role: "admin"})
+		handler.RunAutoScanNow(c)
+	})
 
 	req := httptest.NewRequest(http.MethodPost, "/scan/auto-run", nil)
 	rec := httptest.NewRecorder()
@@ -137,4 +174,59 @@ func TestRunAutoScanNowStartsScan(t *testing.T) {
 	}
 
 	close(release)
+}
+
+func TestListScanJobsUsesPaginationParams(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := openScanHandlerTestDB(t)
+	deviceRepo := repository.NewDeviceRepository(db)
+	configRepo := repository.NewAutoScanConfigRepository(db)
+	jobRepo := repository.NewScanJobLogRepository(db)
+	scanService := services.NewScanService()
+	scheduler := services.NewAutoScanScheduler(scanService, configRepo, jobRepo, deviceRepo, time.Minute)
+	handler := NewScanHandler(scanService, deviceRepo, configRepo, jobRepo, scheduler)
+
+	first := &models.ScanJobLog{TriggerType: "auto", Status: "success", StartedAt: time.Now().Add(-time.Hour), TriggeredBy: "system", Port: 22080}
+	if err := first.SetCIDRBlocks([]string{"192.168.1.0/24"}); err != nil {
+		t.Fatalf("SetCIDRBlocks failed: %v", err)
+	}
+	if err := jobRepo.Create(first); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	second := &models.ScanJobLog{TriggerType: "auto", Status: "failed", StartedAt: time.Now(), TriggeredBy: "system", Port: 22080}
+	if err := second.SetCIDRBlocks([]string{"10.0.0.0/24"}); err != nil {
+		t.Fatalf("SetCIDRBlocks failed: %v", err)
+	}
+	if err := jobRepo.Create(second); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	router := gin.New()
+	router.GET("/scan/jobs", func(c *gin.Context) {
+		c.Set("user", &models.User{ID: 1, Role: "admin"})
+		handler.ListScanJobs(c)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/scan/jobs?page=2&page_size=1", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"total":2`)) {
+		t.Fatalf("expected total count in response: %s", rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"page":2`)) {
+		t.Fatalf("expected page metadata in response: %s", rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"page_size":1`)) {
+		t.Fatalf("expected page size metadata in response: %s", rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"status":"success"`)) {
+		t.Fatalf("expected second page to contain older job: %s", rec.Body.String())
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(`"status":"failed"`)) {
+		t.Fatalf("expected second page to exclude first page job: %s", rec.Body.String())
+	}
 }
