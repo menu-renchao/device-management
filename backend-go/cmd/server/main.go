@@ -239,10 +239,16 @@ func main() {
 			scan.GET("/status", scanHandler.GetScanStatus)
 			scan.POST("/stop", scanHandler.StopScan)
 			scan.GET("/device/:ip/details", scanHandler.GetDeviceDetails)
-			scan.GET("/auto-config", scanHandler.GetAutoScanConfig)
-			scan.PUT("/auto-config", scanHandler.UpdateAutoScanConfig)
-			scan.GET("/jobs", scanHandler.ListScanJobs)
-			scan.POST("/auto-run", scanHandler.RunAutoScanNow)
+
+			scanAdmin := scan.Group("")
+			scanAdmin.Use(middleware.Auth())
+			scanAdmin.Use(middleware.AdminOnly(userRepo))
+			{
+				scanAdmin.GET("/auto-config", scanHandler.GetAutoScanConfig)
+				scanAdmin.PUT("/auto-config", scanHandler.UpdateAutoScanConfig)
+				scanAdmin.GET("/jobs", scanHandler.ListScanJobs)
+				scanAdmin.POST("/auto-run", scanHandler.RunAutoScanNow)
+			}
 		}
 
 		// Linux device management routes

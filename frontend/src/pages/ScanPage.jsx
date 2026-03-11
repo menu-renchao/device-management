@@ -7,6 +7,7 @@ import ScanTable from '../components/ScanTable';
 import DetailModal from '../components/DetailModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import DBBackupRestoreModal from '../components/db-backup/DBBackupRestoreModal';
+import { getAutoScanDisplayMode, shouldLoadAutoScanPanel } from './scanPageUtils';
 
 const getOnlyMyDevicesStorageKey = (userId) => `scan_page_only_my_devices_${userId || 'default'}`;
 
@@ -39,6 +40,7 @@ const ScanPage = () => {
   const [autoScanJobTotal, setAutoScanJobTotal] = useState(0);
   const [savingAutoScan, setSavingAutoScan] = useState(false);
   const [runningAutoScan, setRunningAutoScan] = useState(false);
+  const [showAutoScanDialog, setShowAutoScanDialog] = useState(false);
 
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1);
@@ -166,8 +168,10 @@ const ScanPage = () => {
     setCurrentPage(1);
     loadDevices(1, pageSize, '', [], [], savedOnlyMyDevices);
     loadFilterOptions();
-    loadAutoScanConfig();
-    loadAutoScanJobs();
+    if (shouldLoadAutoScanPanel(isAdmin)) {
+      loadAutoScanConfig();
+      loadAutoScanJobs();
+    }
   }, [user?.id]);
 
   // 加载筛选选项
@@ -758,8 +762,11 @@ const ScanPage = () => {
     toast.warning('您没有权限访问此设备的配置页面，只有管理员、负责人或借用人才能访问');
   };
 
+  const autoScanDisplayMode = getAutoScanDisplayMode(isAdmin, showAutoScanDialog);
+
   return (
     <div style={styles.page}>
+      {false && shouldLoadAutoScanPanel(isAdmin) && (
       <div style={styles.autoScanCard}>
         <div style={styles.autoScanHeader}>
           <div>
@@ -856,9 +863,18 @@ const ScanPage = () => {
           )}
         </div>
       </div>
+      )}
       {/* 合并的控制栏：扫描控制 + 搜索 */}
       <div style={styles.toolbar}>
         <div style={styles.toolbarLeft}>
+          {autoScanDisplayMode !== 'hidden' && (
+            <button
+              onClick={() => setShowAutoScanDialog(true)}
+              style={{ ...styles.scanBtn, ...styles.autoScanBtn }}
+            >
+              自动扫描
+            </button>
+          )}
           <div style={styles.ipGroup}>
             <label style={styles.label}>网段</label>
             <select
@@ -1185,6 +1201,113 @@ const ScanPage = () => {
         </div>
       )}
 
+      {autoScanDisplayMode === 'dialog' && (
+        <div style={styles.modalOverlay}>
+          <div style={{ ...styles.modalContent, ...styles.autoScanDialog }}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.autoScanDialogTitle}>自动扫描配置</h3>
+              <button onClick={() => setShowAutoScanDialog(false)} style={styles.closeBtn}>×</button>
+            </div>
+            <div style={{ ...styles.modalBody, ...styles.autoScanDialogBody }}>
+              <div style={styles.autoScanHeader}>
+                <div>
+                  <div style={styles.autoScanTitle}>自动扫描</div>
+                  <div style={styles.autoScanSubtitle}>后台按配置周期扫描指定 CIDR 网段</div>
+                </div>
+                <label style={styles.autoScanToggle}>
+                  <input
+                    type="checkbox"
+                    checked={!!autoScanConfig.enabled}
+                    onChange={(e) => setAutoScanConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                  />
+                  <span>启用</span>
+                </label>
+              </div>
+
+              <div style={styles.autoScanGrid}>
+                <label style={styles.autoScanField}>
+                  <span>周期(分钟)</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={autoScanConfig.interval_minutes}
+                    onChange={(e) => setAutoScanConfig(prev => ({ ...prev, interval_minutes: e.target.value }))}
+                    style={styles.input}
+                  />
+                </label>
+
+                <label style={styles.autoScanField}>
+                  <span>端口</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={autoScanConfig.port}
+                    onChange={(e) => setAutoScanConfig(prev => ({ ...prev, port: e.target.value }))}
+                    style={styles.input}
+                  />
+                </label>
+              </div>
+
+              <label style={styles.autoScanField}>
+                <span>CIDR 列表(一行一个)</span>
+                <textarea
+                  value={autoScanCIDRText}
+                  onChange={(e) => setAutoScanCIDRText(e.target.value)}
+                  rows={4}
+                  style={styles.autoScanTextarea}
+                  placeholder={'192.168.1.0/24\n10.0.0.0/24'}
+                />
+              </label>
+
+              <div style={styles.autoScanActions}>
+                <button onClick={handleSaveAutoScanConfig} disabled={savingAutoScan} style={styles.btnSave}>
+                  {savingAutoScan ? '保存中...' : '保存配置'}
+                </button>
+                <button onClick={handleRunAutoScan} disabled={runningAutoScan} style={styles.scanBtn}>
+                  {runningAutoScan ? '触发中...' : '立即执行一次'}
+                </button>
+              </div>
+
+              <div style={styles.autoScanJobList}>
+                {autoScanJobs.length === 0 ? (
+                  <div style={styles.autoScanJobEmpty}>暂无自动扫描日志</div>
+                ) : (
+                  <>
+                    {autoScanJobs.map((job) => (
+                      <div key={job.id} style={styles.autoScanJobItem}>
+                        <span>{job.trigger_type}</span>
+                        <span>{job.status}</span>
+                        <span>{job.devices_found || 0} 台</span>
+                        <span>{job.started_at ? new Date(job.started_at).toLocaleString('zh-CN') : '-'}</span>
+                      </div>
+                    ))}
+                    {autoScanJobTotal > 10 && (
+                      <div style={styles.autoScanPager}>
+                        <button
+                          style={styles.pageBtn}
+                          disabled={autoScanJobPage <= 1}
+                          onClick={() => loadAutoScanJobs(autoScanJobPage - 1)}
+                        >
+                          上一页
+                        </button>
+                        <span style={styles.pageNum}>日志页 {autoScanJobPage}</span>
+                        <button
+                          style={styles.pageBtn}
+                          disabled={autoScanJobPage * 10 >= autoScanJobTotal}
+                          onClick={() => loadAutoScanJobs(autoScanJobPage + 1)}
+                        >
+                          下一页
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <DBBackupRestoreModal
         isOpen={dbBackupModal.show}
         onClose={() => setDbBackupModal({ show: false, device: null })}
@@ -1304,6 +1427,27 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'flex-end',
     gap: '8px',
+  },
+  autoScanBtn: {
+    backgroundColor: '#F2F7FF',
+    color: '#0B63CE',
+    border: '1px solid #C9DDFC',
+  },
+  autoScanDialog: {
+    width: 'min(720px, calc(100vw - 32px))',
+    maxHeight: 'min(80vh, 760px)',
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  autoScanDialogBody: {
+    overflowY: 'auto',
+  },
+  autoScanDialogTitle: {
+    margin: 0,
+    fontSize: '18px',
+    fontWeight: '600',
+    color: '#1D1D1F',
   },
   toolbar: {
     display: 'flex',
