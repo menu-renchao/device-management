@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,11 +20,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type licenseBackupManager interface {
+	Backup(host string) (*services.LicenseBackupResult, error)
+	CreateBackup(host, merchantID string) (*services.LicenseBackupFileInfo, error)
+	ListBackups(merchantID string) ([]services.LicenseBackupFileInfo, error)
+	OpenBackupFile(merchantID, fileName string) (*os.File, int64, error)
+	DeleteBackup(merchantID, fileName string) error
+	RestoreFromServerFile(host, merchantID, fileName string) error
+	Import(host, sqlContent string) (*services.LicenseImportResult, error)
+}
+
 type DeviceHandler struct {
 	deviceRepo          *repository.DeviceRepository
 	userRepo            *repository.UserRepository
 	notificationService *services.NotificationService
-	licenseService      *services.LicenseService
+	licenseService      licenseBackupManager
 	dbBackupService     *services.DBBackupService
 	linuxService        *services.LinuxService
 }
@@ -32,7 +43,7 @@ func NewDeviceHandler(
 	deviceRepo *repository.DeviceRepository,
 	userRepo *repository.UserRepository,
 	notificationService *services.NotificationService,
-	licenseService *services.LicenseService,
+	licenseService licenseBackupManager,
 	dbBackupService *services.DBBackupService,
 	linuxService *services.LinuxService,
 ) *DeviceHandler {

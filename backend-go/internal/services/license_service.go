@@ -4,9 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"device-management/internal/config"
 
 	"github.com/go-sql-driver/mysql"
 )
@@ -19,11 +24,21 @@ const (
 	licenseDateLayout = "2006-01-02 15:04:05"
 )
 
-type LicenseService struct{}
+type LicenseService struct {
+	backupFunc         func(host string) (*LicenseBackupResult, error)
+	importFunc         func(host, sqlContent string) (*LicenseImportResult, error)
+	backupsRootDirFunc func() string
+}
 
 type LicenseBackupResult struct {
 	FileName string
 	Content  []byte
+}
+
+type LicenseBackupFileInfo struct {
+	Name    string    `json:"name"`
+	Size    int64     `json:"size"`
+	ModTime time.Time `json:"mod_time"`
 }
 
 type LicenseImportResult struct {
@@ -31,10 +46,18 @@ type LicenseImportResult struct {
 }
 
 func NewLicenseService() *LicenseService {
-	return &LicenseService{}
+	service := &LicenseService{}
+	service.backupFunc = service.buildBackupResult
+	service.importFunc = service.executeImport
+	service.backupsRootDirFunc = service.backupsRootDir
+	return service
 }
 
 func (s *LicenseService) Backup(host string) (*LicenseBackupResult, error) {
+	return s.backupFunc(host)
+}
+
+func (s *LicenseService) buildBackupResult(host string) (*LicenseBackupResult, error) {
 	host = strings.TrimSpace(host)
 	if host == "" {
 		return nil, fmt.Errorf("设备IP为空，无法连接数据库")
@@ -42,7 +65,7 @@ func (s *LicenseService) Backup(host string) (*LicenseBackupResult, error) {
 
 	db, err := s.openDB(host)
 	if err != nil {
-		return nil, fmt.Errorf("POS 不在线，或输入IP地址有误！错误: %w", err)
+		return nil, fmt.Errorf("POS 不在线，或输入IP地址有误: %w", err)
 	}
 	defer db.Close()
 
@@ -80,6 +103,10 @@ func (s *LicenseService) Backup(host string) (*LicenseBackupResult, error) {
 }
 
 func (s *LicenseService) Import(host, sqlContent string) (*LicenseImportResult, error) {
+	return s.importFunc(host, sqlContent)
+}
+
+func (s *LicenseService) executeImport(host, sqlContent string) (*LicenseImportResult, error) {
 	host = strings.TrimSpace(host)
 	if host == "" {
 		return nil, fmt.Errorf("设备IP为空，无法连接数据库")
@@ -92,7 +119,7 @@ func (s *LicenseService) Import(host, sqlContent string) (*LicenseImportResult, 
 
 	db, err := s.openDB(host)
 	if err != nil {
-		return nil, fmt.Errorf("POS 不在线，或输入IP地址有误！错误: %w", err)
+		return nil, fmt.Errorf("POS 不在线，或输入IP地址有误: %w", err)
 	}
 	defer db.Close()
 
@@ -127,6 +154,155 @@ func (s *LicenseService) Import(host, sqlContent string) (*LicenseImportResult, 
 	return &LicenseImportResult{
 		ExecutedCount: executedCount,
 	}, nil
+}
+
+func (s *LicenseService) CreateBackup(host, merchantID string) (*LicenseBackupFileInfo, error) {
+	result, err := s.Backup(host)
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Content) == 0 {
+		return nil, fmt.Errorf("License备份文件内容为空")
+	}
+
+	merchantDir, err := s.ensureMerchantDir(sanitizePathSegment(merchantID, "unknown-mid"))
+	if err != nil {
+		return nil, err
+	}
+
+	fileName := filepath.Base(strings.TrimSpace(result.FileName))
+	if fileName == "." || fileName == "" || strings.ToLower(filepath.Ext(fileName)) != ".sql" {
+		return nil, fmt.Errorf("License备份文件名不合法")
+	}
+
+	filePath := filepath.Join(merchantDir, fileName)
+	if err := os.WriteFile(filePath, result.Content, 0644); err != nil {
+		return nil, fmt.Errorf("创建License备份文件失败: %w", err)
+	}
+
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("读取License备份文件信息失败: %w", err)
+	}
+
+	return &LicenseBackupFileInfo{
+		Name:    fileName,
+		Size:    info.Size(),
+		ModTime: info.ModTime(),
+	}, nil
+}
+
+func (s *LicenseService) ListBackups(merchantID string) ([]LicenseBackupFileInfo, error) {
+	merchantDir := filepath.Join(s.backupsRootDirFunc(), sanitizePathSegment(merchantID, "unknown-mid"))
+	if _, err := os.Stat(merchantDir); os.IsNotExist(err) {
+		return []LicenseBackupFileInfo{}, nil
+	}
+
+	entries, err := os.ReadDir(merchantDir)
+	if err != nil {
+		return nil, fmt.Errorf("读取License备份目录失败: %w", err)
+	}
+
+	items := make([]LicenseBackupFileInfo, 0)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.ToLower(filepath.Ext(name)) != ".sql" {
+			continue
+		}
+		info, statErr := entry.Info()
+		if statErr != nil {
+			continue
+		}
+		items = append(items, LicenseBackupFileInfo{
+			Name:    name,
+			Size:    info.Size(),
+			ModTime: info.ModTime(),
+		})
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].ModTime.After(items[j].ModTime)
+	})
+	return items, nil
+}
+
+func (s *LicenseService) DeleteBackup(merchantID, fileName string) error {
+	filePath, err := s.resolveBackupPath(merchantID, fileName)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(filePath); err != nil {
+		return fmt.Errorf("删除License备份文件失败: %w", err)
+	}
+	return nil
+}
+
+func (s *LicenseService) OpenBackupFile(merchantID, fileName string) (*os.File, int64, error) {
+	filePath, err := s.resolveBackupPath(merchantID, fileName)
+	if err != nil {
+		return nil, 0, err
+	}
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("打开License备份文件失败: %w", err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, 0, fmt.Errorf("读取License备份文件信息失败: %w", err)
+	}
+	return file, info.Size(), nil
+}
+
+func (s *LicenseService) RestoreFromServerFile(host, merchantID, fileName string) error {
+	filePath, err := s.resolveBackupPath(merchantID, fileName)
+	if err != nil {
+		return err
+	}
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("读取License备份文件失败: %w", err)
+	}
+	_, err = s.Import(host, string(content))
+	return err
+}
+
+func (s *LicenseService) backupsRootDir() string {
+	downloadsDir := "downloads"
+	if config.AppConfig != nil && strings.TrimSpace(config.AppConfig.Download.DownloadsDir) != "" {
+		downloadsDir = strings.TrimSpace(config.AppConfig.Download.DownloadsDir)
+	}
+	parentDir := filepath.Dir(downloadsDir)
+	return filepath.Join(parentDir, "license-backups")
+}
+
+func (s *LicenseService) ensureMerchantDir(merchantFolder string) (string, error) {
+	rootDir := s.backupsRootDirFunc()
+	merchantDir := filepath.Join(rootDir, merchantFolder)
+	if err := os.MkdirAll(merchantDir, 0755); err != nil {
+		return "", fmt.Errorf("创建License备份目录失败: %w", err)
+	}
+	return merchantDir, nil
+}
+
+func (s *LicenseService) resolveBackupPath(merchantID, fileName string) (string, error) {
+	fileName = strings.TrimSpace(fileName)
+	if fileName == "" {
+		return "", fmt.Errorf("License备份文件名不能为空")
+	}
+	if filepath.Base(fileName) != fileName || strings.Contains(fileName, "..") {
+		return "", fmt.Errorf("License备份文件名不合法")
+	}
+	if strings.ToLower(filepath.Ext(fileName)) != ".sql" {
+		return "", fmt.Errorf("仅支持 .sql License备份文件")
+	}
+
+	merchantDir := filepath.Join(s.backupsRootDirFunc(), sanitizePathSegment(merchantID, "unknown-mid"))
+	return filepath.Join(merchantDir, fileName), nil
 }
 
 func (s *LicenseService) openDB(host string) (*sql.DB, error) {

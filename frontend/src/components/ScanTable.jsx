@@ -10,8 +10,7 @@ const ScanTable = ({
   onDeleteDevice,
   onClaimDevice,
   onResetOwner,
-  onBackupLicense,
-  onImportLicense,
+  onManageLicenseBackup,
   onBackupRestoreDatabase,
   isAdmin,
   currentUserId,
@@ -233,10 +232,9 @@ const ScanTable = ({
             const canResetOwner = isAdmin && hasMerchantId && (!!device.owner || !!device.ownerId);
             const canManageBorrow = hasMerchantId;
             const canManageLicense = hasMerchantId && canAccessDeviceConfig(device);
-            const canBackupLicense = canManageLicense && typeof onBackupLicense === 'function';
-            const canImportLicense = canManageLicense && typeof onImportLicense === 'function';
+            const canManageLicenseBackup = canManageLicense && typeof onManageLicenseBackup === 'function';
             const canBackupRestoreDatabase = canManageLicense && typeof onBackupRestoreDatabase === 'function';
-            const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow || canBackupLicense || canImportLicense || canBackupRestoreDatabase;
+            const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow || canManageLicenseBackup || canBackupRestoreDatabase;
             const offlineTimeText = formatLastOnlineTime(device.lastOnlineTime);
             const statusText = isOnlineDevice
               ? (hasMerchantId ? '在线' : '服务异常')
@@ -408,23 +406,13 @@ const ScanTable = ({
                             </button>
                           )}
 
-                          {canBackupLicense && (
+                          {canManageLicenseBackup && (
                             <button
                               className="action-menu-item"
-                              onClick={(e) => handleMenuAction(e, () => onBackupLicense(device))}
-                              title="导出 License 备份 SQL 文件"
+                              onClick={(e) => handleMenuAction(e, () => onManageLicenseBackup(device))}
+                              title="打开 License 备份与导入弹窗"
                             >
-                              License备份
-                            </button>
-                          )}
-
-                          {canImportLicense && (
-                            <button
-                              className="action-menu-item"
-                              onClick={(e) => handleMenuAction(e, () => onImportLicense(device))}
-                              title="导入 License SQL 文件"
-                            >
-                              License导入
+                              License备份/导入
                             </button>
                           )}
 

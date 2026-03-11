@@ -249,17 +249,7 @@ export const deviceAPI = {
     return response.data;
   },
 
-  // License 备份（返回文件流）
-  backupLicense: async (merchantId) => {
-    const authAxios = createAuthAxios();
-    return authAxios.post('/device/license/backup', {
-      merchant_id: merchantId
-    }, {
-      responseType: 'blob'
-    });
-  },
-
-  // License 导入（上传 .sql 文件）
+  // License 导入（兼容旧入口）
   importLicense: async (merchantId, file) => {
     const formData = new FormData();
     formData.append('merchant_id', merchantId);
@@ -267,6 +257,54 @@ export const deviceAPI = {
 
     const authAxios = createAuthAxios();
     const response = await authAxios.post('/device/license/import', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    return response.data;
+  },
+
+  createLicenseBackup: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/license/backup', {
+      merchant_id: merchantId
+    });
+    return response.data;
+  },
+
+  listLicenseBackups: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.get(`/device/license/backups?merchant_id=${encodeURIComponent(merchantId)}`);
+    return response.data;
+  },
+
+  deleteLicenseBackup: async (merchantId, fileName) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.delete(`/device/license/backups?merchant_id=${encodeURIComponent(merchantId)}&file_name=${encodeURIComponent(fileName)}`);
+    return response.data;
+  },
+
+  downloadLicenseBackupUrl: (merchantId, fileName) => {
+    const token = localStorage.getItem('access_token');
+    return `${API_BASE_URL}/device/license/backups/download?merchant_id=${encodeURIComponent(merchantId)}&file_name=${encodeURIComponent(fileName)}&token=${token}`;
+  },
+
+  restoreLicenseFromServer: async (merchantId, fileName) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/license/restore/server', {
+      merchant_id: merchantId,
+      file_name: fileName
+    });
+    return response.data;
+  },
+
+  restoreLicenseFromUpload: async (merchantId, file) => {
+    const formData = new FormData();
+    formData.append('merchant_id', merchantId);
+    formData.append('file', file);
+
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/license/restore/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       }

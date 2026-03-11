@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { scanAPI, deviceAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -7,6 +7,7 @@ import ScanTable from '../components/ScanTable';
 import DetailModal from '../components/DetailModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import DBBackupRestoreModal from '../components/db-backup/DBBackupRestoreModal';
+import LicenseBackupRestoreModal from '../components/license-backup/LicenseBackupRestoreModal';
 import {
   getAutoScanDisplayMode,
   getFilterButtonActiveStyle,
@@ -76,8 +77,7 @@ const ScanPage = () => {
 
   // 确认对话框
   const [confirmDialog, setConfirmDialog] = useState({ show: false, type: null, data: null });
-  const licenseFileInputRef = useRef(null);
-  const licenseImportDeviceRef = useRef(null);
+  const [licenseBackupModal, setLicenseBackupModal] = useState({ show: false, device: null });
   const [dbBackupModal, setDbBackupModal] = useState({ show: false, device: null });
 
   // 获取本地IP列表
@@ -417,26 +417,6 @@ const ScanPage = () => {
     return String(purpose).trim();
   };
 
-  const extractFilenameFromDisposition = (contentDisposition = '') => {
-    if (!contentDisposition) return '';
-
-    const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
-    if (utf8Match && utf8Match[1]) {
-      try {
-        return decodeURIComponent(utf8Match[1]);
-      } catch (_) {
-        return utf8Match[1];
-      }
-    }
-
-    const normalMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
-    if (normalMatch && normalMatch[1]) {
-      return normalMatch[1];
-    }
-
-    return '';
-  };
-
   // 显示详情
   const handleShowDetails = (device) => {
     setSelectedDevice(device);
@@ -548,70 +528,15 @@ const ScanPage = () => {
     setConfirmDialog({ show: true, type: 'resetOwner', data: device });
   };
 
-  const handleBackupLicense = async (device) => {
+  const handleOpenLicenseBackupRestore = (device) => {
     if (!device?.merchantId) {
-      toast.warning('缺少商家ID，无法备份License');
+      toast.warning('缺少商家ID，无法执行 License 备份/导入');
       return;
     }
-
-    const ok = await toast.confirm(
-      `确定要备份设备 ${device.name || device.merchantId} 的 License 配置吗？`,
-      {
-        title: '确认备份',
-        variant: 'primary',
-        confirmText: '开始备份'
-      }
-    );
-    if (!ok) return;
-
-    try {
-      const response = await deviceAPI.backupLicense(device.merchantId);
-      const blob = response.data;
-      if (!(blob instanceof Blob)) {
-        toast.error('License备份失败');
-        return;
-      }
-
-      const contentDisposition = response.headers?.['content-disposition'] || '';
-      const fallbackName = `License${device.merchantId}_${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 15)}.sql`;
-      const filename = extractFilenameFromDisposition(contentDisposition) || fallbackName;
-
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(downloadUrl);
-
-      toast.success('License备份成功');
-    } catch (error) {
-      const errorPayload = error.response?.data;
-      if (errorPayload instanceof Blob) {
-        try {
-          const text = await errorPayload.text();
-          const parsed = JSON.parse(text);
-          toast.error(parsed.error || 'License备份失败');
-          return;
-        } catch (_) {
-          // ignore parse error and fallback to generic message
-        }
-      }
-      toast.error(error.response?.data?.error || 'License备份失败');
-    }
-  };
-
-  const handleImportLicense = (device) => {
-    if (!device?.merchantId) {
-      toast.warning('缺少商家ID，无法导入License');
-      return;
-    }
-    licenseImportDeviceRef.current = device;
-    if (licenseFileInputRef.current) {
-      licenseFileInputRef.current.value = '';
-      licenseFileInputRef.current.click();
-    }
+    setLicenseBackupModal({
+      show: true,
+      device
+    });
   };
 
   const handleOpenDatabaseBackupRestore = (device) => {
@@ -623,56 +548,6 @@ const ScanPage = () => {
       show: true,
       device
     });
-  };
-
-  const handleLicenseFileChange = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-
-    if (!file) {
-      licenseImportDeviceRef.current = null;
-      return;
-    }
-
-    const targetDevice = licenseImportDeviceRef.current;
-    if (!targetDevice?.merchantId) {
-      licenseImportDeviceRef.current = null;
-      toast.warning('缺少商家ID，无法导入License');
-      return;
-    }
-
-    if (!file.name.toLowerCase().endsWith('.sql')) {
-      licenseImportDeviceRef.current = null;
-      toast.warning('仅支持上传 .sql 文件');
-      return;
-    }
-
-    const ok = await toast.confirm(
-      `确定要向设备 ${targetDevice.name || targetDevice.merchantId} 导入 License 文件 ${file.name} 吗？导入失败将自动回滚。`,
-      {
-        title: '确认导入',
-        confirmText: '导入'
-      }
-    );
-    if (!ok) {
-      licenseImportDeviceRef.current = null;
-      return;
-    }
-
-    try {
-      const result = await deviceAPI.importLicense(targetDevice.merchantId, file);
-      if (result.success) {
-        const executedCount = Number(result.data?.executed_count || 0);
-        toast.success(`License导入成功，执行 ${executedCount} 条SQL`);
-        loadDevices(currentPage, pageSize, searchText, filterTypes, filterProperties, onlyMyDevices);
-      } else {
-        toast.error(result.error || 'License导入失败');
-      }
-    } catch (error) {
-      toast.error(error.response?.data?.error || 'License导入失败');
-    } finally {
-      licenseImportDeviceRef.current = null;
-    }
   };
 
   // 确认操作
@@ -1075,8 +950,7 @@ const ScanPage = () => {
           onDeleteDevice={handleDeleteDevice}
           onClaimDevice={handleClaimDevice}
           onResetOwner={handleResetOwner}
-          onBackupLicense={handleBackupLicense}
-          onImportLicense={handleImportLicense}
+          onManageLicenseBackup={handleOpenLicenseBackupRestore}
           onBackupRestoreDatabase={handleOpenDatabaseBackupRestore}
           isAdmin={isAdmin()}
           currentUserId={user?.id}
@@ -1396,12 +1270,11 @@ const ScanPage = () => {
         device={dbBackupModal.device}
       />
 
-      <input
-        ref={licenseFileInputRef}
-        type="file"
-        accept=".sql,text/sql,application/sql"
-        style={{ display: 'none' }}
-        onChange={handleLicenseFileChange}
+      <LicenseBackupRestoreModal
+        isOpen={licenseBackupModal.show}
+        onClose={() => setLicenseBackupModal({ show: false, device: null })}
+        device={licenseBackupModal.device}
+        onCompleted={() => loadDevices(currentPage, pageSize, searchText, filterTypes, filterProperties, onlyMyDevices)}
       />
 
       <ConfirmDialog
