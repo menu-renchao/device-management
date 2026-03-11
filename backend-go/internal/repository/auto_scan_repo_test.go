@@ -96,3 +96,65 @@ func TestScanJobLogRepositoryListReturnsNewestFirst(t *testing.T) {
 		t.Fatalf("expected newest job first, got job ID %d", jobs[0].ID)
 	}
 }
+
+func TestScanJobLogRepositoryPruneAutoRunsKeepsNewestRecords(t *testing.T) {
+	db := openAutoScanTestDB(t)
+	repo := NewScanJobLogRepository(db)
+
+	var keptAutoID uint
+	for i := 0; i < 4; i++ {
+		job := &models.ScanJobLog{
+			TriggerType: "auto",
+			Status:      "success",
+			StartedAt:   time.Now().Add(time.Duration(i) * time.Minute),
+			TriggeredBy: "system",
+			Port:        22080,
+		}
+		if err := job.SetCIDRBlocks([]string{"192.168.1.0/24"}); err != nil {
+			t.Fatalf("failed to set auto cidr blocks: %v", err)
+		}
+		if err := repo.Create(job); err != nil {
+			t.Fatalf("failed to create auto job log: %v", err)
+		}
+		if i == 3 {
+			keptAutoID = job.ID
+		}
+	}
+
+	manual := &models.ScanJobLog{
+		TriggerType: "manual",
+		Status:      "success",
+		StartedAt:   time.Now().Add(10 * time.Minute),
+		TriggeredBy: "tester",
+		Port:        22080,
+	}
+	if err := manual.SetCIDRBlocks([]string{"10.0.0.0/24"}); err != nil {
+		t.Fatalf("failed to set manual cidr blocks: %v", err)
+	}
+	if err := repo.Create(manual); err != nil {
+		t.Fatalf("failed to create manual job log: %v", err)
+	}
+
+	if err := repo.PruneAutoRuns(2); err != nil {
+		t.Fatalf("PruneAutoRuns returned error: %v", err)
+	}
+
+	var autoJobs []models.ScanJobLog
+	if err := db.Where("trigger_type = ?", "auto").Order("started_at DESC, id DESC").Find(&autoJobs).Error; err != nil {
+		t.Fatalf("failed to query auto jobs: %v", err)
+	}
+	if len(autoJobs) != 2 {
+		t.Fatalf("len(autoJobs) = %d, want 2", len(autoJobs))
+	}
+	if autoJobs[0].ID != keptAutoID {
+		t.Fatalf("expected newest auto job to remain, got %d", autoJobs[0].ID)
+	}
+
+	var manualCount int64
+	if err := db.Model(&models.ScanJobLog{}).Where("trigger_type = ?", "manual").Count(&manualCount).Error; err != nil {
+		t.Fatalf("failed to count manual jobs: %v", err)
+	}
+	if manualCount != 1 {
+		t.Fatalf("manualCount = %d, want 1", manualCount)
+	}
+}

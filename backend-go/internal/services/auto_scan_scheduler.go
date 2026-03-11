@@ -9,6 +9,8 @@ import (
 	"device-management/internal/repository"
 )
 
+const maxAutoScanJobHistory = 1000
+
 type AutoScanScheduler struct {
 	scanService *ScanService
 	configRepo  *repository.AutoScanConfigRepository
@@ -97,6 +99,7 @@ func (s *AutoScanScheduler) runConfig(ctx context.Context, config *models.AutoSc
 	if err := s.jobRepo.Create(job); err != nil {
 		return err
 	}
+	_ = s.jobRepo.PruneAutoRuns(maxAutoScanJobHistory)
 
 	config.LastAutoScanStartedAt = &now
 	if err := s.configRepo.Update(config); err != nil {
@@ -125,7 +128,7 @@ func (s *AutoScanScheduler) runConfig(ctx context.Context, config *models.AutoSc
 		return err
 	}
 
-	go s.awaitCompletion(ctx, config.ID, job.ID)
+	go s.awaitCompletion(config.ID, job.ID)
 	return nil
 }
 
@@ -156,26 +159,25 @@ func (s *AutoScanScheduler) createSkippedJob(config *models.AutoScanConfig) erro
 	if err := job.SetCIDRBlocks(blocks); err != nil {
 		return err
 	}
-	return s.jobRepo.Create(job)
+	if err := s.jobRepo.Create(job); err != nil {
+		return err
+	}
+	return s.jobRepo.PruneAutoRuns(maxAutoScanJobHistory)
 }
 
-func (s *AutoScanScheduler) awaitCompletion(ctx context.Context, configID, jobID uint) {
+func (s *AutoScanScheduler) awaitCompletion(configID, jobID uint) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			status := s.scanService.GetStatus()
-			if status.IsScanning {
-				continue
-			}
-
-			s.finalizeRun(configID, jobID, status)
-			return
+		<-ticker.C
+		status := s.scanService.GetStatus()
+		if status.IsScanning {
+			continue
 		}
+
+		s.finalizeRun(configID, jobID, status)
+		return
 	}
 }
 

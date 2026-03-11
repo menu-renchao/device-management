@@ -62,3 +62,20 @@ func (r *ScanJobLogRepository) LatestAutoRun() (*models.ScanJobLog, error) {
 	}
 	return &log, nil
 }
+
+func (r *ScanJobLogRepository) PruneAutoRuns(limit int) error {
+	if limit <= 0 {
+		return nil
+	}
+
+	subQuery := r.db.Model(&models.ScanJobLog{}).
+		Select("id").
+		Where("trigger_type = ?", "auto").
+		Order("started_at DESC, id DESC").
+		Limit(limit)
+
+	return r.db.
+		Where("trigger_type = ?", "auto").
+		Where("id NOT IN (?)", subQuery).
+		Delete(&models.ScanJobLog{}).Error
+}

@@ -135,3 +135,69 @@ func TestAutoScanSchedulerRunOnceCreatesJobAndUpdatesConfig(t *testing.T) {
 		t.Fatalf("expected LastAutoScanFinishedAt to be set")
 	}
 }
+
+func TestAutoScanSchedulerRunNowFinalizesJobAfterRequestContextCancelled(t *testing.T) {
+	db := openSchedulerTestDB(t)
+	configRepo := repository.NewAutoScanConfigRepository(db)
+	jobRepo := repository.NewScanJobLogRepository(db)
+	deviceRepo := repository.NewDeviceRepository(db)
+	scanService := NewScanService()
+
+	config, err := configRepo.GetOrCreateDefault()
+	if err != nil {
+		t.Fatalf("GetOrCreateDefault returned error: %v", err)
+	}
+	if err := config.SetCIDRBlocks([]string{"192.168.1.0/24"}); err != nil {
+		t.Fatalf("SetCIDRBlocks returned error: %v", err)
+	}
+	if err := configRepo.Update(config); err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	scanService.performScanFunc = func(_ context.Context, cfg ScanRunConfig, _ func(map[string]interface{})) {
+		if len(cfg.CIDRBlocks) != 1 || cfg.CIDRBlocks[0] != "192.168.1.0/24" {
+			t.Errorf("unexpected scan config: %+v", cfg)
+		}
+		started <- struct{}{}
+		<-release
+		scanService.status.mu.Lock()
+		scanService.status.IsScanning = false
+		scanService.status.Progress = 100
+		scanService.status.mu.Unlock()
+	}
+
+	scheduler := NewAutoScanScheduler(scanService, configRepo, jobRepo, deviceRepo, time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := scheduler.RunNow(ctx); err != nil {
+		t.Fatalf("RunNow returned error: %v", err)
+	}
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for scheduler to start scan")
+	}
+
+	cancel()
+	close(release)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		job, err := jobRepo.LatestAutoRun()
+		if err != nil {
+			t.Fatalf("LatestAutoRun returned error: %v", err)
+		}
+		if job.Status == "success" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	job, err := jobRepo.LatestAutoRun()
+	if err != nil {
+		t.Fatalf("LatestAutoRun returned error: %v", err)
+	}
+	t.Fatalf("job status = %s, want success", job.Status)
+}
