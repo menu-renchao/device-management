@@ -359,64 +359,9 @@ func (r *DeviceRepository) GetUsersByIDs(ids []uint) ([]models.User, error) {
 	return users, err
 }
 
-// ========== POS Device Borrow Request Methods ==========
-
-// CreateBorrowRequest creates a POS device borrow request
-func (r *DeviceRepository) CreateBorrowRequest(req *models.DeviceBorrowRequest) error {
-	return r.db.Create(req).Error
-}
-
-// GetBorrowRequestByID gets a borrow request by ID
-func (r *DeviceRepository) GetBorrowRequestByID(id uint) (*models.DeviceBorrowRequest, error) {
-	var req models.DeviceBorrowRequest
-	err := r.db.Preload("ScanResult").Preload("User").First(&req, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &req, nil
-}
-
-// ListBorrowRequests lists borrow requests
-func (r *DeviceRepository) ListBorrowRequests(status string) ([]models.DeviceBorrowRequest, error) {
-	var requests []models.DeviceBorrowRequest
-	query := r.db.Preload("ScanResult").Preload("User").Preload("ScanResult.Owner").Order("created_at DESC")
-	if status != "" && status != "all" {
-		query = query.Where("status = ?", status)
-	}
-	err := query.Find(&requests).Error
-	return requests, err
-}
-
-// GetPendingBorrowRequestByMerchantID gets pending borrow request for a device
-func (r *DeviceRepository) GetPendingBorrowRequestByMerchantID(merchantID string) (*models.DeviceBorrowRequest, error) {
-	var req models.DeviceBorrowRequest
-	err := r.db.Where("merchant_id = ? AND status = ?", merchantID, "pending").First(&req).Error
-	if err != nil {
-		return nil, err
-	}
-	return &req, nil
-}
-
-// UpdateBorrowRequest updates a borrow request
-func (r *DeviceRepository) UpdateBorrowRequest(req *models.DeviceBorrowRequest) error {
-	return r.db.Save(req).Error
-}
-
-// DeleteBorrowRequest deletes a borrow request
-func (r *DeviceRepository) DeleteBorrowRequest(id uint) error {
-	return r.db.Delete(&models.DeviceBorrowRequest{}, id).Error
-}
-
 // DeleteBorrowRequestsByMerchantID deletes all borrow requests for a device (physical delete)
 func (r *DeviceRepository) DeleteBorrowRequestsByMerchantID(merchantID string) error {
 	return r.db.Unscoped().Where("merchant_id = ?", merchantID).Delete(&models.DeviceBorrowRequest{}).Error
-}
-
-// ListBorrowRequestsByUserID gets user's borrow requests
-func (r *DeviceRepository) ListBorrowRequestsByUserID(userID uint) ([]models.DeviceBorrowRequest, error) {
-	var requests []models.DeviceBorrowRequest
-	err := r.db.Preload("ScanResult").Preload("User").Where("user_id = ?", userID).Order("created_at DESC").Find(&requests).Error
-	return requests, err
 }
 
 // ListOccupanciesByUserID gets user's current borrowed devices

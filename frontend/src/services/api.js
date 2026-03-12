@@ -211,77 +211,11 @@ export const deviceAPI = {
     return response.data;
   },
 
-  // 移动设备借用申请
-  submitBorrowRequest: async (deviceId, purpose, endTime) => {
-    return borrowAPI.submit({
-      assetType: 'mobile',
-      assetId: deviceId,
-      purpose,
-      endTime
-    });
-  },
-
-  // 获取借用申请列表
-  getBorrowRequests: async (status = 'pending') => {
-    const response = await borrowAPI.list({ scope: 'approvals', status });
-    const requests = (response.data?.requests || []).filter((item) => item.asset_type === 'mobile');
-    return {
-      ...response,
-      data: {
-        ...(response.data || {}),
-        requests
-      }
-    };
-  },
-
-  // 审核通过借用申请
-  approveBorrowRequest: async (requestId) => {
-    return borrowAPI.approve(requestId);
-  },
-
-  // 审核拒绝借用申请
-  rejectBorrowRequest: async (requestId, reason = '') => {
-    return borrowAPI.reject(requestId, reason);
-  },
-
   // 设置移动设备负责人
   setMobileDeviceOwner: async (deviceId, ownerId) => {
     const authAxios = createAuthAxios();
     const response = await authAxios.put(`/mobile/devices/${deviceId}/owner`, { ownerId });
     return response.data;
-  },
-
-  // POS设备借用申请
-  submitPosBorrowRequest: async (merchantId, purpose, endTime) => {
-    return borrowAPI.submit({
-      assetType: 'pos',
-      merchantId,
-      purpose,
-      endTime
-    });
-  },
-
-  // 获取POS设备借用申请列表
-  getPosBorrowRequests: async (status = 'pending') => {
-    const response = await borrowAPI.list({ scope: 'approvals', status });
-    const requests = (response.data?.requests || []).filter((item) => item.asset_type === 'pos');
-    return {
-      ...response,
-      data: {
-        ...(response.data || {}),
-        requests
-      }
-    };
-  },
-
-  // 审核通过POS设备借用申请
-  approvePosBorrowRequest: async (requestId) => {
-    return borrowAPI.approve(requestId);
-  },
-
-  // 审核拒绝POS设备借用申请
-  rejectPosBorrowRequest: async (requestId, reason = '') => {
-    return borrowAPI.reject(requestId, reason);
   },
 
   // License 导入（兼容旧入口）
@@ -1031,10 +965,3 @@ export const releaseMobileDevice = async (deviceId) => {
 };
 
 // 审核拒绝借用申请（带原因）
-export const rejectPosBorrowRequestWithReason = async (requestId, reason) => {
-  return borrowAPI.reject(requestId, reason);
-};
-
-export const rejectMobileBorrowRequestWithReason = async (requestId, reason) => {
-  return borrowAPI.reject(requestId, reason);
-};

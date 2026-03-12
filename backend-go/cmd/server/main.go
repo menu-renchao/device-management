@@ -232,11 +232,6 @@ func main() {
 			device.POST("/db/restore/server", deviceHandler.RestoreDatabaseFromServer)
 			device.POST("/db/restore/upload", deviceHandler.RestoreDatabaseFromUpload)
 
-			// POS设备借用申请
-			device.POST("/borrow-requests", deviceHandler.SubmitBorrowRequest)
-			device.GET("/borrow-requests", deviceHandler.GetBorrowRequests)
-			device.POST("/borrow-requests/:id/approve", deviceHandler.ApproveBorrowRequest)
-			device.POST("/borrow-requests/:id/reject", deviceHandler.RejectBorrowRequest)
 		}
 
 		// Mobile device routes
@@ -252,11 +247,6 @@ func main() {
 			mobile.PUT("/devices/:id/release", mobileHandler.ReleaseDevice)
 			mobile.PUT("/devices/:id/owner", middleware.AdminOnly(userRepo), mobileHandler.SetDeviceOwner) // 设置负责人
 
-			// 借用申请
-			mobile.POST("/borrow-requests", mobileHandler.SubmitBorrowRequest)              // 提交借用申请
-			mobile.GET("/borrow-requests", mobileHandler.GetBorrowRequests)                 // 获取借用申请列表
-			mobile.POST("/borrow-requests/:id/approve", mobileHandler.ApproveBorrowRequest) // 审核通过
-			mobile.POST("/borrow-requests/:id/reject", mobileHandler.RejectBorrowRequest)   // 审核拒绝
 		}
 
 		// Scan routes
