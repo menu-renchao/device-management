@@ -76,6 +76,39 @@ const createAuthAxios = () => {
   return authAxios;
 };
 
+export const borrowAPI = {
+  submit: async ({ assetType, assetId = 0, merchantId = '', purpose = '', endTime }) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/borrow-requests', {
+      asset_type: assetType,
+      asset_id: assetId,
+      merchant_id: merchantId,
+      purpose,
+      end_time: endTime,
+    });
+    return response.data;
+  },
+
+  list: async ({ scope = 'mine', status = 'all' } = {}) => {
+    const authAxios = createAuthAxios();
+    const params = new URLSearchParams({ scope, status });
+    const response = await authAxios.get(`/borrow-requests?${params.toString()}`);
+    return response.data;
+  },
+
+  approve: async (requestId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post(`/borrow-requests/${requestId}/approve`);
+    return response.data;
+  },
+
+  reject: async (requestId, reason = '') => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post(`/borrow-requests/${requestId}/reject`, { reason });
+    return response.data;
+  },
+};
+
 export const scanAPI = {
   // 获取本地IP列表
   getLocalIPs: () => api.get('/scan/ips'),
@@ -180,34 +213,35 @@ export const deviceAPI = {
 
   // 移动设备借用申请
   submitBorrowRequest: async (deviceId, purpose, endTime) => {
-    const authAxios = createAuthAxios();
-    const response = await authAxios.post('/mobile/borrow-requests', {
-      deviceId,
+    return borrowAPI.submit({
+      assetType: 'mobile',
+      assetId: deviceId,
       purpose,
       endTime
     });
-    return response.data;
   },
 
   // 获取借用申请列表
   getBorrowRequests: async (status = 'pending') => {
-    const authAxios = createAuthAxios();
-    const response = await authAxios.get(`/mobile/borrow-requests?status=${status}`);
-    return response.data;
+    const response = await borrowAPI.list({ scope: 'approvals', status });
+    const requests = (response.data?.requests || []).filter((item) => item.asset_type === 'mobile');
+    return {
+      ...response,
+      data: {
+        ...(response.data || {}),
+        requests
+      }
+    };
   },
 
   // 审核通过借用申请
   approveBorrowRequest: async (requestId) => {
-    const authAxios = createAuthAxios();
-    const response = await authAxios.post(`/mobile/borrow-requests/${requestId}/approve`);
-    return response.data;
+    return borrowAPI.approve(requestId);
   },
 
   // 审核拒绝借用申请
   rejectBorrowRequest: async (requestId, reason = '') => {
-    const authAxios = createAuthAxios();
-    const response = await authAxios.post(`/mobile/borrow-requests/${requestId}/reject`, { reason });
-    return response.data;
+    return borrowAPI.reject(requestId, reason);
   },
 
   // 设置移动设备负责人
@@ -219,34 +253,35 @@ export const deviceAPI = {
 
   // POS设备借用申请
   submitPosBorrowRequest: async (merchantId, purpose, endTime) => {
-    const authAxios = createAuthAxios();
-    const response = await authAxios.post('/device/borrow-requests', {
+    return borrowAPI.submit({
+      assetType: 'pos',
       merchantId,
       purpose,
       endTime
     });
-    return response.data;
   },
 
   // 获取POS设备借用申请列表
   getPosBorrowRequests: async (status = 'pending') => {
-    const authAxios = createAuthAxios();
-    const response = await authAxios.get(`/device/borrow-requests?status=${status}`);
-    return response.data;
+    const response = await borrowAPI.list({ scope: 'approvals', status });
+    const requests = (response.data?.requests || []).filter((item) => item.asset_type === 'pos');
+    return {
+      ...response,
+      data: {
+        ...(response.data || {}),
+        requests
+      }
+    };
   },
 
   // 审核通过POS设备借用申请
   approvePosBorrowRequest: async (requestId) => {
-    const authAxios = createAuthAxios();
-    const response = await authAxios.post(`/device/borrow-requests/${requestId}/approve`);
-    return response.data;
+    return borrowAPI.approve(requestId);
   },
 
   // 审核拒绝POS设备借用申请
   rejectPosBorrowRequest: async (requestId, reason = '') => {
-    const authAxios = createAuthAxios();
-    const response = await authAxios.post(`/device/borrow-requests/${requestId}/reject`, { reason });
-    return response.data;
+    return borrowAPI.reject(requestId, reason);
   },
 
   // License 导入（兼容旧入口）
@@ -884,9 +919,8 @@ export const dbConfigAPI = {
 export const workspaceAPI = {
   // 获取我的借用申请
   getMyRequests: async () => {
-    const authAxios = createAuthAxios();
-    const response = await authAxios.get('/workspace/my-requests');
-    return response.data.data;
+    const response = await borrowAPI.list({ scope: 'mine' });
+    return response.data;
   },
 
   // 获取我的借用设备
@@ -998,13 +1032,9 @@ export const releaseMobileDevice = async (deviceId) => {
 
 // 审核拒绝借用申请（带原因）
 export const rejectPosBorrowRequestWithReason = async (requestId, reason) => {
-  const authAxios = createAuthAxios();
-  const response = await authAxios.post(`/device/borrow-requests/${requestId}/reject`, { reason });
-  return response.data;
+  return borrowAPI.reject(requestId, reason);
 };
 
 export const rejectMobileBorrowRequestWithReason = async (requestId, reason) => {
-  const authAxios = createAuthAxios();
-  const response = await authAxios.post(`/mobile/borrow-requests/${requestId}/reject`, { reason });
-  return response.data;
+  return borrowAPI.reject(requestId, reason);
 };

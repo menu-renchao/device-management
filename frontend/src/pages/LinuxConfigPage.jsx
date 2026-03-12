@@ -26,8 +26,8 @@ const LinuxConfigPage = () => {
   const [connectionForm, setConnectionForm] = useState({
     host: device?.ip || '',
     port: 22,
-    user: 'menu',
-    password: 'M2ei#a$19!'
+    user: '',
+    password: ''
   });
 
   // 权限检查：只有管理员、负责人、借用人才能进入配置页面
