@@ -149,6 +149,7 @@ func main() {
 	autoScanScheduler := services.NewAutoScanScheduler(scanService, autoScanConfigRepo, scanJobLogRepo, deviceRepo, time.Minute)
 	assetAccessService := services.NewAssetAccessService(userRepo, deviceRepo, mobileRepo)
 	borrowService := services.NewBorrowService(borrowRequestRepo, deviceRepo, mobileRepo, userRepo, assetAccessService)
+	workspaceService := services.NewWorkspaceService(borrowRequestRepo, deviceRepo, mobileRepo, userRepo)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
@@ -160,7 +161,7 @@ func main() {
 	fileConfigHandler := handlers.NewFileConfigHandler(fileConfigRepo, linuxService)
 	warDownloadHandler := handlers.NewWarDownloadHandler(warDownloadService, systemConfigRepo, warPackageRepo)
 	warPackageHandler := handlers.NewWarPackageHandler(warPackageRepo)
-	workspaceHandler := handlers.NewWorkspaceHandler(deviceRepo, mobileRepo, userRepo)
+	workspaceHandler := handlers.NewWorkspaceHandler(workspaceService)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
 	dbConfigHandler := handlers.NewDBConfigHandler(dbConfigService, dbSQLTemplateRepo, deviceRepo, userRepo, assetAccessService)
 	featureRequestHandler := handlers.NewFeatureRequestHandler(featureRequestRepo, userRepo)
