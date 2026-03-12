@@ -120,6 +120,7 @@ func main() {
 	dbSQLTaskRepo := repository.NewDBSQLExecuteTaskRepository(db)
 	autoScanConfigRepo := repository.NewAutoScanConfigRepository(db)
 	scanJobLogRepo := repository.NewScanJobLogRepository(db)
+	featureRequestRepo := repository.NewFeatureRequestRepository(db)
 
 	// Initialize services
 	authService := services.NewAuthService(userRepo)
@@ -145,6 +146,7 @@ func main() {
 	workspaceHandler := handlers.NewWorkspaceHandler(deviceRepo, mobileRepo, userRepo)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
 	dbConfigHandler := handlers.NewDBConfigHandler(dbConfigService, dbSQLTemplateRepo, deviceRepo, userRepo)
+	featureRequestHandler := handlers.NewFeatureRequestHandler(featureRequestRepo, userRepo)
 
 	// Create Gin router
 	router := gin.New()
@@ -387,6 +389,16 @@ func main() {
 			notifications.GET("/unread-count", notificationHandler.GetUnreadCount)
 			notifications.POST("/:id/read", notificationHandler.MarkAsRead)
 			notifications.POST("/read-all", notificationHandler.MarkAllAsRead)
+		}
+
+		featureRequests := api.Group("/feature-requests")
+		featureRequests.Use(middleware.Auth())
+		{
+			featureRequests.GET("", featureRequestHandler.List)
+			featureRequests.POST("", featureRequestHandler.Create)
+			featureRequests.POST("/:id/like", featureRequestHandler.Like)
+			featureRequests.DELETE("/:id/like", featureRequestHandler.Unlike)
+			featureRequests.PUT("/:id/status", middleware.AdminOnly(userRepo), featureRequestHandler.UpdateStatus)
 		}
 	}
 

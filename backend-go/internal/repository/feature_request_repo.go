@@ -39,6 +39,17 @@ func (r *FeatureRequestRepository) GetByID(id uint) (*models.FeatureRequest, err
 	return &request, nil
 }
 
+func (r *FeatureRequestRepository) GetByIDs(ids []uint) ([]models.FeatureRequest, error) {
+	var requests []models.FeatureRequest
+	if len(ids) == 0 {
+		return requests, nil
+	}
+	if err := r.db.Where("id IN ?", ids).Find(&requests).Error; err != nil {
+		return nil, err
+	}
+	return requests, nil
+}
+
 func (r *FeatureRequestRepository) List(options FeatureRequestListOptions) ([]models.FeatureRequest, int64, error) {
 	var requests []models.FeatureRequest
 	var total int64
@@ -91,6 +102,24 @@ func (r *FeatureRequestRepository) AddLike(requestID, userID uint) error {
 			Update("like_count", gorm.Expr("like_count + ?", 1)).
 			Error
 	})
+}
+
+func (r *FeatureRequestRepository) GetLikedRequestIDs(userID uint, requestIDs []uint) (map[uint]bool, error) {
+	liked := make(map[uint]bool)
+	if userID == 0 || len(requestIDs) == 0 {
+		return liked, nil
+	}
+
+	var likes []models.FeatureRequestLike
+	if err := r.db.Where("user_id = ? AND request_id IN ?", userID, requestIDs).Find(&likes).Error; err != nil {
+		return nil, err
+	}
+
+	for _, like := range likes {
+		liked[like.RequestID] = true
+	}
+
+	return liked, nil
 }
 
 func (r *FeatureRequestRepository) RemoveLike(requestID, userID uint) error {
