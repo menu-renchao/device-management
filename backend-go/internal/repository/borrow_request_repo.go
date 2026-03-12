@@ -70,6 +70,28 @@ func (r *BorrowRequestRepository) ListPendingByApprover(approverID uint) ([]mode
 	})
 }
 
+func (r *BorrowRequestRepository) GetPendingByMerchantID(merchantID string) (*models.BorrowRequest, error) {
+	var req models.BorrowRequest
+	err := r.db.Preload("Requester").Preload("Approver").Preload("Processor").Preload("ScanResult").
+		Where("asset_type = ? AND merchant_id = ? AND status = ?", models.BorrowAssetTypePOS, merchantID, models.BorrowRequestStatusPending).
+		First(&req).Error
+	if err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+func (r *BorrowRequestRepository) GetPendingByAssetID(assetID uint) (*models.BorrowRequest, error) {
+	var req models.BorrowRequest
+	err := r.db.Preload("Requester").Preload("Approver").Preload("Processor").Preload("Device").
+		Where("asset_type = ? AND asset_id = ? AND status = ?", models.BorrowAssetTypeMobile, assetID, models.BorrowRequestStatusPending).
+		First(&req).Error
+	if err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
 func (r *BorrowRequestRepository) MigrateLegacyBorrowRequests() error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := migrateLegacyPOSBorrowRequests(tx); err != nil {

@@ -139,6 +139,7 @@ func main() {
 	dbConfigService := services.NewDBConfigService(dbConnectionRepo, dbSQLTemplateRepo, dbSQLTaskRepo)
 	autoScanScheduler := services.NewAutoScanScheduler(scanService, autoScanConfigRepo, scanJobLogRepo, deviceRepo, time.Minute)
 	assetAccessService := services.NewAssetAccessService(userRepo, deviceRepo, mobileRepo)
+	borrowService := services.NewBorrowService(borrowRequestRepo, deviceRepo, mobileRepo, userRepo, assetAccessService)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
@@ -154,6 +155,7 @@ func main() {
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
 	dbConfigHandler := handlers.NewDBConfigHandler(dbConfigService, dbSQLTemplateRepo, deviceRepo, userRepo, assetAccessService)
 	featureRequestHandler := handlers.NewFeatureRequestHandler(featureRequestRepo, userRepo)
+	borrowHandler := handlers.NewBorrowHandler(borrowService, userRepo)
 
 	// Create Gin router
 	router := gin.New()
@@ -378,6 +380,15 @@ func main() {
 		// Devices list (main endpoint for frontend)
 		api.GET("/devices", middleware.Auth(), deviceHandler.GetDevices)
 		api.GET("/devices/filter-options", middleware.Auth(), deviceHandler.GetFilterOptions)
+
+		borrow := api.Group("/borrow-requests")
+		borrow.Use(middleware.Auth())
+		{
+			borrow.GET("", borrowHandler.List)
+			borrow.POST("", borrowHandler.Submit)
+			borrow.POST("/:id/approve", borrowHandler.Approve)
+			borrow.POST("/:id/reject", borrowHandler.Reject)
+		}
 
 		// Workspace routes
 		workspace := api.Group("/workspace")
