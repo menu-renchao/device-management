@@ -935,6 +935,44 @@ export const notificationAPI = {
   }
 };
 
+export const featureRequestAPI = {
+  getFeatureRequests: async ({ sort = 'hot', status = 'all', page = 1, pageSize = 20 } = {}) => {
+    const authAxios = createAuthAxios();
+    const params = new URLSearchParams({
+      sort,
+      status,
+      page: page.toString(),
+      page_size: pageSize.toString()
+    });
+    const response = await authAxios.get(`/feature-requests?${params.toString()}`);
+    return response.data;
+  },
+
+  createFeatureRequest: async (payload) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/feature-requests', payload);
+    return response.data;
+  },
+
+  likeFeatureRequest: async (id) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post(`/feature-requests/${id}/like`);
+    return response.data;
+  },
+
+  unlikeFeatureRequest: async (id) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.delete(`/feature-requests/${id}/like`);
+    return response.data;
+  },
+
+  updateFeatureRequestStatus: async (id, status) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.put(`/feature-requests/${id}/status`, { status });
+    return response.data;
+  }
+};
+
 // 导出简化的 API 函数
 export const getMyRequests = workspaceAPI.getMyRequests;
 export const getMyBorrows = workspaceAPI.getMyBorrows;
