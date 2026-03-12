@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { featureRequestAPI } from '../services/api';
 
 const initialForm = {
@@ -27,6 +28,7 @@ const statusMeta = {
 };
 
 const FeatureRequestsPage = () => {
+  const { isAdmin } = useAuth();
   const [items, setItems] = useState([]);
   const [sort, setSort] = useState('hot');
   const [status, setStatus] = useState('all');
@@ -37,6 +39,7 @@ const FeatureRequestsPage = () => {
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [actingId, setActingId] = useState(null);
+  const [statusActingId, setStatusActingId] = useState(null);
 
   useEffect(() => {
     loadRequests();
@@ -123,6 +126,25 @@ const FeatureRequestsPage = () => {
       setError(err?.response?.data?.error || '点赞操作失败');
     } finally {
       setActingId(null);
+    }
+  };
+
+  const handleStatusChange = async (itemId, nextStatus) => {
+    setStatusActingId(itemId);
+    setError('');
+
+    const previousItems = items;
+    setItems((current) => current.map((entry) => (
+      entry.id === itemId ? { ...entry, status: nextStatus } : entry
+    )));
+
+    try {
+      await featureRequestAPI.updateFeatureRequestStatus(itemId, nextStatus);
+    } catch (err) {
+      setItems(previousItems);
+      setError(err?.response?.data?.error || '更新状态失败');
+    } finally {
+      setStatusActingId(null);
     }
   };
 
@@ -275,6 +297,23 @@ const FeatureRequestsPage = () => {
                     {actingId === item.id ? '处理中...' : item.liked_by_me ? '已点赞' : '点赞'}
                   </button>
                   <span style={styles.likesText}>{item.like_count} 人支持</span>
+                  {isAdmin() ? (
+                    <div style={styles.adminStatusGroup}>
+                      <span style={styles.adminStatusLabel}>状态</span>
+                      <select
+                        value={item.status}
+                        disabled={statusActingId === item.id}
+                        onChange={(event) => handleStatusChange(item.id, event.target.value)}
+                        style={styles.adminSelect}
+                      >
+                        {statusOptions.filter((option) => option.value !== 'all').map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
                 </div>
               </article>
             );
@@ -563,6 +602,28 @@ const styles = {
     fontSize: '13px',
     color: '#6B7280',
     fontWeight: '600',
+  },
+  adminStatusGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginLeft: 'auto',
+    flexWrap: 'wrap',
+  },
+  adminStatusLabel: {
+    fontSize: '12px',
+    fontWeight: '700',
+    color: '#6B7280',
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+  },
+  adminSelect: {
+    border: '1px solid #D0D7DE',
+    borderRadius: '999px',
+    padding: '9px 12px',
+    fontSize: '13px',
+    color: '#18212F',
+    backgroundColor: '#FFFFFF',
   },
 };
 
