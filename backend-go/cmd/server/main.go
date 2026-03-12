@@ -138,20 +138,21 @@ func main() {
 	notificationService := services.NewNotificationService(notificationRepo)
 	dbConfigService := services.NewDBConfigService(dbConnectionRepo, dbSQLTemplateRepo, dbSQLTaskRepo)
 	autoScanScheduler := services.NewAutoScanScheduler(scanService, autoScanConfigRepo, scanJobLogRepo, deviceRepo, time.Minute)
+	assetAccessService := services.NewAssetAccessService(userRepo, deviceRepo, mobileRepo)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
 	adminHandler := handlers.NewAdminHandler(userRepo, deviceRepo)
-	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, linuxService)
-	mobileHandler := handlers.NewMobileHandler(mobileRepo, userRepo, notificationService)
+	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, linuxService, assetAccessService)
+	mobileHandler := handlers.NewMobileHandler(mobileRepo, userRepo, notificationService, assetAccessService)
 	scanHandler := handlers.NewScanHandler(scanService, deviceRepo, autoScanConfigRepo, scanJobLogRepo, autoScanScheduler)
-	linuxHandler := handlers.NewLinuxHandler(linuxService, fileConfigRepo, deviceRepo, userRepo)
+	linuxHandler := handlers.NewLinuxHandler(linuxService, fileConfigRepo, deviceRepo, userRepo, assetAccessService)
 	fileConfigHandler := handlers.NewFileConfigHandler(fileConfigRepo, linuxService)
 	warDownloadHandler := handlers.NewWarDownloadHandler(warDownloadService, systemConfigRepo, warPackageRepo)
 	warPackageHandler := handlers.NewWarPackageHandler(warPackageRepo)
 	workspaceHandler := handlers.NewWorkspaceHandler(deviceRepo, mobileRepo, userRepo)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
-	dbConfigHandler := handlers.NewDBConfigHandler(dbConfigService, dbSQLTemplateRepo, deviceRepo, userRepo)
+	dbConfigHandler := handlers.NewDBConfigHandler(dbConfigService, dbSQLTemplateRepo, deviceRepo, userRepo, assetAccessService)
 	featureRequestHandler := handlers.NewFeatureRequestHandler(featureRequestRepo, userRepo)
 
 	// Create Gin router

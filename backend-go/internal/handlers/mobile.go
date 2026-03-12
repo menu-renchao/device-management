@@ -23,13 +23,15 @@ type MobileHandler struct {
 	mobileRepo          *repository.MobileRepository
 	userRepo            *repository.UserRepository
 	notificationService *services.NotificationService
+	accessService       *services.AssetAccessService
 }
 
-func NewMobileHandler(mobileRepo *repository.MobileRepository, userRepo *repository.UserRepository, notificationService *services.NotificationService) *MobileHandler {
+func NewMobileHandler(mobileRepo *repository.MobileRepository, userRepo *repository.UserRepository, notificationService *services.NotificationService, accessService *services.AssetAccessService) *MobileHandler {
 	return &MobileHandler{
 		mobileRepo:          mobileRepo,
 		userRepo:            userRepo,
 		notificationService: notificationService,
+		accessService:       accessService,
 	}
 }
 
@@ -340,13 +342,16 @@ func (h *MobileHandler) ReleaseDevice(c *gin.Context) {
 		return
 	}
 
-	// Check permission
 	user, _ := h.userRepo.GetByID(userID)
-	isAdmin := user != nil && user.Role == "admin"
-	isOccupier := device.OccupierID != nil && *device.OccupierID == userID
-	isOwner := device.OwnerID != nil && *device.OwnerID == userID
-
-	if !isAdmin && !isOccupier && !isOwner {
+	allowed, accessErr := h.accessService.CanAccessUser(user, services.AssetScope{
+		AssetType: models.BorrowAssetTypeMobile,
+		AssetID:   uint(deviceID),
+	}, services.ActionAssetManage)
+	if accessErr != nil {
+		response.InternalError(c, "权限校验失败")
+		return
+	}
+	if !allowed {
 		response.Forbidden(c, "无权释放此设备")
 		return
 	}
@@ -558,16 +563,18 @@ func (h *MobileHandler) ApproveBorrowRequest(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户
 	user, _ := h.userRepo.GetByID(userID)
-	isAdmin := user != nil && user.Role == "admin"
-
-	// 检查权限：管理员或设备负责人
-	if !isAdmin {
-		if borrowReq.Device == nil || borrowReq.Device.OwnerID == nil || *borrowReq.Device.OwnerID != userID {
-			response.Forbidden(c, "无权审核此申请")
-			return
-		}
+	allowed, accessErr := h.accessService.CanAccessUser(user, services.AssetScope{
+		AssetType: models.BorrowAssetTypeMobile,
+		AssetID:   borrowReq.DeviceID,
+	}, services.ActionBorrowApprove)
+	if accessErr != nil {
+		response.InternalError(c, "权限校验失败")
+		return
+	}
+	if !allowed {
+		response.Forbidden(c, "无权审核此申请")
+		return
 	}
 
 	// 检查设备是否仍可用
@@ -645,16 +652,18 @@ func (h *MobileHandler) RejectBorrowRequest(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户
 	user, _ := h.userRepo.GetByID(userID)
-	isAdmin := user != nil && user.Role == "admin"
-
-	// 检查权限：管理员或设备负责人
-	if !isAdmin {
-		if borrowReq.Device == nil || borrowReq.Device.OwnerID == nil || *borrowReq.Device.OwnerID != userID {
-			response.Forbidden(c, "无权审核此申请")
-			return
-		}
+	allowed, accessErr := h.accessService.CanAccessUser(user, services.AssetScope{
+		AssetType: models.BorrowAssetTypeMobile,
+		AssetID:   borrowReq.DeviceID,
+	}, services.ActionBorrowApprove)
+	if accessErr != nil {
+		response.InternalError(c, "权限校验失败")
+		return
+	}
+	if !allowed {
+		response.Forbidden(c, "无权审核此申请")
+		return
 	}
 
 	// 更新借用申请状态

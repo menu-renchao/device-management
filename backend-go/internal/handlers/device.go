@@ -26,6 +26,7 @@ type DeviceHandler struct {
 	licenseService      licenseBackupManager
 	dbBackupService     dbBackupManager
 	linuxService        *services.LinuxService
+	accessService       *services.AssetAccessService
 }
 
 func NewDeviceHandler(
@@ -35,6 +36,7 @@ func NewDeviceHandler(
 	licenseService licenseBackupManager,
 	dbBackupService dbBackupManager,
 	linuxService *services.LinuxService,
+	accessService *services.AssetAccessService,
 ) *DeviceHandler {
 	return &DeviceHandler{
 		deviceRepo:          deviceRepo,
@@ -43,6 +45,7 @@ func NewDeviceHandler(
 		licenseService:      licenseService,
 		dbBackupService:     dbBackupService,
 		linuxService:        linuxService,
+		accessService:       accessService,
 	}
 }
 
@@ -897,16 +900,18 @@ func (h *DeviceHandler) ApproveBorrowRequest(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户
 	user, _ := h.userRepo.GetByID(userID)
-	isAdmin := user != nil && user.Role == "admin"
-
-	// 检查权限：管理员或设备负责人
-	if !isAdmin {
-		if borrowReq.ScanResult == nil || borrowReq.ScanResult.OwnerID == nil || *borrowReq.ScanResult.OwnerID != userID {
-			response.Forbidden(c, "无权审核此申请")
-			return
-		}
+	allowed, accessErr := h.accessService.CanAccessUser(user, services.AssetScope{
+		AssetType:  models.BorrowAssetTypePOS,
+		MerchantID: borrowReq.MerchantID,
+	}, services.ActionBorrowApprove)
+	if accessErr != nil {
+		response.InternalError(c, "权限校验失败")
+		return
+	}
+	if !allowed {
+		response.Forbidden(c, "无权审核此申请")
+		return
 	}
 
 	// 检查设备是否仍可用（包括软删除的记录）
@@ -1007,16 +1012,18 @@ func (h *DeviceHandler) RejectBorrowRequest(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户
 	user, _ := h.userRepo.GetByID(userID)
-	isAdmin := user != nil && user.Role == "admin"
-
-	// 检查权限：管理员或设备负责人
-	if !isAdmin {
-		if borrowReq.ScanResult == nil || borrowReq.ScanResult.OwnerID == nil || *borrowReq.ScanResult.OwnerID != userID {
-			response.Forbidden(c, "无权审核此申请")
-			return
-		}
+	allowed, accessErr := h.accessService.CanAccessUser(user, services.AssetScope{
+		AssetType:  models.BorrowAssetTypePOS,
+		MerchantID: borrowReq.MerchantID,
+	}, services.ActionBorrowApprove)
+	if accessErr != nil {
+		response.InternalError(c, "权限校验失败")
+		return
+	}
+	if !allowed {
+		response.Forbidden(c, "无权审核此申请")
+		return
 	}
 
 	// 更新借用申请状态
@@ -1188,15 +1195,30 @@ func (h *DeviceHandler) getPermittedDeviceForLicense(c *gin.Context, merchantID 
 		return nil, false
 	}
 
-	if user.Role == "admin" {
-		return device, true
-	}
-	if device.OwnerID != nil && *device.OwnerID == userID {
-		return device, true
+	if h.accessService == nil {
+		if user.Role == "admin" {
+			return device, true
+		}
+		if device.OwnerID != nil && *device.OwnerID == userID {
+			return device, true
+		}
+		occupancy, occErr := h.deviceRepo.GetOccupancyByMerchantID(merchantID)
+		if occErr == nil && occupancy != nil && occupancy.UserID == userID && occupancy.EndTime.After(time.Now()) {
+			return device, true
+		}
+		response.Forbidden(c, "permission denied")
+		return nil, false
 	}
 
-	occupancy, err := h.deviceRepo.GetOccupancyByMerchantID(merchantID)
-	if err == nil && occupancy != nil && occupancy.UserID == userID && occupancy.EndTime.After(time.Now()) {
+	allowed, err := h.accessService.CanAccessUser(user, services.AssetScope{
+		AssetType:  models.BorrowAssetTypePOS,
+		MerchantID: merchantID,
+	}, services.ActionAssetManage)
+	if err != nil {
+		response.InternalError(c, "权限校验失败")
+		return nil, false
+	}
+	if allowed {
 		return device, true
 	}
 
