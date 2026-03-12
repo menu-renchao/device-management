@@ -65,6 +65,7 @@ func main() {
 		&models.DeviceOccupancy{},
 		&models.DeviceClaim{},
 		&models.DeviceBorrowRequest{},
+		&models.BorrowRequest{},
 		&models.MobileDevice{},
 		&models.MobileBorrowRequest{},
 		&models.ScanSession{},
@@ -111,6 +112,7 @@ func main() {
 	userRepo := repository.NewUserRepository(db)
 	deviceRepo := repository.NewDeviceRepository(db)
 	mobileRepo := repository.NewMobileRepository(db)
+	borrowRequestRepo := repository.NewBorrowRequestRepository(db)
 	fileConfigRepo := repository.NewFileConfigRepository(db)
 	systemConfigRepo := repository.NewSystemConfigRepository(db)
 	notificationRepo := repository.NewNotificationRepository(db)
@@ -121,6 +123,10 @@ func main() {
 	autoScanConfigRepo := repository.NewAutoScanConfigRepository(db)
 	scanJobLogRepo := repository.NewScanJobLogRepository(db)
 	featureRequestRepo := repository.NewFeatureRequestRepository(db)
+
+	if err := borrowRequestRepo.MigrateLegacyBorrowRequests(); err != nil {
+		logger.Fatal("Failed to migrate legacy borrow requests", "error", err)
+	}
 
 	// Initialize services
 	authService := services.NewAuthService(userRepo)
