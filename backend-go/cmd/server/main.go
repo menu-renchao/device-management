@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"device-management/internal/config"
@@ -86,26 +87,34 @@ func main() {
 	}
 	backfillTemplateNeedRestart(db)
 
-	// Create default admin if not exists
+	// Bootstrap first admin only from explicit environment configuration.
 	var adminCount int64
-	db.Model(&models.User{}).Where("username = ?", "admin").Count(&adminCount)
+	db.Model(&models.User{}).Where("role = ?", "admin").Count(&adminCount)
 	if adminCount == 0 {
-		adminName := "admin"
-		adminEmail := "admin@example.com"
+		if !config.AppConfig.BootstrapAdmin.IsConfigured() {
+			logger.Fatal("No admin user found and bootstrap admin is not configured",
+				"hint", "Set BOOTSTRAP_ADMIN_USERNAME and BOOTSTRAP_ADMIN_PASSWORD before starting the server")
+		}
+
+		adminName := config.AppConfig.BootstrapAdmin.Name
+		if strings.TrimSpace(adminName) == "" {
+			adminName = config.AppConfig.BootstrapAdmin.Username
+		}
+		adminEmail := config.AppConfig.BootstrapAdmin.Email
 		admin := &models.User{
-			Username: "admin",
+			Username: config.AppConfig.BootstrapAdmin.Username,
 			Email:    &adminEmail,
 			Name:     &adminName,
 			Role:     "admin",
 			Status:   "approved",
 		}
-		if err := admin.SetPassword("admin123"); err != nil {
+		if err := admin.SetPassword(config.AppConfig.BootstrapAdmin.Password); err != nil {
 			logger.Fatal("Failed to set admin password", "error", err)
 		}
 		if err := db.Create(admin).Error; err != nil {
 			logger.Fatal("Failed to create admin", "error", err)
 		}
-		logger.Info("Default admin user created")
+		logger.Info("Bootstrap admin user created", "username", admin.Username)
 	}
 
 	// Initialize repositories
@@ -249,8 +258,9 @@ func main() {
 			mobile.POST("/borrow-requests/:id/reject", mobileHandler.RejectBorrowRequest)   // 审核拒绝
 		}
 
-		// Scan routes (no auth required for basic scanning)
+		// Scan routes
 		scan := api.Group("/scan")
+		scan.Use(middleware.Auth())
 		{
 			scan.GET("/ips", scanHandler.GetLocalIPs)
 			scan.POST("/start", scanHandler.StartScan)
@@ -259,7 +269,6 @@ func main() {
 			scan.GET("/device/:ip/details", scanHandler.GetDeviceDetails)
 
 			scanAdmin := scan.Group("")
-			scanAdmin.Use(middleware.Auth())
 			scanAdmin.Use(middleware.AdminOnly(userRepo))
 			{
 				scanAdmin.GET("/auto-config", scanHandler.GetAutoScanConfig)

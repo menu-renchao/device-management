@@ -210,6 +210,10 @@ func (h *LinuxHandler) Disconnect(c *gin.Context) {
 		return
 	}
 
+	if !h.authorizeDeviceAction(c, req.MerchantID, services.ActionLinuxWrite) {
+		return
+	}
+
 	if err := h.linuxService.Disconnect(req.MerchantID); err != nil {
 		response.InternalError(c, fmt.Sprintf("断开连接失败: %s", err.Error()))
 		return
@@ -223,6 +227,10 @@ func (h *LinuxHandler) GetStatus(c *gin.Context) {
 	merchantID := c.Query("merchant_id")
 	if merchantID == "" {
 		response.BadRequest(c, "merchant_id 不能为空")
+		return
+	}
+
+	if !h.authorizeDeviceAction(c, merchantID, services.ActionLinuxRead) {
 		return
 	}
 
