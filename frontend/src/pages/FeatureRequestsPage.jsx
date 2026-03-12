@@ -21,10 +21,10 @@ const statusOptions = [
 ];
 
 const statusMeta = {
-  pending: { label: '待评估', background: '#FFF4D6', color: '#9A6700' },
-  planned: { label: '计划中', background: '#DCEBFF', color: '#0B57D0' },
-  completed: { label: '已完成', background: '#DCF5E7', color: '#137333' },
-  rejected: { label: '已拒绝', background: '#F1F3F4', color: '#5F6368' },
+  pending: { label: '待评估', background: 'rgba(255, 149, 0, 0.12)', color: '#FF9500' },
+  planned: { label: '计划中', background: 'rgba(0, 122, 255, 0.12)', color: '#007AFF' },
+  completed: { label: '已完成', background: 'rgba(52, 199, 89, 0.12)', color: '#34C759' },
+  rejected: { label: '已拒绝', background: 'rgba(142, 142, 147, 0.12)', color: '#8E8E93' },
 };
 
 const FeatureRequestsPage = () => {
@@ -72,6 +72,7 @@ const FeatureRequestsPage = () => {
       setFormError('请输入标题');
       return;
     }
+
     if (!content) {
       setFormError('请输入内容');
       return;
@@ -102,18 +103,20 @@ const FeatureRequestsPage = () => {
     setError('');
 
     const previousItems = items;
-    setItems((current) => current.map((entry) => {
-      if (entry.id !== item.id) {
-        return entry;
-      }
+    setItems((current) =>
+      current.map((entry) => {
+        if (entry.id !== item.id) {
+          return entry;
+        }
 
-      const nextLiked = !entry.liked_by_me;
-      return {
-        ...entry,
-        liked_by_me: nextLiked,
-        like_count: nextLiked ? entry.like_count + 1 : Math.max(0, entry.like_count - 1),
-      };
-    }));
+        const nextLiked = !entry.liked_by_me;
+        return {
+          ...entry,
+          liked_by_me: nextLiked,
+          like_count: nextLiked ? entry.like_count + 1 : Math.max(0, entry.like_count - 1),
+        };
+      })
+    );
 
     try {
       if (item.liked_by_me) {
@@ -134,9 +137,9 @@ const FeatureRequestsPage = () => {
     setError('');
 
     const previousItems = items;
-    setItems((current) => current.map((entry) => (
-      entry.id === itemId ? { ...entry, status: nextStatus } : entry
-    )));
+    setItems((current) =>
+      current.map((entry) => (entry.id === itemId ? { ...entry, status: nextStatus } : entry))
+    );
 
     try {
       await featureRequestAPI.updateFeatureRequestStatus(itemId, nextStatus);
@@ -149,14 +152,11 @@ const FeatureRequestsPage = () => {
   };
 
   return (
-    <div style={styles.page}>
-      <section style={styles.hero}>
+    <div style={styles.container}>
+      <div style={styles.header}>
         <div>
-          <p style={styles.eyebrow}>Feature Board</p>
           <h1 style={styles.title}>意见收集</h1>
-          <p style={styles.subtitle}>
-            所有登录用户都可以公开提交建议并点赞，热度更高的意见会帮助我们更快识别优先适配方向。
-          </p>
+          <p style={styles.subtitle}>所有登录用户都可以提交建议并点赞，帮助我们识别更高优先级的适配需求。</p>
         </div>
         <button
           type="button"
@@ -168,46 +168,48 @@ const FeatureRequestsPage = () => {
         >
           提交意见
         </button>
-      </section>
+      </div>
 
-      <section style={styles.toolbar}>
-        <div style={styles.sortGroup}>
-          {sortOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => setSort(option.value)}
-              style={{
-                ...styles.toggleButton,
-                ...(sort === option.value ? styles.toggleButtonActive : {}),
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
+      <div style={styles.toolbarCard}>
+        <div style={styles.toolbarGroup}>
+          <div style={styles.tabsContainer}>
+            {sortOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setSort(option.value)}
+                style={{
+                  ...styles.tab,
+                  ...(sort === option.value ? styles.activeTab : {}),
+                }}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <select
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+            style={styles.select}
+          >
+            {statusOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
-        <select
-          value={status}
-          onChange={(event) => setStatus(event.target.value)}
-          style={styles.select}
-        >
-          {statusOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </section>
+      </div>
 
-      {error ? <div style={styles.errorBanner}>{error}</div> : null}
+      {error ? <div style={styles.error}>{error}</div> : null}
 
       {showComposer ? (
-        <section style={styles.composerCard}>
-          <div style={styles.composerHeader}>
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
             <h2 style={styles.cardTitle}>新意见</h2>
             <button
               type="button"
-              style={styles.ghostButton}
+              style={styles.linkButton}
               onClick={() => {
                 setShowComposer(false);
                 setForm(initialForm);
@@ -250,14 +252,14 @@ const FeatureRequestsPage = () => {
               </button>
             </div>
           </form>
-        </section>
+        </div>
       ) : null}
 
       {loading ? <div style={styles.infoCard}>正在加载意见列表...</div> : null}
 
       {!loading && items.length === 0 ? (
-        <div style={styles.emptyState}>
-          <h2 style={styles.emptyTitle}>还没有意见</h2>
+        <div style={styles.empty}>
+          <p style={styles.emptyTitle}>还没有意见</p>
           <p style={styles.emptyText}>欢迎提交第一条建议，让产品优化方向更透明。</p>
         </div>
       ) : null}
@@ -268,23 +270,27 @@ const FeatureRequestsPage = () => {
             const meta = statusMeta[item.status] || statusMeta.pending;
             return (
               <article key={item.id} style={styles.card}>
-                <div style={styles.cardTop}>
-                  <span
-                    style={{
-                      ...styles.statusBadge,
-                      backgroundColor: meta.background,
-                      color: meta.color,
-                    }}
-                  >
-                    {meta.label}
-                  </span>
-                  <span style={styles.metaText}>
-                    {item.author?.display || item.author?.username || '未知用户'} · {formatDate(item.created_at)}
-                  </span>
+                <div style={styles.cardHeader}>
+                  <div style={styles.cardMeta}>
+                    <span
+                      style={{
+                        ...styles.statusBadge,
+                        backgroundColor: meta.background,
+                        color: meta.color,
+                      }}
+                    >
+                      {meta.label}
+                    </span>
+                    <span style={styles.metaText}>
+                      {item.author?.display || item.author?.username || '未知用户'} · {formatDate(item.created_at)}
+                    </span>
+                  </div>
                 </div>
-                <h2 style={styles.cardTitle}>{item.title}</h2>
-                <p style={styles.cardContent}>{item.content}</p>
-                <div style={styles.cardActions}>
+
+                <h2 style={styles.requestTitle}>{item.title}</h2>
+                <p style={styles.requestContent}>{item.content}</p>
+
+                <div style={styles.actions}>
                   <button
                     type="button"
                     onClick={() => handleToggleLike(item)}
@@ -296,21 +302,23 @@ const FeatureRequestsPage = () => {
                   >
                     {actingId === item.id ? '处理中...' : item.liked_by_me ? '已点赞' : '点赞'}
                   </button>
-                  <span style={styles.likesText}>{item.like_count} 人支持</span>
+                  <span style={styles.supportText}>{item.like_count} 人支持</span>
                   {isAdmin() ? (
-                    <div style={styles.adminStatusGroup}>
-                      <span style={styles.adminStatusLabel}>状态</span>
+                    <div style={styles.adminControls}>
+                      <span style={styles.adminLabel}>状态</span>
                       <select
                         value={item.status}
                         disabled={statusActingId === item.id}
                         onChange={(event) => handleStatusChange(item.id, event.target.value)}
-                        style={styles.adminSelect}
+                        style={styles.select}
                       >
-                        {statusOptions.filter((option) => option.value !== 'all').map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
+                        {statusOptions
+                          .filter((option) => option.value !== 'all')
+                          .map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
                       </select>
                     </div>
                   ) : null}
@@ -344,105 +352,140 @@ function formatDate(value) {
 }
 
 const styles = {
-  page: {
+  container: {
+    padding: '24px',
     maxWidth: '1100px',
     margin: '0 auto',
-    padding: '28px 24px 40px',
   },
-  hero: {
+  header: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '24px',
-    alignItems: 'flex-end',
-    padding: '28px',
-    borderRadius: '24px',
-    background: 'linear-gradient(135deg, #FFF3E8 0%, #F7FAFF 55%, #E8F5EF 100%)',
-    border: '1px solid rgba(17, 24, 39, 0.08)',
-    boxShadow: '0 18px 40px rgba(17, 24, 39, 0.08)',
+    alignItems: 'center',
+    gap: '16px',
     marginBottom: '20px',
     flexWrap: 'wrap',
   },
-  eyebrow: {
-    margin: '0 0 8px',
-    fontSize: '12px',
-    fontWeight: '700',
-    letterSpacing: '0.18em',
-    textTransform: 'uppercase',
-    color: '#C25B2A',
-  },
   title: {
-    margin: '0 0 10px',
-    fontSize: '34px',
-    lineHeight: 1.1,
-    color: '#18212F',
+    fontSize: '24px',
+    fontWeight: '600',
+    color: '#1D1D1F',
+    margin: '0 0 4px 0',
   },
   subtitle: {
     margin: 0,
-    maxWidth: '720px',
-    fontSize: '15px',
-    lineHeight: 1.7,
-    color: '#4B5563',
+    fontSize: '13px',
+    color: '#86868B',
+    lineHeight: 1.6,
   },
-  toolbar: {
+  toolbarCard: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '12px',
     alignItems: 'center',
-    marginBottom: '18px',
+    padding: '12px 16px',
+    backgroundColor: '#FFFFFF',
+    borderRadius: '10px',
+    boxShadow: '0 1px 4px rgba(0, 0, 0, 0.04)',
+    marginBottom: '16px',
+  },
+  toolbarGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
     flexWrap: 'wrap',
   },
-  sortGroup: {
-    display: 'inline-flex',
+  tabsContainer: {
+    display: 'flex',
+    gap: '4px',
+    backgroundColor: '#F2F2F7',
     padding: '4px',
-    gap: '6px',
-    backgroundColor: '#F4F6F8',
-    borderRadius: '999px',
+    borderRadius: '10px',
   },
-  toggleButton: {
+  tab: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '8px 14px',
     border: 'none',
     backgroundColor: 'transparent',
-    color: '#51606F',
-    padding: '10px 16px',
-    borderRadius: '999px',
-    fontSize: '14px',
-    fontWeight: '600',
+    borderRadius: '8px',
     cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#86868B',
   },
-  toggleButtonActive: {
-    backgroundColor: '#18212F',
-    color: '#FFFFFF',
+  activeTab: {
+    backgroundColor: '#FFFFFF',
+    color: '#007AFF',
+    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
   },
   select: {
-    border: '1px solid #D0D7DE',
-    borderRadius: '12px',
-    padding: '10px 14px',
-    minWidth: '150px',
-    backgroundColor: '#FFFFFF',
-    color: '#18212F',
+    padding: '8px 12px',
+    border: '1px solid #D1D1D6',
+    borderRadius: '8px',
     fontSize: '14px',
-  },
-  errorBanner: {
-    marginBottom: '16px',
-    padding: '12px 14px',
-    borderRadius: '14px',
-    backgroundColor: '#FDECEC',
-    color: '#C5221F',
-    border: '1px solid #F5C2C0',
-  },
-  composerCard: {
-    marginBottom: '18px',
-    padding: '22px',
-    borderRadius: '20px',
     backgroundColor: '#FFFFFF',
-    border: '1px solid rgba(17, 24, 39, 0.08)',
-    boxShadow: '0 12px 28px rgba(17, 24, 39, 0.06)',
+    color: '#1D1D1F',
+    minWidth: '120px',
   },
-  composerHeader: {
+  error: {
+    padding: '10px 14px',
+    backgroundColor: '#FFF2F0',
+    border: '1px solid #FFCCC7',
+    borderRadius: '8px',
+    color: '#FF4D4F',
+    marginBottom: '16px',
+    fontSize: '13px',
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: '12px',
+    padding: '20px',
+    boxShadow: '0 1px 4px rgba(0, 0, 0, 0.04)',
+    marginBottom: '16px',
+  },
+  cardHeader: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '12px',
     alignItems: 'center',
-    marginBottom: '16px',
+    gap: '12px',
+    marginBottom: '12px',
+    flexWrap: 'wrap',
+  },
+  cardTitle: {
+    fontSize: '18px',
+    fontWeight: '600',
+    color: '#1D1D1F',
+    margin: 0,
+  },
+  cardMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    flexWrap: 'wrap',
+  },
+  requestTitle: {
+    fontSize: '18px',
+    fontWeight: '600',
+    color: '#1D1D1F',
+    margin: '0 0 10px 0',
+  },
+  requestContent: {
+    margin: '0 0 16px 0',
+    fontSize: '14px',
+    lineHeight: 1.7,
+    color: '#3C3C43',
+    whiteSpace: 'pre-wrap',
+  },
+  statusBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '4px 10px',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: '500',
+  },
+  metaText: {
+    fontSize: '13px',
+    color: '#86868B',
   },
   form: {
     display: 'flex',
@@ -452,28 +495,27 @@ const styles = {
   input: {
     width: '100%',
     boxSizing: 'border-box',
-    borderRadius: '14px',
-    border: '1px solid #D0D7DE',
-    padding: '12px 14px',
+    padding: '10px 12px',
+    border: '1px solid #D1D1D6',
+    borderRadius: '8px',
     fontSize: '14px',
-    color: '#18212F',
+    outline: 'none',
   },
   textarea: {
     width: '100%',
     boxSizing: 'border-box',
-    borderRadius: '14px',
-    border: '1px solid #D0D7DE',
-    padding: '12px 14px',
+    padding: '10px 12px',
+    border: '1px solid #D1D1D6',
+    borderRadius: '8px',
     fontSize: '14px',
-    color: '#18212F',
     resize: 'vertical',
     minHeight: '140px',
+    outline: 'none',
     fontFamily: 'inherit',
   },
   formError: {
-    color: '#C5221F',
+    color: '#FF4D4F',
     fontSize: '13px',
-    fontWeight: '500',
   },
   formActions: {
     display: 'flex',
@@ -482,148 +524,103 @@ const styles = {
     flexWrap: 'wrap',
   },
   primaryButton: {
-    border: 'none',
-    borderRadius: '999px',
-    backgroundColor: '#18212F',
+    padding: '10px 18px',
+    backgroundColor: '#007AFF',
     color: '#FFFFFF',
-    padding: '11px 18px',
+    border: 'none',
+    borderRadius: '8px',
     fontSize: '14px',
-    fontWeight: '600',
+    fontWeight: '500',
     cursor: 'pointer',
   },
   secondaryButton: {
-    border: '1px solid #D0D7DE',
-    borderRadius: '999px',
-    backgroundColor: '#FFFFFF',
-    color: '#18212F',
-    padding: '11px 18px',
+    padding: '10px 18px',
+    backgroundColor: '#F2F2F7',
+    color: '#1D1D1F',
+    border: 'none',
+    borderRadius: '8px',
     fontSize: '14px',
-    fontWeight: '600',
+    fontWeight: '500',
     cursor: 'pointer',
   },
-  ghostButton: {
+  linkButton: {
+    padding: 0,
     border: 'none',
     backgroundColor: 'transparent',
-    color: '#5F6368',
-    fontSize: '14px',
-    fontWeight: '600',
+    color: '#007AFF',
+    fontSize: '13px',
+    fontWeight: '500',
     cursor: 'pointer',
   },
   infoCard: {
     padding: '20px',
-    borderRadius: '18px',
     backgroundColor: '#FFFFFF',
-    border: '1px solid rgba(17, 24, 39, 0.08)',
-    color: '#4B5563',
+    borderRadius: '12px',
+    boxShadow: '0 1px 4px rgba(0, 0, 0, 0.04)',
+    color: '#86868B',
+    fontSize: '14px',
+    marginBottom: '16px',
   },
-  emptyState: {
-    padding: '40px 24px',
-    borderRadius: '22px',
+  empty: {
+    padding: '32px 24px',
     backgroundColor: '#FFFFFF',
-    border: '1px dashed #CBD5E1',
+    borderRadius: '12px',
+    boxShadow: '0 1px 4px rgba(0, 0, 0, 0.04)',
     textAlign: 'center',
-    color: '#51606F',
   },
   emptyTitle: {
-    margin: '0 0 8px',
-    fontSize: '24px',
-    color: '#18212F',
+    margin: '0 0 8px 0',
+    fontSize: '18px',
+    fontWeight: '600',
+    color: '#1D1D1F',
   },
   emptyText: {
     margin: 0,
-    fontSize: '14px',
-    lineHeight: 1.7,
+    fontSize: '13px',
+    color: '#86868B',
+    lineHeight: 1.6,
   },
   list: {
-    display: 'grid',
+    display: 'flex',
+    flexDirection: 'column',
     gap: '16px',
   },
-  card: {
-    padding: '22px',
-    borderRadius: '22px',
-    backgroundColor: '#FFFFFF',
-    border: '1px solid rgba(17, 24, 39, 0.08)',
-    boxShadow: '0 14px 32px rgba(17, 24, 39, 0.06)',
-  },
-  cardTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '12px',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    marginBottom: '14px',
-  },
-  statusBadge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '6px 10px',
-    borderRadius: '999px',
-    fontSize: '12px',
-    fontWeight: '700',
-  },
-  metaText: {
-    fontSize: '13px',
-    color: '#6B7280',
-  },
-  cardTitle: {
-    margin: '0 0 10px',
-    fontSize: '20px',
-    color: '#18212F',
-  },
-  cardContent: {
-    margin: '0 0 18px',
-    fontSize: '14px',
-    lineHeight: 1.75,
-    color: '#475467',
-    whiteSpace: 'pre-wrap',
-  },
-  cardActions: {
+  actions: {
     display: 'flex',
     alignItems: 'center',
-    gap: '12px',
+    gap: '10px',
     flexWrap: 'wrap',
   },
   likeButton: {
-    border: '1px solid #D0D7DE',
-    borderRadius: '999px',
+    padding: '8px 14px',
+    border: '1px solid #D1D1D6',
+    borderRadius: '8px',
     backgroundColor: '#FFFFFF',
-    color: '#18212F',
-    padding: '10px 16px',
-    fontSize: '14px',
-    fontWeight: '600',
+    color: '#1D1D1F',
+    fontSize: '13px',
+    fontWeight: '500',
     cursor: 'pointer',
   },
   likeButtonActive: {
-    backgroundColor: '#FFE7D6',
-    borderColor: '#F7B588',
-    color: '#B54708',
+    backgroundColor: 'rgba(0, 122, 255, 0.08)',
+    borderColor: 'rgba(0, 122, 255, 0.2)',
+    color: '#007AFF',
   },
-  likesText: {
+  supportText: {
     fontSize: '13px',
-    color: '#6B7280',
-    fontWeight: '600',
+    color: '#86868B',
   },
-  adminStatusGroup: {
+  adminControls: {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
     marginLeft: 'auto',
     flexWrap: 'wrap',
   },
-  adminStatusLabel: {
+  adminLabel: {
     fontSize: '12px',
-    fontWeight: '700',
-    color: '#6B7280',
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase',
-  },
-  adminSelect: {
-    border: '1px solid #D0D7DE',
-    borderRadius: '999px',
-    padding: '9px 12px',
-    fontSize: '13px',
-    color: '#18212F',
-    backgroundColor: '#FFFFFF',
+    color: '#86868B',
+    fontWeight: '500',
   },
 };
 
