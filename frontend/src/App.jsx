@@ -15,6 +15,7 @@ import BorrowApprovalPage from './pages/BorrowApprovalPage';
 import WorkspacePage from './pages/WorkspacePage';
 import HelpPage from './pages/HelpPage';
 import ProfilePage from './pages/ProfilePage';
+import FeatureRequestsPage from './pages/FeatureRequestsPage';
 import NotificationBell from './components/NotificationBell';
 import './App.css';
 
@@ -59,6 +60,12 @@ const Navbar = () => {
               <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z" fill="currentColor"/>
             </svg>
             工作台
+          </Link>
+          <Link to="/feature-requests" style={navStyles.link}>
+            <svg style={navStyles.linkIcon} viewBox="0 0 24 24" fill="none">
+              <path d="M12 3l2.4 4.86L20 8.67l-4 3.9.94 5.53L12 15.77 7.06 18.1 8 12.57l-4-3.9 5.6-.81L12 3z" fill="currentColor"/>
+            </svg>
+            意见收集
           </Link>
           {isAdmin() && (
             <Link to="/admin/users" style={navStyles.link}>
@@ -176,6 +183,14 @@ function App() {
           } />
 
           {/* 帮助中心路由（所有登录用户可访问） */}
+          <Route path="/feature-requests" element={
+            <PrivateRoute>
+              <MainLayout>
+                <FeatureRequestsPage />
+              </MainLayout>
+            </PrivateRoute>
+          } />
+
           <Route path="/help" element={
             <PrivateRoute>
               <MainLayout>
