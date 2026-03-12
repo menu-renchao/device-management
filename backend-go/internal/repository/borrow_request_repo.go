@@ -7,10 +7,10 @@ import (
 )
 
 type BorrowRequestListOptions struct {
-	Status     string
-	AssetType  string
+	Status      string
+	AssetType   string
 	RequesterID *uint
-	ApproverID *uint
+	ApproverID  *uint
 }
 
 type BorrowRequestRepository struct {
@@ -105,6 +105,10 @@ func (r *BorrowRequestRepository) MigrateLegacyBorrowRequests() error {
 }
 
 func migrateLegacyPOSBorrowRequests(tx *gorm.DB) error {
+	if !tx.Migrator().HasTable(&models.DeviceBorrowRequest{}) {
+		return nil
+	}
+
 	var requests []models.DeviceBorrowRequest
 	if err := tx.Order("id ASC").Find(&requests).Error; err != nil {
 		return err
@@ -151,6 +155,10 @@ func migrateLegacyPOSBorrowRequests(tx *gorm.DB) error {
 }
 
 func migrateLegacyMobileBorrowRequests(tx *gorm.DB) error {
+	if !tx.Migrator().HasTable(&models.MobileBorrowRequest{}) {
+		return nil
+	}
+
 	var requests []models.MobileBorrowRequest
 	if err := tx.Order("id ASC").Find(&requests).Error; err != nil {
 		return err

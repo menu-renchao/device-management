@@ -208,3 +208,24 @@ func TestBorrowRequestRepositoryMigrateLegacyRequests(t *testing.T) {
 		t.Fatalf("expected migrated mobile borrow request")
 	}
 }
+
+func TestBorrowRequestRepositoryMigrateLegacyRequestsSkipsMissingLegacyTables(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.ScanResult{},
+		&models.MobileDevice{},
+		&models.BorrowRequest{},
+	); err != nil {
+		t.Fatalf("failed to migrate test db: %v", err)
+	}
+
+	repo := NewBorrowRequestRepository(db)
+	if err := repo.MigrateLegacyBorrowRequests(); err != nil {
+		t.Fatalf("MigrateLegacyBorrowRequests should ignore missing legacy tables, got error: %v", err)
+	}
+}

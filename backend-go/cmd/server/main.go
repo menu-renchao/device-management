@@ -59,30 +59,7 @@ func main() {
 	}
 
 	// Auto migrate
-	if err := db.AutoMigrate(
-		&models.User{},
-		&models.ScanResult{},
-		&models.DeviceProperty{},
-		&models.DeviceOccupancy{},
-		&models.DeviceClaim{},
-		&models.DeviceBorrowRequest{},
-		&models.BorrowRequest{},
-		&models.MobileDevice{},
-		&models.MobileBorrowRequest{},
-		&models.ScanSession{},
-		&models.AutoScanConfig{},
-		&models.ScanJobLog{},
-		&models.FileConfig{},
-		&models.DeviceDBConnection{},
-		&models.DBSQLTemplate{},
-		&models.DBSQLExecuteTask{},
-		&models.DBSQLExecuteTaskItem{},
-		&models.SystemConfig{},
-		&models.SystemNotification{},
-		&models.WarPackageMetadata{},
-		&models.FeatureRequest{},
-		&models.FeatureRequestLike{},
-	); err != nil {
+	if err := db.AutoMigrate(autoMigrateModels()...); err != nil {
 		logger.Fatal("Failed to migrate database", "error", err)
 	}
 	backfillTemplateNeedRestart(db)
@@ -433,6 +410,31 @@ func main() {
 	go autoScanScheduler.Start(context.Background())
 	if err := router.Run(":" + port); err != nil {
 		logger.Fatal("Failed to start server", "error", err)
+	}
+}
+
+func autoMigrateModels() []interface{} {
+	return []interface{}{
+		&models.User{},
+		&models.ScanResult{},
+		&models.DeviceProperty{},
+		&models.DeviceOccupancy{},
+		&models.DeviceClaim{},
+		&models.BorrowRequest{},
+		&models.MobileDevice{},
+		&models.ScanSession{},
+		&models.AutoScanConfig{},
+		&models.ScanJobLog{},
+		&models.FileConfig{},
+		&models.DeviceDBConnection{},
+		&models.DBSQLTemplate{},
+		&models.DBSQLExecuteTask{},
+		&models.DBSQLExecuteTaskItem{},
+		&models.SystemConfig{},
+		&models.SystemNotification{},
+		&models.WarPackageMetadata{},
+		&models.FeatureRequest{},
+		&models.FeatureRequestLike{},
 	}
 }
 
