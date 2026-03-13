@@ -62,8 +62,15 @@ type SubmitClaimRequest struct {
 
 // GetDevices returns paginated device list
 func (h *DeviceHandler) GetDevices(c *gin.Context) {
-	// Cleanup expired occupancies first
-	h.deviceRepo.CleanupExpiredOccupancies()
+	// Cleanup expired occupancies first and notify the borrower after auto-return.
+	expiredOccupancies, err := h.deviceRepo.ListExpiredOccupancies(time.Now())
+	if err != nil {
+		fmt.Printf("[WARN] list expired POS occupancies failed: %v\n", err)
+	} else if _, err := h.deviceRepo.CleanupExpiredOccupancies(); err != nil {
+		fmt.Printf("[WARN] cleanup expired POS occupancies failed: %v\n", err)
+	} else {
+		h.notifyExpiredPOSOccupancies(expiredOccupancies)
+	}
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
@@ -224,6 +231,25 @@ func (h *DeviceHandler) GetDevices(c *gin.Context) {
 		"totalPages": totalPages,
 		"lastScanAt": lastScanAt,
 	})
+}
+
+func (h *DeviceHandler) notifyExpiredPOSOccupancies(occupancies []models.DeviceOccupancy) {
+	if h.notificationService == nil {
+		return
+	}
+
+	for _, occupancy := range occupancies {
+		deviceName := occupancy.MerchantID
+		if device, err := h.deviceRepo.GetScanResultByMerchantID(occupancy.MerchantID); err == nil && device != nil {
+			if device.Name != nil && strings.TrimSpace(*device.Name) != "" {
+				deviceName = strings.TrimSpace(*device.Name)
+			}
+		}
+
+		if err := h.notificationService.SendBorrowExpired(occupancy.UserID, deviceName); err != nil {
+			fmt.Printf("[WARN] send POS auto-return notification failed: %v\n", err)
+		}
+	}
 }
 
 // GetOccupancies returns all device occupancies

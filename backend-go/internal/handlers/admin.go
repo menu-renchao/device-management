@@ -409,10 +409,14 @@ func (h *AdminHandler) DeleteDeviceProperty(c *gin.Context) {
 		return
 	}
 
-	if err := h.deviceRepo.DeleteProperty(merchantID); err != nil {
-		response.InternalError(c, "Failed to delete device property")
+	prop := &models.DeviceProperty{
+		MerchantID: merchantID,
+		Property:   repository.DefaultDeviceProperty,
+	}
+	if err := h.deviceRepo.CreateOrUpdateProperty(prop); err != nil {
+		response.InternalError(c, "Failed to reset device property")
 		return
 	}
 
-	response.SuccessWithMessage(c, "Device property deleted", nil)
+	response.SuccessWithMessage(c, "Device property reset to default", gin.H{"property": prop.ToDict()})
 }

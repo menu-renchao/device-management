@@ -6,21 +6,13 @@ import { useToast } from '../contexts/ToastContext';
 import ConnectionPanel from '../components/db-config/ConnectionPanel';
 import TemplateModal from '../components/db-config/TemplateModal';
 import ExecuteResultPanel from '../components/db-config/ExecuteResultPanel';
-
-const DEFAULT_DB_TYPE = 'mysql';
-const DEFAULT_DB_PORT = 22108;
-const DEFAULT_DB_NAME = 'kpos';
-const DEFAULT_DB_USER = '';
-const DEFAULT_DB_PASSWORD = '';
-
-const createDefaultConnectionForm = (host = '') => ({
-  db_type: DEFAULT_DB_TYPE,
-  host: (host || '').trim(),
-  port: DEFAULT_DB_PORT,
-  database_name: DEFAULT_DB_NAME,
-  username: DEFAULT_DB_USER,
-  password: DEFAULT_DB_PASSWORD,
-});
+import {
+  createDefaultDBConnectionForm,
+  DEFAULT_DB_NAME,
+  DEFAULT_DB_PORT,
+  DEFAULT_DB_TYPE,
+  DEFAULT_DB_USER,
+} from './connectionDefaults';
 
 const TEMPLATE_FETCH_PAGE_SIZE = 100;
 
@@ -34,7 +26,7 @@ const DBConfigPage = () => {
   const toast = useToast();
   const deviceIP = (device?.ip || '').trim();
 
-  const [connectionForm, setConnectionForm] = useState(() => createDefaultConnectionForm(device?.ip || ''));
+  const [connectionForm, setConnectionForm] = useState(() => createDefaultDBConnectionForm(device?.ip || ''));
   const [hasSavedPassword, setHasSavedPassword] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
 
@@ -102,7 +94,7 @@ const DBConfigPage = () => {
 
   useEffect(() => {
     if (!merchantId) return;
-    setConnectionForm(createDefaultConnectionForm(deviceIP));
+    setConnectionForm(createDefaultDBConnectionForm(deviceIP));
     setHasSavedPassword(false);
   }, [merchantId, deviceIP]);
 
@@ -125,7 +117,7 @@ const DBConfigPage = () => {
           host: connection.host || deviceIP || prev.host,
           port: connection.port || DEFAULT_DB_PORT,
           database_name: connection.database_name || DEFAULT_DB_NAME,
-          username: connection.username || '',
+          username: connection.username || DEFAULT_DB_USER,
           password: '',
         }));
       } catch (error) {

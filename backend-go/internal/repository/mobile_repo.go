@@ -50,6 +50,15 @@ func (r *MobileRepository) List() ([]models.MobileDevice, error) {
 	return devices, err
 }
 
+func (r *MobileRepository) ListExpiredOccupiedDevices(referenceTime time.Time) ([]models.MobileDevice, error) {
+	var devices []models.MobileDevice
+	err := r.db.
+		Where("occupier_id IS NOT NULL AND end_time IS NOT NULL AND datetime(end_time) < datetime(?)", referenceTime).
+		Order("end_time ASC, id ASC").
+		Find(&devices).Error
+	return devices, err
+}
+
 func (r *MobileRepository) CleanupExpiredOccupancies() (int64, error) {
 	now := LocalTime()
 	result := r.db.Model(&models.MobileDevice{}).

@@ -33,3 +33,14 @@ func TestMainDoesNotInvokeLegacyBorrowMigration(t *testing.T) {
 		t.Fatalf("main.go should not invoke legacy borrow migration once old tables are retired")
 	}
 }
+
+func TestMainDoesNotInvokePOSDefaultPropertyBackfill(t *testing.T) {
+	contentBytes, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+
+	if strings.Contains(string(contentBytes), "backfillPOSDefaultProperties(db)") {
+		t.Fatalf("main.go should not backfill POS default properties at runtime")
+	}
+}

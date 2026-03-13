@@ -8,6 +8,7 @@ import UpgradeTab from '../components/linux/UpgradeTab';
 import BackupTab from '../components/linux/BackupTab';
 import LogTab from '../components/linux/LogTab';
 import VersionTab from '../components/linux/VersionTab';
+import { createDefaultLinuxConnectionForm } from './connectionDefaults';
 
 const LinuxConfigPage = () => {
   const { merchantId } = useParams();
@@ -23,12 +24,7 @@ const LinuxConfigPage = () => {
   const [posStatus, setPosStatus] = useState(null);
 
   // 连接表单
-  const [connectionForm, setConnectionForm] = useState({
-    host: device?.ip || '',
-    port: 22,
-    user: '',
-    password: ''
-  });
+  const [connectionForm, setConnectionForm] = useState(() => createDefaultLinuxConnectionForm(device?.ip || ''));
 
   // 权限检查：只有管理员、负责人、借用人才能进入配置页面
   useEffect(() => {

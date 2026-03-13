@@ -58,8 +58,15 @@ type OccupyMobileDeviceRequest struct {
 
 // GetDevices returns all mobile devices
 func (h *MobileHandler) GetDevices(c *gin.Context) {
-	// Cleanup expired occupancies
-	h.mobileRepo.CleanupExpiredOccupancies()
+	// Cleanup expired occupancies and notify the borrower after auto-return.
+	expiredDevices, err := h.mobileRepo.ListExpiredOccupiedDevices(time.Now())
+	if err != nil {
+		fmt.Printf("[WARN] list expired mobile occupancies failed: %v\n", err)
+	} else if _, err := h.mobileRepo.CleanupExpiredOccupancies(); err != nil {
+		fmt.Printf("[WARN] cleanup expired mobile occupancies failed: %v\n", err)
+	} else {
+		h.notifyExpiredMobileOccupancies(expiredDevices)
+	}
 
 	devices, err := h.mobileRepo.List()
 	if err != nil {
@@ -73,6 +80,27 @@ func (h *MobileHandler) GetDevices(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"devices": deviceDicts})
+}
+
+func (h *MobileHandler) notifyExpiredMobileOccupancies(devices []models.MobileDevice) {
+	if h.notificationService == nil {
+		return
+	}
+
+	for _, device := range devices {
+		if device.OccupierID == nil {
+			continue
+		}
+
+		deviceName := strings.TrimSpace(device.Name)
+		if deviceName == "" {
+			deviceName = "移动设备"
+		}
+
+		if err := h.notificationService.SendBorrowExpired(*device.OccupierID, deviceName); err != nil {
+			fmt.Printf("[WARN] send mobile auto-return notification failed: %v\n", err)
+		}
+	}
 }
 
 // CreateDevice creates a new mobile device

@@ -2,10 +2,13 @@ package repository
 
 import (
 	"device-management/internal/models"
+	"sort"
 	"time"
 
 	"gorm.io/gorm"
 )
+
+const DefaultDeviceProperty = "PC"
 
 type DeviceRepository struct {
 	db *gorm.DB
@@ -32,7 +35,12 @@ func (r *DeviceRepository) Rollback() error {
 
 // ScanResult operations
 func (r *DeviceRepository) CreateScanResult(result *models.ScanResult) error {
-	return r.db.Create(result).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(result).Error; err != nil {
+			return err
+		}
+		return ensureDefaultProperty(tx, result.MerchantID, DefaultDeviceProperty)
+	})
 }
 
 func (r *DeviceRepository) GetScanResultByMerchantID(merchantID string) (*models.ScanResult, error) {
@@ -54,7 +62,12 @@ func (r *DeviceRepository) GetScanResultByIPAndEmptyMerchant(ip string) (*models
 }
 
 func (r *DeviceRepository) UpdateScanResult(result *models.ScanResult) error {
-	return r.db.Save(result).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(result).Error; err != nil {
+			return err
+		}
+		return ensureDefaultProperty(tx, result.MerchantID, DefaultDeviceProperty)
+	})
 }
 
 func (r *DeviceRepository) DeleteScanResult(merchantID string) error {
@@ -84,7 +97,8 @@ func (r *DeviceRepository) ListScanResults(page, pageSize int, search string, ty
 	// 按分类筛选（需要 JOIN device_properties 表）
 	if len(properties) > 0 {
 		query = query.Joins("LEFT JOIN device_properties ON device_properties.merchant_id = scan_results.merchant_id").
-			Where("device_properties.property IN ?", properties)
+			Where("scan_results.merchant_id IS NOT NULL AND scan_results.merchant_id != ''").
+			Where("COALESCE(NULLIF(device_properties.property, ''), ?) IN ?", DefaultDeviceProperty, properties)
 	}
 
 	// 仅展示当前用户相关设备：负责人或借用人
@@ -214,6 +228,15 @@ func (r *DeviceRepository) ListOccupanciesByMerchantIDs(merchantIDs []string) ([
 		return occupancies, nil
 	}
 	err := r.db.Preload("User").Where("merchant_id IN ?", merchantIDs).Find(&occupancies).Error
+	return occupancies, err
+}
+
+func (r *DeviceRepository) ListExpiredOccupancies(referenceTime time.Time) ([]models.DeviceOccupancy, error) {
+	var occupancies []models.DeviceOccupancy
+	err := r.db.
+		Where("datetime(end_time) < datetime(?)", referenceTime).
+		Order("end_time ASC, id ASC").
+		Find(&occupancies).Error
 	return occupancies, err
 }
 
@@ -395,5 +418,54 @@ func (r *DeviceRepository) GetDistinctProperties() ([]string, error) {
 		Distinct("property").
 		Where("property IS NOT NULL AND property != ''").
 		Pluck("property", &properties).Error
-	return properties, err
+	if err != nil {
+		return nil, err
+	}
+
+	var missingDefaultCount int64
+	err = r.db.Model(&models.ScanResult{}).
+		Joins("LEFT JOIN device_properties ON device_properties.merchant_id = scan_results.merchant_id").
+		Where("scan_results.merchant_id IS NOT NULL AND scan_results.merchant_id != ''").
+		Where("device_properties.id IS NULL").
+		Count(&missingDefaultCount).Error
+	if err != nil {
+		return nil, err
+	}
+
+	if missingDefaultCount > 0 && !containsString(properties, DefaultDeviceProperty) {
+		properties = append(properties, DefaultDeviceProperty)
+	}
+
+	sort.Strings(properties)
+	return properties, nil
+}
+
+func ensureDefaultProperty(db *gorm.DB, merchantID *string, defaultProperty string) error {
+	if merchantID == nil || *merchantID == "" {
+		return nil
+	}
+
+	var count int64
+	if err := db.Model(&models.DeviceProperty{}).
+		Where("merchant_id = ?", *merchantID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	return db.Create(&models.DeviceProperty{
+		MerchantID: *merchantID,
+		Property:   defaultProperty,
+	}).Error
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
