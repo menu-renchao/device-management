@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"device-management/internal/config"
@@ -58,59 +59,46 @@ func main() {
 	}
 
 	// Auto migrate
-	if err := db.AutoMigrate(
-		&models.User{},
-		&models.ScanResult{},
-		&models.DeviceProperty{},
-		&models.DeviceOccupancy{},
-		&models.DeviceClaim{},
-		&models.DeviceBorrowRequest{},
-		&models.MobileDevice{},
-		&models.MobileBorrowRequest{},
-		&models.ScanSession{},
-		&models.AutoScanConfig{},
-		&models.ScanJobLog{},
-		&models.FileConfig{},
-		&models.DeviceDBConnection{},
-		&models.DBSQLTemplate{},
-		&models.DBSQLExecuteTask{},
-		&models.DBSQLExecuteTaskItem{},
-		&models.SystemConfig{},
-		&models.SystemNotification{},
-		&models.WarPackageMetadata{},
-		&models.FeatureRequest{},
-		&models.FeatureRequestLike{},
-	); err != nil {
+	if err := db.AutoMigrate(autoMigrateModels()...); err != nil {
 		logger.Fatal("Failed to migrate database", "error", err)
 	}
 	backfillTemplateNeedRestart(db)
 
-	// Create default admin if not exists
+	// Bootstrap first admin only from explicit environment configuration.
 	var adminCount int64
-	db.Model(&models.User{}).Where("username = ?", "admin").Count(&adminCount)
+	db.Model(&models.User{}).Where("role = ?", "admin").Count(&adminCount)
 	if adminCount == 0 {
-		adminName := "admin"
-		adminEmail := "admin@example.com"
+		if !config.AppConfig.BootstrapAdmin.IsConfigured() {
+			logger.Fatal("No admin user found and bootstrap admin is not configured",
+				"hint", "Set BOOTSTRAP_ADMIN_USERNAME and BOOTSTRAP_ADMIN_PASSWORD before starting the server")
+		}
+
+		adminName := config.AppConfig.BootstrapAdmin.Name
+		if strings.TrimSpace(adminName) == "" {
+			adminName = config.AppConfig.BootstrapAdmin.Username
+		}
+		adminEmail := config.AppConfig.BootstrapAdmin.Email
 		admin := &models.User{
-			Username: "admin",
+			Username: config.AppConfig.BootstrapAdmin.Username,
 			Email:    &adminEmail,
 			Name:     &adminName,
 			Role:     "admin",
 			Status:   "approved",
 		}
-		if err := admin.SetPassword("admin123"); err != nil {
+		if err := admin.SetPassword(config.AppConfig.BootstrapAdmin.Password); err != nil {
 			logger.Fatal("Failed to set admin password", "error", err)
 		}
 		if err := db.Create(admin).Error; err != nil {
 			logger.Fatal("Failed to create admin", "error", err)
 		}
-		logger.Info("Default admin user created")
+		logger.Info("Bootstrap admin user created", "username", admin.Username)
 	}
 
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(db)
 	deviceRepo := repository.NewDeviceRepository(db)
 	mobileRepo := repository.NewMobileRepository(db)
+	borrowRequestRepo := repository.NewBorrowRequestRepository(db)
 	fileConfigRepo := repository.NewFileConfigRepository(db)
 	systemConfigRepo := repository.NewSystemConfigRepository(db)
 	notificationRepo := repository.NewNotificationRepository(db)
@@ -122,6 +110,10 @@ func main() {
 	scanJobLogRepo := repository.NewScanJobLogRepository(db)
 	featureRequestRepo := repository.NewFeatureRequestRepository(db)
 
+	if err := borrowRequestRepo.MigrateLegacyBorrowRequests(); err != nil {
+		logger.Fatal("Failed to migrate legacy borrow requests", "error", err)
+	}
+
 	// Initialize services
 	authService := services.NewAuthService(userRepo)
 	scanService := services.NewScanService()
@@ -132,21 +124,25 @@ func main() {
 	notificationService := services.NewNotificationService(notificationRepo)
 	dbConfigService := services.NewDBConfigService(dbConnectionRepo, dbSQLTemplateRepo, dbSQLTaskRepo)
 	autoScanScheduler := services.NewAutoScanScheduler(scanService, autoScanConfigRepo, scanJobLogRepo, deviceRepo, time.Minute)
+	assetAccessService := services.NewAssetAccessService(userRepo, deviceRepo, mobileRepo)
+	borrowService := services.NewBorrowService(borrowRequestRepo, deviceRepo, mobileRepo, userRepo, assetAccessService)
+	workspaceService := services.NewWorkspaceService(borrowRequestRepo, deviceRepo, mobileRepo, userRepo)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
 	adminHandler := handlers.NewAdminHandler(userRepo, deviceRepo)
-	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, linuxService)
-	mobileHandler := handlers.NewMobileHandler(mobileRepo, userRepo, notificationService)
+	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, linuxService, assetAccessService)
+	mobileHandler := handlers.NewMobileHandler(mobileRepo, userRepo, notificationService, assetAccessService)
 	scanHandler := handlers.NewScanHandler(scanService, deviceRepo, autoScanConfigRepo, scanJobLogRepo, autoScanScheduler)
-	linuxHandler := handlers.NewLinuxHandler(linuxService, fileConfigRepo, deviceRepo, userRepo)
+	linuxHandler := handlers.NewLinuxHandler(linuxService, fileConfigRepo, deviceRepo, userRepo, assetAccessService)
 	fileConfigHandler := handlers.NewFileConfigHandler(fileConfigRepo, linuxService)
 	warDownloadHandler := handlers.NewWarDownloadHandler(warDownloadService, systemConfigRepo, warPackageRepo)
 	warPackageHandler := handlers.NewWarPackageHandler(warPackageRepo)
-	workspaceHandler := handlers.NewWorkspaceHandler(deviceRepo, mobileRepo, userRepo)
+	workspaceHandler := handlers.NewWorkspaceHandler(workspaceService)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
-	dbConfigHandler := handlers.NewDBConfigHandler(dbConfigService, dbSQLTemplateRepo, deviceRepo, userRepo)
+	dbConfigHandler := handlers.NewDBConfigHandler(dbConfigService, dbSQLTemplateRepo, deviceRepo, userRepo, assetAccessService)
 	featureRequestHandler := handlers.NewFeatureRequestHandler(featureRequestRepo, userRepo)
+	borrowHandler := handlers.NewBorrowHandler(borrowService, userRepo)
 
 	// Create Gin router
 	router := gin.New()
@@ -213,11 +209,6 @@ func main() {
 			device.POST("/db/restore/server", deviceHandler.RestoreDatabaseFromServer)
 			device.POST("/db/restore/upload", deviceHandler.RestoreDatabaseFromUpload)
 
-			// POS设备借用申请
-			device.POST("/borrow-requests", deviceHandler.SubmitBorrowRequest)
-			device.GET("/borrow-requests", deviceHandler.GetBorrowRequests)
-			device.POST("/borrow-requests/:id/approve", deviceHandler.ApproveBorrowRequest)
-			device.POST("/borrow-requests/:id/reject", deviceHandler.RejectBorrowRequest)
 		}
 
 		// Mobile device routes
@@ -233,15 +224,11 @@ func main() {
 			mobile.PUT("/devices/:id/release", mobileHandler.ReleaseDevice)
 			mobile.PUT("/devices/:id/owner", middleware.AdminOnly(userRepo), mobileHandler.SetDeviceOwner) // 设置负责人
 
-			// 借用申请
-			mobile.POST("/borrow-requests", mobileHandler.SubmitBorrowRequest)              // 提交借用申请
-			mobile.GET("/borrow-requests", mobileHandler.GetBorrowRequests)                 // 获取借用申请列表
-			mobile.POST("/borrow-requests/:id/approve", mobileHandler.ApproveBorrowRequest) // 审核通过
-			mobile.POST("/borrow-requests/:id/reject", mobileHandler.RejectBorrowRequest)   // 审核拒绝
 		}
 
-		// Scan routes (no auth required for basic scanning)
+		// Scan routes
 		scan := api.Group("/scan")
+		scan.Use(middleware.Auth())
 		{
 			scan.GET("/ips", scanHandler.GetLocalIPs)
 			scan.POST("/start", scanHandler.StartScan)
@@ -250,7 +237,6 @@ func main() {
 			scan.GET("/device/:ip/details", scanHandler.GetDeviceDetails)
 
 			scanAdmin := scan.Group("")
-			scanAdmin.Use(middleware.Auth())
 			scanAdmin.Use(middleware.AdminOnly(userRepo))
 			{
 				scanAdmin.GET("/auto-config", scanHandler.GetAutoScanConfig)
@@ -372,6 +358,15 @@ func main() {
 		api.GET("/devices", middleware.Auth(), deviceHandler.GetDevices)
 		api.GET("/devices/filter-options", middleware.Auth(), deviceHandler.GetFilterOptions)
 
+		borrow := api.Group("/borrow-requests")
+		borrow.Use(middleware.Auth())
+		{
+			borrow.GET("", borrowHandler.List)
+			borrow.POST("", borrowHandler.Submit)
+			borrow.POST("/:id/approve", borrowHandler.Approve)
+			borrow.POST("/:id/reject", borrowHandler.Reject)
+		}
+
 		// Workspace routes
 		workspace := api.Group("/workspace")
 		workspace.Use(middleware.Auth())
@@ -415,6 +410,31 @@ func main() {
 	go autoScanScheduler.Start(context.Background())
 	if err := router.Run(":" + port); err != nil {
 		logger.Fatal("Failed to start server", "error", err)
+	}
+}
+
+func autoMigrateModels() []interface{} {
+	return []interface{}{
+		&models.User{},
+		&models.ScanResult{},
+		&models.DeviceProperty{},
+		&models.DeviceOccupancy{},
+		&models.DeviceClaim{},
+		&models.BorrowRequest{},
+		&models.MobileDevice{},
+		&models.ScanSession{},
+		&models.AutoScanConfig{},
+		&models.ScanJobLog{},
+		&models.FileConfig{},
+		&models.DeviceDBConnection{},
+		&models.DBSQLTemplate{},
+		&models.DBSQLExecuteTask{},
+		&models.DBSQLExecuteTaskItem{},
+		&models.SystemConfig{},
+		&models.SystemNotification{},
+		&models.WarPackageMetadata{},
+		&models.FeatureRequest{},
+		&models.FeatureRequestLike{},
 	}
 }
 

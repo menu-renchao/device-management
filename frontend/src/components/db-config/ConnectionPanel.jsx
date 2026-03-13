@@ -17,7 +17,7 @@ const ConnectionPanel = ({
       <div style={styles.inlineRow}>
         <h3 style={styles.title}>设备数据库连接</h3>
         <span style={styles.meta}>
-          {deviceIP ? `IP: ${deviceIP}` : '未获取到当前设备IP'}
+          {deviceIP ? `IP: ${deviceIP}` : '未获取到当前设备 IP'}
         </span>
 
         <div style={styles.inlineField}>
@@ -60,10 +60,8 @@ const ConnectionPanel = ({
             type="text"
             value={form.username}
             onChange={(e) => onFormChange('username', e.target.value)}
-            placeholder="root"
-            style={{ ...styles.input, ...styles.usernameInput, ...styles.readonlyInput }}
-            readOnly
-            disabled
+            placeholder="请输入数据库用户"
+            style={{ ...styles.input, ...styles.usernameInput }}
           />
         </div>
 
@@ -73,7 +71,7 @@ const ConnectionPanel = ({
             type={showPassword ? 'text' : 'password'}
             value={form.password}
             onChange={(e) => onFormChange('password', e.target.value)}
-            placeholder="N0mur@4$99!"
+            placeholder="请输入数据库密码"
             style={{ ...styles.input, ...styles.passwordInput }}
           />
           <button type="button" onClick={() => setShowPassword(!showPassword)} style={styles.toggleBtn}>
@@ -98,7 +96,7 @@ const ConnectionPanel = ({
             style={{
               ...styles.btn,
               ...styles.restartBtn,
-              ...(restartingPOS || typeof onRestartPOS !== 'function' ? styles.disabled : {})
+              ...(restartingPOS || typeof onRestartPOS !== 'function' ? styles.disabled : {}),
             }}
           >
             {restartingPOS ? '重启中...' : '重启POS'}
@@ -168,7 +166,7 @@ const styles = {
   hostInput: { width: '170px' },
   portInput: { width: '88px' },
   databaseInput: { width: '120px' },
-  usernameInput: { width: '90px' },
+  usernameInput: { width: '150px' },
   passwordInput: { width: '170px' },
   readonlyInput: {
     backgroundColor: '#F7F7FA',

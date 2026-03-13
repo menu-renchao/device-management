@@ -1,10 +1,16 @@
-import React, { useEffect, useState } from 'react';
-import { getMyRequests } from '../../services/api';
+import React, { useEffect, useMemo, useState } from 'react';
+import { borrowAPI } from '../../services/api';
+
+const STATUS_CONFIG = {
+  pending: { bg: 'rgba(255, 149, 0, 0.12)', color: '#FF9500', text: '待审批' },
+  approved: { bg: 'rgba(52, 199, 89, 0.12)', color: '#34C759', text: '已通过' },
+  rejected: { bg: 'rgba(255, 59, 48, 0.12)', color: '#FF3B30', text: '已拒绝' },
+  completed: { bg: 'rgba(142, 142, 147, 0.12)', color: '#8E8E93', text: '已完成' },
+};
 
 const MyRequestsTab = () => {
   const [loading, setLoading] = useState(true);
-  const [posRequests, setPosRequests] = useState([]);
-  const [mobileRequests, setMobileRequests] = useState([]);
+  const [requests, setRequests] = useState([]);
   const [activeSubTab, setActiveSubTab] = useState('pos');
 
   useEffect(() => {
@@ -14,35 +20,50 @@ const MyRequestsTab = () => {
   const fetchRequests = async () => {
     setLoading(true);
     try {
-      const data = await getMyRequests();
-      setPosRequests(data.posRequests || []);
-      setMobileRequests(data.mobileRequests || []);
+      const result = await borrowAPI.list({ scope: 'mine', status: 'all' });
+      if (result.success) {
+        setRequests(result.data?.requests || []);
+      }
     } catch (error) {
-      console.error('获取申请列表失败:', error);
+      console.error('Failed to load my borrow requests:', error);
     } finally {
       setLoading(false);
     }
   };
 
+  const posRequests = useMemo(
+    () => requests.filter((item) => item.asset_type === 'pos'),
+    [requests]
+  );
+  const mobileRequests = useMemo(
+    () => requests.filter((item) => item.asset_type === 'mobile'),
+    [requests]
+  );
+
+  useEffect(() => {
+    if (activeSubTab === 'pos' && posRequests.length === 0 && mobileRequests.length > 0) {
+      setActiveSubTab('mobile');
+    }
+    if (activeSubTab === 'mobile' && mobileRequests.length === 0 && posRequests.length > 0) {
+      setActiveSubTab('pos');
+    }
+  }, [activeSubTab, posRequests.length, mobileRequests.length]);
+
   const formatTime = (isoString) => {
-    if (!isoString) return '——';
-    const date = new Date(isoString);
-    return date.toLocaleString('zh-CN', {
+    if (!isoString) {
+      return '--';
+    }
+
+    return new Date(isoString).toLocaleString('zh-CN', {
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
     });
   };
 
   const getStatusBadge = (status) => {
-    const statusConfig = {
-      pending: { bg: 'rgba(255, 149, 0, 0.12)', color: '#FF9500', text: '待审核' },
-      approved: { bg: 'rgba(52, 199, 89, 0.12)', color: '#34C759', text: '已通过' },
-      rejected: { bg: 'rgba(255, 59, 48, 0.12)', color: '#FF3B30', text: '已拒绝' },
-      completed: { bg: 'rgba(142, 142, 147, 0.12)', color: '#8E8E93', text: '已完成' },
-    };
-    const config = statusConfig[status] || statusConfig.pending;
+    const config = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
     return (
       <span style={{ ...styles.badge, backgroundColor: config.bg, color: config.color }}>
         {config.text}
@@ -87,7 +108,7 @@ const MyRequestsTab = () => {
       {currentRequests.length === 0 ? (
         <div style={styles.empty}>
           <svg style={styles.emptyIcon} viewBox="0 0 24 24" fill="none">
-            <path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-4.86 8.86l-3 3.87L9 13.14 6 17h12l-3.86-5.14z" fill="currentColor"/>
+            <path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-4.86 8.86l-3 3.87L9 13.14 6 17h12l-3.86-5.14z" fill="currentColor" />
           </svg>
           <p>暂无{activeSubTab === 'pos' ? 'POS设备' : '移动设备'}借用申请</p>
         </div>
@@ -106,19 +127,19 @@ const MyRequestsTab = () => {
               </tr>
             </thead>
             <tbody>
-              {currentRequests.map((req) => (
-                <tr key={req.id} style={styles.tr}>
-                  <td style={{ ...styles.td, fontWeight: '500' }}>{req.deviceName}</td>
-                  {activeSubTab === 'pos' && <td style={styles.td}>{req.ip || '——'}</td>}
-                  <td style={{ ...styles.td, ...styles.tdWrap }}>{req.purpose || '——'}</td>
-                  <td style={styles.td}>{formatTime(req.endTime)}</td>
-                  <td style={styles.td}>{getStatusBadge(req.status)}</td>
+              {currentRequests.map((request) => (
+                <tr key={request.id} style={styles.tr}>
+                  <td style={{ ...styles.td, fontWeight: '500' }}>{request.device_name || '--'}</td>
+                  {activeSubTab === 'pos' && <td style={styles.td}>{request.ip || '--'}</td>}
+                  <td style={{ ...styles.td, ...styles.tdWrap }}>{request.purpose || '--'}</td>
+                  <td style={styles.td}>{formatTime(request.end_time)}</td>
+                  <td style={styles.td}>{getStatusBadge(request.status)}</td>
                   <td style={{ ...styles.td, ...styles.tdWrap }}>
-                    {req.status === 'rejected' && req.rejectionReason ? (
-                      <span style={{ color: '#FF3B30', whiteSpace: 'pre-wrap' }}>{req.rejectionReason}</span>
-                    ) : '——'}
+                    {request.status === 'rejected' && request.rejection_reason ? (
+                      <span style={{ color: '#FF3B30', whiteSpace: 'pre-wrap' }}>{request.rejection_reason}</span>
+                    ) : '--'}
                   </td>
-                  <td style={styles.td}>{formatTime(req.createdAt)}</td>
+                  <td style={styles.td}>{formatTime(request.created_at)}</td>
                 </tr>
               ))}
             </tbody>

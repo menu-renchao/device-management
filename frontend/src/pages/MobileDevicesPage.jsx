@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { deviceAPI } from '../services/api';
+import { borrowAPI, deviceAPI } from '../services/api';
 import axios from 'axios';
 import ConfirmDialog from '../components/ConfirmDialog';
 
@@ -274,11 +274,12 @@ const MobileDevicesPage = () => {
         toast.success('借用成功');
       } else {
         // 普通用户提交借用申请
-        await deviceAPI.submitBorrowRequest(
-          selectedDevice.id,
-          occupancyData.purpose,
-          new Date(occupancyData.endTime).toISOString()
-        );
+        await borrowAPI.submit({
+          assetType: 'mobile',
+          assetId: selectedDevice.id,
+          purpose: occupancyData.purpose,
+          endTime: new Date(occupancyData.endTime).toISOString()
+        });
         toast.success('借用申请已提交，请等待审核');
       }
       fetchDevices();

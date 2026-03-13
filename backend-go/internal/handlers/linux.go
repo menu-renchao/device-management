@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"device-management/internal/middleware"
+	"device-management/internal/models"
 	"device-management/internal/repository"
 	"device-management/internal/services"
 	"device-management/pkg/response"
@@ -31,15 +33,17 @@ type LinuxHandler struct {
 	fileConfigRepo *repository.FileConfigRepository
 	deviceRepo     *repository.DeviceRepository
 	userRepo       *repository.UserRepository
+	accessService  *services.AssetAccessService
 }
 
 // NewLinuxHandler 创建 Linux Handler
-func NewLinuxHandler(linuxService *services.LinuxService, fileConfigRepo *repository.FileConfigRepository, deviceRepo *repository.DeviceRepository, userRepo *repository.UserRepository) *LinuxHandler {
+func NewLinuxHandler(linuxService *services.LinuxService, fileConfigRepo *repository.FileConfigRepository, deviceRepo *repository.DeviceRepository, userRepo *repository.UserRepository, accessService *services.AssetAccessService) *LinuxHandler {
 	return &LinuxHandler{
 		linuxService:   linuxService,
 		fileConfigRepo: fileConfigRepo,
 		deviceRepo:     deviceRepo,
 		userRepo:       userRepo,
+		accessService:  accessService,
 	}
 }
 
@@ -80,6 +84,63 @@ func (h *LinuxHandler) checkDevicePermission(c *gin.Context, merchantID string) 
 
 	response.Forbidden(c, "您没有权限操作此设备，只有管理员、负责人或借用人才能访问")
 	return false
+}
+
+/*
+func (h *LinuxHandler) authorizeDeviceAction(c *gin.Context, merchantID string, action services.Action) bool {
+	userID := middleware.GetUserID(c)
+	user, err := h.userRepo.GetByID(userID)
+	if err != nil {
+		response.Unauthorized(c, "鐢ㄦ埛涓嶅瓨鍦?)
+		return false
+	}
+
+	allowed, err := h.accessService.CanAccessUser(user, services.AssetScope{
+		AssetType:  models.BorrowAssetTypePOS,
+		MerchantID: merchantID,
+	}, action)
+	if err != nil {
+		if errors.Is(err, services.ErrAssetAccessAssetNotFound) {
+			response.NotFound(c, "璁惧涓嶅瓨鍦?)
+			return false
+		}
+		response.InternalError(c, "鏉冮檺妫€鏌ュけ璐?)
+		return false
+	}
+	if !allowed {
+		response.Forbidden(c, "鎮ㄦ病鏈夋潈闄愭搷浣滄璁惧锛屽彧鏈夌鐞嗗憳銆佽礋璐ｄ汉鎴栧€熺敤浜烘墠鑳借闂?)
+		return false
+	}
+	return true
+}
+
+*/
+
+func (h *LinuxHandler) authorizeDeviceAction(c *gin.Context, merchantID string, action services.Action) bool {
+	userID := middleware.GetUserID(c)
+	user, err := h.userRepo.GetByID(userID)
+	if err != nil {
+		response.Unauthorized(c, "user not found")
+		return false
+	}
+
+	allowed, err := h.accessService.CanAccessUser(user, services.AssetScope{
+		AssetType:  models.BorrowAssetTypePOS,
+		MerchantID: merchantID,
+	}, action)
+	if err != nil {
+		if errors.Is(err, services.ErrAssetAccessAssetNotFound) {
+			response.NotFound(c, "device not found")
+			return false
+		}
+		response.InternalError(c, "permission check failed")
+		return false
+	}
+	if !allowed {
+		response.Forbidden(c, "permission denied")
+		return false
+	}
+	return true
 }
 
 // WebSocket upgrader
@@ -149,6 +210,10 @@ func (h *LinuxHandler) Disconnect(c *gin.Context) {
 		return
 	}
 
+	if !h.authorizeDeviceAction(c, req.MerchantID, services.ActionLinuxWrite) {
+		return
+	}
+
 	if err := h.linuxService.Disconnect(req.MerchantID); err != nil {
 		response.InternalError(c, fmt.Sprintf("断开连接失败: %s", err.Error()))
 		return
@@ -162,6 +227,10 @@ func (h *LinuxHandler) GetStatus(c *gin.Context) {
 	merchantID := c.Query("merchant_id")
 	if merchantID == "" {
 		response.BadRequest(c, "merchant_id 不能为空")
+		return
+	}
+
+	if !h.authorizeDeviceAction(c, merchantID, services.ActionLinuxRead) {
 		return
 	}
 

@@ -11,7 +11,6 @@ import MobileDevicesPage from './pages/MobileDevicesPage';
 import LinuxConfigPage from './pages/LinuxConfigPage';
 import DBConfigPage from './pages/DBConfigPage';
 import WarPackageManagePage from './pages/WarPackageManagePage';
-import BorrowApprovalPage from './pages/BorrowApprovalPage';
 import WorkspacePage from './pages/WorkspacePage';
 import HelpPage from './pages/HelpPage';
 import ProfilePage from './pages/ProfilePage';
@@ -211,9 +210,7 @@ function App() {
           {/* 借用审核路由（所有登录用户可访问） */}
           <Route path="/borrow-approval" element={
             <PrivateRoute>
-              <MainLayout>
-                <BorrowApprovalPage />
-              </MainLayout>
+              <Navigate to="/workspace?tab=approvals" replace />
             </PrivateRoute>
           } />
 
