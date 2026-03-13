@@ -10,8 +10,8 @@ import ExecuteResultPanel from '../components/db-config/ExecuteResultPanel';
 const DEFAULT_DB_TYPE = 'mysql';
 const DEFAULT_DB_PORT = 22108;
 const DEFAULT_DB_NAME = 'kpos';
-const DEFAULT_DB_USER = 'root';
-const DEFAULT_DB_PASSWORD = 'N0mur@4$99!';
+const DEFAULT_DB_USER = '';
+const DEFAULT_DB_PASSWORD = '';
 
 const createDefaultConnectionForm = (host = '') => ({
   db_type: DEFAULT_DB_TYPE,
@@ -35,6 +35,7 @@ const DBConfigPage = () => {
   const deviceIP = (device?.ip || '').trim();
 
   const [connectionForm, setConnectionForm] = useState(() => createDefaultConnectionForm(device?.ip || ''));
+  const [hasSavedPassword, setHasSavedPassword] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
 
   const [templates, setTemplates] = useState([]);
@@ -102,6 +103,39 @@ const DBConfigPage = () => {
   useEffect(() => {
     if (!merchantId) return;
     setConnectionForm(createDefaultConnectionForm(deviceIP));
+    setHasSavedPassword(false);
+  }, [merchantId, deviceIP]);
+
+  useEffect(() => {
+    if (!merchantId) return;
+
+    const loadConnection = async () => {
+      try {
+        const result = await dbConfigAPI.getConnection(merchantId);
+        const connection = result.data?.connection;
+        if (!connection) {
+          setHasSavedPassword(false);
+          return;
+        }
+
+        setHasSavedPassword(Boolean(connection.password_set));
+        setConnectionForm((prev) => ({
+          ...prev,
+          db_type: connection.db_type || DEFAULT_DB_TYPE,
+          host: connection.host || deviceIP || prev.host,
+          port: connection.port || DEFAULT_DB_PORT,
+          database_name: connection.database_name || DEFAULT_DB_NAME,
+          username: connection.username || '',
+          password: '',
+        }));
+      } catch (error) {
+        if (error.response?.status !== 404) {
+          console.error('Failed to load DB connection:', error);
+        }
+      }
+    };
+
+    loadConnection();
   }, [merchantId, deviceIP]);
 
   useEffect(() => {
@@ -115,19 +149,22 @@ const DBConfigPage = () => {
   }, [templates, selectedTemplateIds]);
 
   const setFormField = (field, value) => {
-    if (field === 'host' || field === 'username') {
+    if (field === 'host') {
       return;
+    }
+    if (field === 'password') {
+      setHasSavedPassword(false);
     }
     setConnectionForm((prev) => ({ ...prev, [field]: value }));
   };
 
   const buildConnectionPayload = () => ({
-    db_type: DEFAULT_DB_TYPE,
+    db_type: connectionForm.db_type || DEFAULT_DB_TYPE,
     host: deviceIP || connectionForm.host.trim(),
     port: Number(connectionForm.port) > 0 ? Number(connectionForm.port) : DEFAULT_DB_PORT,
     database_name: (connectionForm.database_name || '').trim() || DEFAULT_DB_NAME,
-    username: DEFAULT_DB_USER,
-    password: (connectionForm.password || '').trim() || DEFAULT_DB_PASSWORD,
+    username: (connectionForm.username || '').trim(),
+    password: (connectionForm.password || '').trim(),
   });
 
   const validateConnection = (form) => {
@@ -143,7 +180,7 @@ const DBConfigPage = () => {
       toast.warning('请输入用户名');
       return false;
     }
-    if (!form.password.trim()) {
+    if (!form.password.trim() && !hasSavedPassword) {
       toast.warning('请输入数据库密码');
       return false;
     }
@@ -157,6 +194,7 @@ const DBConfigPage = () => {
     }
     await dbConfigAPI.saveConnection(merchantId, payload);
     setConnectionForm(payload);
+    setHasSavedPassword(true);
     return payload;
   };
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { getMyBorrows, releaseDevice, releaseMobileDevice } from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
 import ConfirmDialog from '../ConfirmDialog';
@@ -6,10 +6,9 @@ import ConfirmDialog from '../ConfirmDialog';
 const MyBorrowsTab = () => {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
-  const [posBorrows, setPosBorrows] = useState([]);
-  const [mobileBorrows, setMobileBorrows] = useState([]);
+  const [borrows, setBorrows] = useState([]);
   const [releasing, setReleasing] = useState(null);
-  const [confirmDialog, setConfirmDialog] = useState({ show: false, type: null, id: null });
+  const [confirmDialog, setConfirmDialog] = useState({ show: false, item: null });
 
   useEffect(() => {
     fetchBorrows();
@@ -19,65 +18,70 @@ const MyBorrowsTab = () => {
     setLoading(true);
     try {
       const data = await getMyBorrows();
-      setPosBorrows(data.posBorrows || []);
-      setMobileBorrows(data.mobileBorrows || []);
+      if (Array.isArray(data.borrows)) {
+        setBorrows(data.borrows);
+      } else {
+        const fallbackBorrows = [
+          ...(data.posBorrows || []).map((item) => ({ ...item, type: 'pos', asset_type: 'pos' })),
+          ...(data.mobileBorrows || []).map((item) => ({ ...item, type: 'mobile', asset_type: 'mobile' })),
+        ];
+        setBorrows(fallbackBorrows);
+      }
     } catch (error) {
-      console.error('获取借用信息失败:', error);
+      console.error('Failed to load borrowed devices:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleReleasePos = async (merchantId) => {
-    setConfirmDialog({ show: true, type: 'pos', id: merchantId });
-  };
-
-  const handleReleaseMobile = async (deviceId) => {
-    setConfirmDialog({ show: true, type: 'mobile', id: deviceId });
+  const handleRelease = (item) => {
+    setConfirmDialog({ show: true, item });
   };
 
   const confirmRelease = async () => {
-    const { type, id } = confirmDialog;
-    setConfirmDialog({ show: false, type: null, id: null });
+    const item = confirmDialog.item;
+    setConfirmDialog({ show: false, item: null });
 
-    if (type === 'pos') {
-      setReleasing(`pos-${id}`);
-      try {
-        await releaseDevice(id);
-        toast.success('设备已归还');
-        fetchBorrows();
-      } catch (error) {
-        toast.error('归还设备失败');
-      } finally {
-        setReleasing(null);
+    if (!item) {
+      return;
+    }
+
+    const type = item.asset_type || item.type;
+    const targetId = type === 'pos' ? item.merchantId || item.merchant_id : item.deviceId || item.device_id;
+    const releaseKey = `${type}-${targetId}`;
+    setReleasing(releaseKey);
+
+    try {
+      if (type === 'pos') {
+        await releaseDevice(targetId);
+      } else {
+        await releaseMobileDevice(targetId);
       }
-    } else {
-      setReleasing(`mobile-${id}`);
-      try {
-        await releaseMobileDevice(id);
-        toast.success('设备已归还');
-        fetchBorrows();
-      } catch (error) {
-        toast.error('归还设备失败');
-      } finally {
-        setReleasing(null);
-      }
+      toast.success('设备已归还');
+      fetchBorrows();
+    } catch (error) {
+      toast.error('归还设备失败');
+    } finally {
+      setReleasing(null);
     }
   };
 
   const formatTime = (isoString) => {
-    if (!isoString) return '——';
-    const date = new Date(isoString);
-    return date.toLocaleString('zh-CN', {
+    if (!isoString) {
+      return '--';
+    }
+    return new Date(isoString).toLocaleString('zh-CN', {
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
     });
   };
 
-  const getRemainingTime = (remainingMs) => {
-    if (remainingMs <= 0) return { text: '已到期', color: '#FF3B30' };
+  const getRemainingTime = (remainingMs = 0) => {
+    if (remainingMs <= 0) {
+      return { text: '已到期', color: '#FF3B30' };
+    }
     const days = Math.floor(remainingMs / (24 * 60 * 60 * 1000));
     const hours = Math.floor((remainingMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
     const minutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
@@ -89,6 +93,15 @@ const MyBorrowsTab = () => {
     return { text, color: isWarning ? '#FF9500' : '#34C759' };
   };
 
+  const sortedBorrows = useMemo(
+    () => [...borrows].sort((a, b) => {
+      const aEndTime = new Date(a.end_time || a.endTime || 0).getTime();
+      const bEndTime = new Date(b.end_time || b.endTime || 0).getTime();
+      return aEndTime - bEndTime;
+    }),
+    [borrows]
+  );
+
   if (loading) {
     return (
       <div style={styles.loading}>
@@ -98,16 +111,11 @@ const MyBorrowsTab = () => {
     );
   }
 
-  const allBorrows = [
-    ...posBorrows.map((b) => ({ ...b, key: `pos-${b.merchantId}`, type: 'pos' })),
-    ...mobileBorrows.map((b) => ({ ...b, key: `mobile-${b.deviceId}`, type: 'mobile' })),
-  ];
-
-  if (allBorrows.length === 0) {
+  if (sortedBorrows.length === 0) {
     return (
       <div style={styles.empty}>
         <svg style={styles.emptyIcon} viewBox="0 0 24 24" fill="none">
-          <path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" fill="currentColor"/>
+          <path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" fill="currentColor" />
         </svg>
         <p>您当前没有借用任何设备</p>
       </div>
@@ -129,37 +137,37 @@ const MyBorrowsTab = () => {
           </tr>
         </thead>
         <tbody>
-          {allBorrows.map((item) => {
+          {sortedBorrows.map((item) => {
+            const type = item.asset_type || item.type;
+            const targetId = type === 'pos' ? item.merchantId || item.merchant_id : item.deviceId || item.device_id;
+            const releaseKey = `${type}-${targetId}`;
+            const isReleasing = releasing === releaseKey;
             const remaining = getRemainingTime(item.remainingMs);
-            const isReleasing = releasing === item.key;
             return (
-              <tr key={item.key} style={styles.tr}>
+              <tr key={releaseKey} style={styles.tr}>
                 <td style={styles.td}>
-                  <span style={{
-                    ...styles.badge,
-                    backgroundColor: item.type === 'pos' ? 'rgba(255, 149, 0, 0.12)' : 'rgba(52, 199, 89, 0.12)',
-                    color: item.type === 'pos' ? '#FF9500' : '#34C759',
-                  }}>
-                    {item.type === 'pos' ? 'POS' : '移动'}
+                  <span
+                    style={{
+                      ...styles.badge,
+                      backgroundColor: type === 'pos' ? 'rgba(255, 149, 0, 0.12)' : 'rgba(52, 199, 89, 0.12)',
+                      color: type === 'pos' ? '#FF9500' : '#34C759',
+                    }}
+                  >
+                    {type === 'pos' ? 'POS' : '移动'}
                   </span>
                 </td>
-                <td style={{ ...styles.td, fontWeight: '500' }}>{item.deviceName}</td>
-                <td style={styles.td}>{item.purpose || '——'}</td>
-                <td style={styles.td}>{formatTime(item.startTime)}</td>
-                <td style={styles.td}>{formatTime(item.endTime)}</td>
+                <td style={{ ...styles.td, fontWeight: '500' }}>{item.device_name || item.deviceName || '--'}</td>
+                <td style={styles.td}>{item.purpose || '--'}</td>
+                <td style={styles.td}>{formatTime(item.start_time || item.startTime)}</td>
+                <td style={styles.td}>{formatTime(item.end_time || item.endTime)}</td>
                 <td style={styles.td}>
-                  <span style={{ color: remaining.color, fontWeight: '500' }}>
-                    {remaining.text}
-                  </span>
+                  <span style={{ color: remaining.color, fontWeight: '500' }}>{remaining.text}</span>
                 </td>
                 <td style={styles.td}>
                   <button
-                    onClick={() => item.type === 'pos' ? handleReleasePos(item.merchantId) : handleReleaseMobile(item.deviceId)}
+                    onClick={() => handleRelease(item)}
                     disabled={isReleasing}
-                    style={{
-                      ...styles.btnReturn,
-                      opacity: isReleasing ? 0.5 : 1,
-                    }}
+                    style={{ ...styles.btnReturn, opacity: isReleasing ? 0.5 : 1 }}
                   >
                     {isReleasing ? '归还中...' : '归还'}
                   </button>
@@ -175,7 +183,7 @@ const MyBorrowsTab = () => {
         title="确认归还"
         message="确定要归还此设备吗？"
         onConfirm={confirmRelease}
-        onCancel={() => setConfirmDialog({ show: false, type: null, id: null })}
+        onCancel={() => setConfirmDialog({ show: false, item: null })}
         confirmText="归还"
       />
     </div>

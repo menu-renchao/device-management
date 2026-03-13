@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"os"
 	"strings"
 	"time"
 
@@ -8,13 +10,14 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig
-	JWT      JWTConfig
-	Database DatabaseConfig
-	CORS     CORSConfig
-	Upload   UploadConfig
-	Download DownloadConfig
-	Log      LogConfig
+	Server         ServerConfig
+	JWT            JWTConfig
+	Database       DatabaseConfig
+	CORS           CORSConfig
+	Upload         UploadConfig
+	Download       DownloadConfig
+	Log            LogConfig
+	BootstrapAdmin BootstrapAdminConfig
 }
 
 type ServerConfig struct {
@@ -56,7 +59,16 @@ type LogConfig struct {
 	Compress   bool
 }
 
+type BootstrapAdminConfig struct {
+	Username string
+	Password string
+	Email    string
+	Name     string
+}
+
 var AppConfig *Config
+
+var ErrInvalidBootstrapAdminConfig = errors.New("bootstrap admin username and password must be provided together")
 
 func Init() error {
 	viper.SetConfigFile(".env")
@@ -81,10 +93,14 @@ func Init() error {
 	viper.SetDefault("LOG_MAX_BACKUPS", 10)
 	viper.SetDefault("LOG_MAX_AGE", 30)
 	viper.SetDefault("LOG_COMPRESS", true)
+	viper.SetDefault("BOOTSTRAP_ADMIN_USERNAME", "")
+	viper.SetDefault("BOOTSTRAP_ADMIN_PASSWORD", "")
+	viper.SetDefault("BOOTSTRAP_ADMIN_EMAIL", "")
+	viper.SetDefault("BOOTSTRAP_ADMIN_NAME", "")
 
 	if err := viper.ReadInConfig(); err != nil {
 		// If .env doesn't exist, use defaults
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	}
@@ -103,6 +119,10 @@ func Init() error {
 
 	accessHours := viper.GetInt("JWT_ACCESS_TOKEN_EXPIRES")
 	refreshHours := viper.GetInt("JWT_REFRESH_TOKEN_EXPIRES")
+	bootstrapAdmin, err := readBootstrapAdminConfig()
+	if err != nil {
+		return err
+	}
 
 	AppConfig = &Config{
 		Server: ServerConfig{
@@ -137,7 +157,29 @@ func Init() error {
 			MaxAge:     viper.GetInt("LOG_MAX_AGE"),
 			Compress:   viper.GetBool("LOG_COMPRESS"),
 		},
+		BootstrapAdmin: bootstrapAdmin,
 	}
 
 	return nil
+}
+
+func readBootstrapAdminConfig() (BootstrapAdminConfig, error) {
+	config := BootstrapAdminConfig{
+		Username: strings.TrimSpace(viper.GetString("BOOTSTRAP_ADMIN_USERNAME")),
+		Password: strings.TrimSpace(viper.GetString("BOOTSTRAP_ADMIN_PASSWORD")),
+		Email:    strings.TrimSpace(viper.GetString("BOOTSTRAP_ADMIN_EMAIL")),
+		Name:     strings.TrimSpace(viper.GetString("BOOTSTRAP_ADMIN_NAME")),
+	}
+
+	if config.Username == "" && config.Password == "" {
+		return config, nil
+	}
+	if config.Username == "" || config.Password == "" {
+		return BootstrapAdminConfig{}, ErrInvalidBootstrapAdminConfig
+	}
+	return config, nil
+}
+
+func (c BootstrapAdminConfig) IsConfigured() bool {
+	return strings.TrimSpace(c.Username) != "" && strings.TrimSpace(c.Password) != ""
 }

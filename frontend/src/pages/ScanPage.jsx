@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { scanAPI, deviceAPI } from '../services/api';
+import { borrowAPI, scanAPI, deviceAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { adminService } from '../services/authService';
@@ -488,11 +488,12 @@ const ScanPage = () => {
         }
       } else {
         // 普通用户提交借用申请
-        const result = await deviceAPI.submitPosBorrowRequest(
-          occupancyModal.device.merchantId,
-          occupancyPurpose,
-          new Date(occupancyEndTime).toISOString()
-        );
+        const result = await borrowAPI.submit({
+          assetType: 'pos',
+          merchantId: occupancyModal.device.merchantId,
+          purpose: occupancyPurpose,
+          endTime: new Date(occupancyEndTime).toISOString()
+        });
         if (result.success) {
           toast.success('借用申请已提交，请等待审核');
           setOccupancyModal({ show: false, device: null });

@@ -1,71 +1,53 @@
-import React, { useState, useEffect } from 'react';
-import { deviceAPI } from '../../services/api';
+import React, { useEffect, useState } from 'react';
+import { borrowAPI, deviceAPI } from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
 import { useAuth } from '../../contexts/AuthContext';
 import ConfirmDialog from '../ConfirmDialog';
+
+const BORROW_BADGE_STYLES = {
+  pos: { backgroundColor: 'rgba(255, 149, 0, 0.12)', color: '#FF9500', label: 'POS借用' },
+  mobile: { backgroundColor: 'rgba(52, 199, 89, 0.12)', color: '#34C759', label: '移动借用' },
+};
 
 const PendingApprovalsTab = () => {
   const toast = useToast();
   const { isAdmin } = useAuth();
 
-  // 移动设备借用申请
   const [borrowRequests, setBorrowRequests] = useState([]);
   const [borrowLoading, setBorrowLoading] = useState(false);
-
-  // POS设备借用申请
-  const [posBorrowRequests, setPosBorrowRequests] = useState([]);
-  const [posBorrowLoading, setPosBorrowLoading] = useState(false);
-
-  // 认领申请（仅管理员可见）
   const [claims, setClaims] = useState([]);
   const [claimsLoading, setClaimsLoading] = useState(false);
-
-  // 审核处理中状态
   const [processingId, setProcessingId] = useState(null);
-
-  // 确认对话框
-  const [confirmDialog, setConfirmDialog] = useState({ show: false, request: null });
+  const [confirmDialog, setConfirmDialog] = useState({ show: false, type: null, payload: null });
 
   const fetchBorrowRequests = async () => {
     setBorrowLoading(true);
     try {
-      const result = await deviceAPI.getBorrowRequests('pending');
+      const result = await borrowAPI.list({ scope: 'approvals', status: 'pending' });
       if (result.success) {
-        const requests = (result.data?.requests || result.requests || []).map(r => ({...r, type: 'mobile'}));
-        setBorrowRequests(requests);
+        setBorrowRequests(result.data?.requests || []);
       }
-    } catch (err) {
-      console.error('获取借用申请失败:', err);
+    } catch (error) {
+      console.error('Failed to load pending borrow requests:', error);
     } finally {
       setBorrowLoading(false);
     }
   };
 
-  const fetchPosBorrowRequests = async () => {
-    setPosBorrowLoading(true);
-    try {
-      const result = await deviceAPI.getPosBorrowRequests('pending');
-      if (result.success) {
-        const requests = (result.data?.requests || result.requests || []).map(r => ({...r, type: 'pos'}));
-        setPosBorrowRequests(requests);
-      }
-    } catch (err) {
-      console.error('获取POS借用申请失败:', err);
-    } finally {
-      setPosBorrowLoading(false);
-    }
-  };
-
   const fetchClaims = async () => {
-    if (!isAdmin()) return;
+    if (!isAdmin()) {
+      setClaims([]);
+      return;
+    }
+
     setClaimsLoading(true);
     try {
       const result = await deviceAPI.getClaims('pending');
       if (result.success) {
         setClaims(result.data?.claims || result.claims || []);
       }
-    } catch (err) {
-      console.error('获取认领申请失败:', err);
+    } catch (error) {
+      console.error('Failed to load pending claims:', error);
     } finally {
       setClaimsLoading(false);
     }
@@ -73,148 +55,132 @@ const PendingApprovalsTab = () => {
 
   useEffect(() => {
     fetchBorrowRequests();
-    fetchPosBorrowRequests();
     fetchClaims();
   }, []);
 
-  const handleApproveBorrow = async (request) => {
-    const requestKey = `${request.type}-${request.id}`;
-    if (processingId === requestKey) return;
-    setProcessingId(requestKey);
+  const removeBorrowRequest = (requestId) => {
+    setBorrowRequests((prev) => prev.filter((item) => item.id !== requestId));
+  };
 
+  const handleApproveBorrow = async (request) => {
+    const requestKey = `borrow-${request.id}`;
+    if (processingId === requestKey) {
+      return;
+    }
+
+    setProcessingId(requestKey);
     try {
-      let result;
-      if (request.type === 'pos') {
-        result = await deviceAPI.approvePosBorrowRequest(request.id);
-      } else {
-        result = await deviceAPI.approveBorrowRequest(request.id);
-      }
+      const result = await borrowAPI.approve(request.id);
       if (result.success) {
-        toast.success(result.message || '审核通过，设备已借出');
-        if (request.type === 'pos') {
-          setPosBorrowRequests(prev => prev.filter(r => r.id !== request.id));
-        } else {
-          setBorrowRequests(prev => prev.filter(r => r.id !== request.id));
-        }
+        toast.success(result.message || '审批已通过，设备已借出');
+        removeBorrowRequest(request.id);
       } else {
-        toast.error(result.error || '操作失败');
+        toast.error(result.error || '审批失败');
         fetchBorrowRequests();
-        fetchPosBorrowRequests();
       }
-    } catch (err) {
-      toast.error(err.response?.data?.error || '操作失败');
+    } catch (error) {
+      toast.error(error.response?.data?.error || '审批失败');
     } finally {
       setProcessingId(null);
     }
   };
 
-  const handleRejectBorrow = async (request) => {
-    setConfirmDialog({ show: true, request, type: 'borrow' });
+  const handleRejectBorrow = (request) => {
+    setConfirmDialog({ show: true, type: 'borrow', payload: request });
   };
 
   const handleApproveClaim = async (claim) => {
     const claimKey = `claim-${claim.id}`;
-    if (processingId === claimKey) return;
-    setProcessingId(claimKey);
+    if (processingId === claimKey) {
+      return;
+    }
 
+    setProcessingId(claimKey);
     try {
       const result = await deviceAPI.approveClaim(claim.id);
       if (result.success) {
-        toast.success(result.message || '认领审核通过');
-        setClaims(prev => prev.filter(c => c.id !== claim.id));
+        toast.success(result.message || '认领审批已通过');
+        setClaims((prev) => prev.filter((item) => item.id !== claim.id));
       } else {
-        toast.error(result.error || '操作失败');
+        toast.error(result.error || '审批失败');
         fetchClaims();
       }
-    } catch (err) {
-      toast.error(err.response?.data?.error || '操作失败');
+    } catch (error) {
+      toast.error(error.response?.data?.error || '审批失败');
     } finally {
       setProcessingId(null);
     }
   };
 
-  const handleRejectClaim = async (claim) => {
-    setConfirmDialog({ show: true, request: claim, type: 'claim' });
+  const handleRejectClaim = (claim) => {
+    setConfirmDialog({ show: true, type: 'claim', payload: claim });
   };
 
   const confirmReject = async (reason = '') => {
-    const request = confirmDialog.request;
-    const type = confirmDialog.type;
-    setConfirmDialog({ show: false, request: null, type: null });
+    const { type, payload } = confirmDialog;
+    setConfirmDialog({ show: false, type: null, payload: null });
 
-    if (type === 'borrow') {
-      const requestKey = `${request.type}-${request.id}`;
-      if (processingId === requestKey) return;
-      setProcessingId(requestKey);
+    if (!payload) {
+      return;
+    }
 
-      try {
-        let result;
-        if (request.type === 'pos') {
-          result = await deviceAPI.rejectPosBorrowRequest(request.id, reason);
-        } else {
-          result = await deviceAPI.rejectBorrowRequest(request.id, reason);
-        }
+    const actionKey = `${type}-${payload.id}`;
+    if (processingId === actionKey) {
+      return;
+    }
+
+    setProcessingId(actionKey);
+
+    try {
+      if (type === 'borrow') {
+        const result = await borrowAPI.reject(payload.id, reason);
         if (result.success) {
-          toast.success(result.message || '已拒绝');
-          if (request.type === 'pos') {
-            setPosBorrowRequests(prev => prev.filter(r => r.id !== request.id));
-          } else {
-            setBorrowRequests(prev => prev.filter(r => r.id !== request.id));
-          }
+          toast.success(result.message || '借用申请已拒绝');
+          removeBorrowRequest(payload.id);
         } else {
-          toast.error(result.error || '操作失败');
+          toast.error(result.error || '审批失败');
           fetchBorrowRequests();
-          fetchPosBorrowRequests();
         }
-      } catch (err) {
-        toast.error(err.response?.data?.error || '操作失败');
-      } finally {
-        setProcessingId(null);
+        return;
       }
-    } else if (type === 'claim') {
-      const claimKey = `claim-${request.id}`;
-      if (processingId === claimKey) return;
-      setProcessingId(claimKey);
 
-      try {
-        const result = await deviceAPI.rejectClaim(request.id);
-        if (result.success) {
-          toast.success(result.message || '已拒绝认领申请');
-          setClaims(prev => prev.filter(c => c.id !== request.id));
-        } else {
-          toast.error(result.error || '操作失败');
-          fetchClaims();
-        }
-      } catch (err) {
-        toast.error(err.response?.data?.error || '操作失败');
-      } finally {
-        setProcessingId(null);
+      const result = await deviceAPI.rejectClaim(payload.id);
+      if (result.success) {
+        toast.success(result.message || '认领申请已拒绝');
+        setClaims((prev) => prev.filter((item) => item.id !== payload.id));
+      } else {
+        toast.error(result.error || '审批失败');
+        fetchClaims();
       }
+    } catch (error) {
+      toast.error(error.response?.data?.error || '审批失败');
+    } finally {
+      setProcessingId(null);
     }
   };
 
   const formatTime = (isoString) => {
-    if (!isoString) return '——';
-    const date = new Date(isoString);
-    return date.toLocaleString('zh-CN', {
+    if (!isoString) {
+      return '--';
+    }
+
+    return new Date(isoString).toLocaleString('zh-CN', {
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
     });
   };
 
-  const isLoading = borrowLoading || posBorrowLoading || claimsLoading;
-  const totalBorrowCount = borrowRequests.length + posBorrowRequests.length;
-  const totalCount = totalBorrowCount + claims.length;
+  const isLoading = borrowLoading || claimsLoading;
+  const totalCount = borrowRequests.length + claims.length;
 
   return (
     <div>
-      {/* 统计卡片 */}
       <div style={styles.statsCard}>
         <div style={styles.statItem}>
           <span style={styles.statValue}>{totalCount}</span>
-          <span style={styles.statLabel}>待审核申请</span>
+          <span style={styles.statLabel}>待处理审批</span>
         </div>
       </div>
 
@@ -226,47 +192,36 @@ const PendingApprovalsTab = () => {
       ) : totalCount === 0 ? (
         <div style={styles.empty}>
           <svg style={styles.emptyIcon} viewBox="0 0 24 24" fill="none">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor"/>
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor" />
           </svg>
-          <p>暂无待审核的申请</p>
+          <p>暂无待审批的申请</p>
         </div>
       ) : (
         <div style={styles.list}>
-          {/* 认领申请（仅管理员可见） */}
           {isAdmin() && claims.map((claim) => (
             <div key={`claim-${claim.id}`} style={styles.requestItem}>
               <div style={styles.requestHeader}>
-                <span style={{...styles.typeBadge, backgroundColor: 'rgba(88, 86, 214, 0.12)', color: '#5856D6'}}>
-                  认领
+                <span style={{ ...styles.typeBadge, backgroundColor: 'rgba(88, 86, 214, 0.12)', color: '#5856D6' }}>
+                  设备认领
                 </span>
                 <span style={styles.deviceName}>{claim.deviceName || claim.merchantId}</span>
               </div>
               <div style={styles.requestInfo}>
-                <span style={styles.userInfo}>
-                  <svg style={styles.userIcon} viewBox="0 0 24 24" fill="none">
-                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="currentColor"/>
-                  </svg>
-                  {claim.username}
-                </span>
-                <span style={styles.timeInfo}>
-                  <svg style={styles.timeIcon} viewBox="0 0 24 24" fill="none">
-                    <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z" fill="currentColor"/>
-                  </svg>
-                  {formatTime(claim.createdAt)}
-                </span>
+                <span style={styles.userInfo}>{claim.username}</span>
+                <span style={styles.timeInfo}>{formatTime(claim.createdAt)}</span>
               </div>
               <div style={styles.actions}>
                 <button
                   onClick={() => handleApproveClaim(claim)}
                   disabled={processingId === `claim-${claim.id}`}
-                  style={processingId === `claim-${claim.id}` ? {...styles.btnApprove, opacity: 0.5} : styles.btnApprove}
+                  style={processingId === `claim-${claim.id}` ? { ...styles.btnApprove, opacity: 0.5 } : styles.btnApprove}
                 >
                   {processingId === `claim-${claim.id}` ? '处理中...' : '通过'}
                 </button>
                 <button
                   onClick={() => handleRejectClaim(claim)}
                   disabled={processingId === `claim-${claim.id}`}
-                  style={processingId === `claim-${claim.id}` ? {...styles.btnReject, opacity: 0.5} : styles.btnReject}
+                  style={processingId === `claim-${claim.id}` ? { ...styles.btnReject, opacity: 0.5 } : styles.btnReject}
                 >
                   拒绝
                 </button>
@@ -274,102 +229,56 @@ const PendingApprovalsTab = () => {
             </div>
           ))}
 
-          {/* POS设备借用申请 */}
-          {posBorrowRequests.map((req) => (
-            <div key={`pos-${req.id}`} style={styles.requestItem}>
-              <div style={styles.requestHeader}>
-                <span style={{...styles.typeBadge, backgroundColor: 'rgba(255, 149, 0, 0.12)', color: '#FF9500'}}>
-                  POS借用
-                </span>
-                <span style={styles.deviceName}>{req.deviceName}</span>
+          {borrowRequests.map((request) => {
+            const badgeStyle = BORROW_BADGE_STYLES[request.asset_type] || BORROW_BADGE_STYLES.mobile;
+            const actionKey = `borrow-${request.id}`;
+            return (
+              <div key={`borrow-${request.id}`} style={styles.requestItem}>
+                <div style={styles.requestHeader}>
+                  <span style={{ ...styles.typeBadge, ...badgeStyle }}>
+                    {badgeStyle.label}
+                  </span>
+                  <span style={styles.deviceName}>{request.device_name || request.merchant_id || `#${request.asset_id}`}</span>
+                </div>
+                <div style={styles.requestInfo}>
+                  <span style={styles.userInfo}>{request.requester_name || `用户 #${request.requester_id}`}</span>
+                  <span style={styles.timeInfo}>归还: {formatTime(request.end_time)}</span>
+                </div>
+                {request.purpose && (
+                  <div style={styles.purpose}>{request.purpose}</div>
+                )}
+                <div style={styles.actions}>
+                  <button
+                    onClick={() => handleApproveBorrow(request)}
+                    disabled={processingId === actionKey}
+                    style={processingId === actionKey ? { ...styles.btnApprove, opacity: 0.5 } : styles.btnApprove}
+                  >
+                    {processingId === actionKey ? '处理中...' : '通过'}
+                  </button>
+                  <button
+                    onClick={() => handleRejectBorrow(request)}
+                    disabled={processingId === actionKey}
+                    style={processingId === actionKey ? { ...styles.btnReject, opacity: 0.5 } : styles.btnReject}
+                  >
+                    拒绝
+                  </button>
+                </div>
               </div>
-              <div style={styles.requestInfo}>
-                <span style={styles.userInfo}>
-                  <svg style={styles.userIcon} viewBox="0 0 24 24" fill="none">
-                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="currentColor"/>
-                  </svg>
-                  {req.username}
-                </span>
-                <span style={styles.timeInfo}>
-                  <svg style={styles.timeIcon} viewBox="0 0 24 24" fill="none">
-                    <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z" fill="currentColor"/>
-                  </svg>
-                  归还: {formatTime(req.endTime)}
-                </span>
-              </div>
-              <div style={styles.actions}>
-                <button
-                  onClick={() => handleApproveBorrow(req)}
-                  disabled={processingId === `pos-${req.id}`}
-                  style={processingId === `pos-${req.id}` ? {...styles.btnApprove, opacity: 0.5} : styles.btnApprove}
-                >
-                  {processingId === `pos-${req.id}` ? '处理中...' : '通过'}
-                </button>
-                <button
-                  onClick={() => handleRejectBorrow(req)}
-                  disabled={processingId === `pos-${req.id}`}
-                  style={processingId === `pos-${req.id}` ? {...styles.btnReject, opacity: 0.5} : styles.btnReject}
-                >
-                  拒绝
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {/* 移动设备借用申请 */}
-          {borrowRequests.map((req) => (
-            <div key={`mobile-${req.id}`} style={styles.requestItem}>
-              <div style={styles.requestHeader}>
-                <span style={{...styles.typeBadge, backgroundColor: 'rgba(52, 199, 89, 0.12)', color: '#34C759'}}>
-                  移动借用
-                </span>
-                <span style={styles.deviceName}>{req.deviceName}</span>
-              </div>
-              <div style={styles.requestInfo}>
-                <span style={styles.userInfo}>
-                  <svg style={styles.userIcon} viewBox="0 0 24 24" fill="none">
-                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="currentColor"/>
-                  </svg>
-                  {req.username}
-                </span>
-                <span style={styles.timeInfo}>
-                  <svg style={styles.timeIcon} viewBox="0 0 24 24" fill="none">
-                    <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z" fill="currentColor"/>
-                  </svg>
-                  归还: {formatTime(req.endTime)}
-                </span>
-              </div>
-              <div style={styles.actions}>
-                <button
-                  onClick={() => handleApproveBorrow(req)}
-                  disabled={processingId === `mobile-${req.id}`}
-                  style={processingId === `mobile-${req.id}` ? {...styles.btnApprove, opacity: 0.5} : styles.btnApprove}
-                >
-                  {processingId === `mobile-${req.id}` ? '处理中...' : '通过'}
-                </button>
-                <button
-                  onClick={() => handleRejectBorrow(req)}
-                  disabled={processingId === `mobile-${req.id}`}
-                  style={processingId === `mobile-${req.id}` ? {...styles.btnReject, opacity: 0.5} : styles.btnReject}
-                >
-                  拒绝
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       <ConfirmDialog
         isOpen={confirmDialog.show}
         title="确认拒绝"
-        message={confirmDialog.type === 'borrow' ? '确定要拒绝此借用申请吗？' : '确定要拒绝此认领申请吗？'}
+        message={confirmDialog.type === 'claim' ? '确认拒绝这条认领申请吗？' : '确认拒绝这条借用申请吗？'}
         showInput={true}
         inputLabel="拒绝原因（选填）"
-        inputPlaceholder="请输入拒绝原因..."
+        inputPlaceholder="请输入拒绝原因"
         onConfirmWithInput={confirmReject}
         onConfirm={() => confirmReject('')}
-        onCancel={() => setConfirmDialog({ show: false, request: null, type: null })}
+        onCancel={() => setConfirmDialog({ show: false, type: null, payload: null })}
         confirmText="拒绝"
       />
     </div>
@@ -472,20 +381,16 @@ const styles = {
     alignItems: 'center',
     gap: '4px',
   },
-  userIcon: {
-    width: '14px',
-    height: '14px',
-    color: '#86868B',
-  },
   timeInfo: {
     display: 'flex',
     alignItems: 'center',
     gap: '4px',
   },
-  timeIcon: {
-    width: '14px',
-    height: '14px',
-    color: '#86868B',
+  purpose: {
+    fontSize: '13px',
+    color: '#4A4A4F',
+    lineHeight: 1.5,
+    marginBottom: '12px',
   },
   actions: {
     display: 'flex',

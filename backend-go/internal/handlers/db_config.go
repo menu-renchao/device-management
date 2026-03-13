@@ -20,6 +20,7 @@ type DBConfigHandler struct {
 	templateRepo    *repository.DBSQLTemplateRepository
 	deviceRepo      *repository.DeviceRepository
 	userRepo        *repository.UserRepository
+	accessService   *services.AssetAccessService
 }
 
 func NewDBConfigHandler(
@@ -27,12 +28,14 @@ func NewDBConfigHandler(
 	templateRepo *repository.DBSQLTemplateRepository,
 	deviceRepo *repository.DeviceRepository,
 	userRepo *repository.UserRepository,
+	accessService *services.AssetAccessService,
 ) *DBConfigHandler {
 	return &DBConfigHandler{
 		dbConfigService: dbConfigService,
 		templateRepo:    templateRepo,
 		deviceRepo:      deviceRepo,
 		userRepo:        userRepo,
+		accessService:   accessService,
 	}
 }
 
@@ -47,7 +50,7 @@ func (h *DBConfigHandler) GetConnection(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if !h.checkDevicePermission(c, merchantID, user) {
+	if !h.authorizeDeviceAction(c, merchantID, user, services.ActionDBRead) {
 		return
 	}
 
@@ -74,7 +77,7 @@ func (h *DBConfigHandler) UpsertConnection(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if !h.checkDevicePermission(c, merchantID, user) {
+	if !h.authorizeDeviceAction(c, merchantID, user, services.ActionDBWrite) {
 		return
 	}
 
@@ -103,7 +106,7 @@ func (h *DBConfigHandler) TestConnection(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if !h.checkDevicePermission(c, merchantID, user) {
+	if !h.authorizeDeviceAction(c, merchantID, user, services.ActionDBWrite) {
 		return
 	}
 
@@ -372,7 +375,7 @@ func (h *DBConfigHandler) Execute(c *gin.Context) {
 		return
 	}
 	req.MerchantID = strings.TrimSpace(req.MerchantID)
-	if !h.checkDevicePermission(c, req.MerchantID, user) {
+	if !h.authorizeDeviceAction(c, req.MerchantID, user, services.ActionDBWrite) {
 		return
 	}
 
@@ -548,6 +551,49 @@ func (h *DBConfigHandler) checkDevicePermission(c *gin.Context, merchantID strin
 
 	response.Forbidden(c, "您没有权限操作此设备，只有管理员、负责人或借用人才能访问")
 	return false
+}
+
+/*
+func (h *DBConfigHandler) authorizeDeviceAction(c *gin.Context, merchantID string, user *models.User, action services.Action) bool {
+	allowed, err := h.accessService.CanAccessUser(user, services.AssetScope{
+		AssetType:  models.BorrowAssetTypePOS,
+		MerchantID: merchantID,
+	}, action)
+	if err != nil {
+		if errors.Is(err, services.ErrAssetAccessAssetNotFound) {
+			response.NotFound(c, "璁惧涓嶅瓨鍦?)
+			return false
+		}
+		response.InternalError(c, "鏉冮檺妫€鏌ュけ璐?)
+		return false
+	}
+	if !allowed {
+		response.Forbidden(c, "鎮ㄦ病鏈夋潈闄愭搷浣滄璁惧锛屽彧鏈夌鐞嗗憳銆佽礋璐ｄ汉鎴栧€熺敤浜烘墠鑳借闂?)
+		return false
+	}
+	return true
+}
+
+*/
+
+func (h *DBConfigHandler) authorizeDeviceAction(c *gin.Context, merchantID string, user *models.User, action services.Action) bool {
+	allowed, err := h.accessService.CanAccessUser(user, services.AssetScope{
+		AssetType:  models.BorrowAssetTypePOS,
+		MerchantID: merchantID,
+	}, action)
+	if err != nil {
+		if errors.Is(err, services.ErrAssetAccessAssetNotFound) {
+			response.NotFound(c, "device not found")
+			return false
+		}
+		response.InternalError(c, "permission check failed")
+		return false
+	}
+	if !allowed {
+		response.Forbidden(c, "permission denied")
+		return false
+	}
+	return true
 }
 
 func sanitizeConnection(conn *models.DeviceDBConnection) gin.H {

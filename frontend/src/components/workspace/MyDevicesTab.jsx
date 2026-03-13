@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { getMyDevices, releaseDevice, releaseMobileDevice } from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
 import ConfirmDialog from '../ConfirmDialog';
@@ -6,11 +6,10 @@ import ConfirmDialog from '../ConfirmDialog';
 const MyDevicesTab = () => {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
-  const [posDevices, setPosDevices] = useState([]);
-  const [mobileDevices, setMobileDevices] = useState([]);
+  const [devices, setDevices] = useState([]);
   const [releasing, setReleasing] = useState(null);
   const [activeSubTab, setActiveSubTab] = useState('pos');
-  const [confirmDialog, setConfirmDialog] = useState({ show: false, type: null, id: null });
+  const [confirmDialog, setConfirmDialog] = useState({ show: false, item: null });
 
   useEffect(() => {
     fetchDevices();
@@ -20,60 +19,63 @@ const MyDevicesTab = () => {
     setLoading(true);
     try {
       const data = await getMyDevices();
-      setPosDevices(data.posDevices || []);
-      setMobileDevices(data.mobileDevices || []);
+      if (Array.isArray(data.devices)) {
+        setDevices(data.devices);
+      } else {
+        const fallbackDevices = [
+          ...(data.posDevices || []).map((item) => ({ ...item, type: 'pos', asset_type: 'pos' })),
+          ...(data.mobileDevices || []).map((item) => ({ ...item, type: 'mobile', asset_type: 'mobile' })),
+        ];
+        setDevices(fallbackDevices);
+      }
     } catch (error) {
-      console.error('获取设备列表失败:', error);
+      console.error('Failed to load managed devices:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleReleasePos = async (merchantId) => {
-    setConfirmDialog({ show: true, type: 'pos', id: merchantId });
-  };
-
-  const handleReleaseMobile = async (deviceId) => {
-    setConfirmDialog({ show: true, type: 'mobile', id: deviceId });
+  const handleRelease = (item) => {
+    setConfirmDialog({ show: true, item });
   };
 
   const confirmRelease = async () => {
-    const { type, id } = confirmDialog;
-    setConfirmDialog({ show: false, type: null, id: null });
+    const item = confirmDialog.item;
+    setConfirmDialog({ show: false, item: null });
 
-    if (type === 'pos') {
-      setReleasing(`pos-${id}`);
-      try {
-        await releaseDevice(id);
-        toast.success('设备占用已释放');
-        fetchDevices();
-      } catch (error) {
-        toast.error('释放失败');
-      } finally {
-        setReleasing(null);
+    if (!item) {
+      return;
+    }
+
+    const type = item.asset_type || item.type;
+    const targetId = type === 'pos' ? item.merchantId || item.merchant_id : item.deviceId || item.device_id;
+    const releaseKey = `${type}-${targetId}`;
+    setReleasing(releaseKey);
+
+    try {
+      if (type === 'pos') {
+        await releaseDevice(targetId);
+      } else {
+        await releaseMobileDevice(targetId);
       }
-    } else {
-      setReleasing(`mobile-${id}`);
-      try {
-        await releaseMobileDevice(id);
-        toast.success('设备占用已释放');
-        fetchDevices();
-      } catch (error) {
-        toast.error('释放失败');
-      } finally {
-        setReleasing(null);
-      }
+      toast.success('设备占用已释放');
+      fetchDevices();
+    } catch (error) {
+      toast.error('释放失败');
+    } finally {
+      setReleasing(null);
     }
   };
 
   const formatTime = (isoString) => {
-    if (!isoString) return '——';
-    const date = new Date(isoString);
-    return date.toLocaleString('zh-CN', {
+    if (!isoString) {
+      return '--';
+    }
+    return new Date(isoString).toLocaleString('zh-CN', {
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
     });
   };
 
@@ -87,6 +89,29 @@ const MyDevicesTab = () => {
     return String(purpose).trim();
   };
 
+  const posDevices = useMemo(
+    () => devices.filter((item) => (item.asset_type || item.type) === 'pos'),
+    [devices]
+  );
+  const mobileDevices = useMemo(
+    () => devices.filter((item) => (item.asset_type || item.type) === 'mobile'),
+    [devices]
+  );
+
+  const totalPending = useMemo(
+    () => devices.reduce((sum, item) => sum + (item.pending_borrow_count ?? item.pendingBorrowCount ?? 0), 0),
+    [devices]
+  );
+
+  useEffect(() => {
+    if (activeSubTab === 'pos' && posDevices.length === 0 && mobileDevices.length > 0) {
+      setActiveSubTab('mobile');
+    }
+    if (activeSubTab === 'mobile' && mobileDevices.length === 0 && posDevices.length > 0) {
+      setActiveSubTab('pos');
+    }
+  }, [activeSubTab, posDevices.length, mobileDevices.length]);
+
   if (loading) {
     return (
       <div style={styles.loading}>
@@ -96,19 +121,16 @@ const MyDevicesTab = () => {
     );
   }
 
-  if (posDevices.length === 0 && mobileDevices.length === 0) {
+  if (devices.length === 0) {
     return (
       <div style={styles.empty}>
         <svg style={styles.emptyIcon} viewBox="0 0 24 24" fill="none">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-2.5l7.51-3.49L17.5 6.5 9.99 9.99 6.5 17.5zm5.5-6.6c.61 0 1.1.49 1.1 1.1s-.49 1.1-1.1 1.1-1.1-.49-1.1-1.1.49-1.1 1.1-1.1z" fill="currentColor"/>
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-2.5l7.51-3.49L17.5 6.5 9.99 9.99 6.5 17.5zm5.5-6.6c.61 0 1.1.49 1.1 1.1s-.49 1.1-1.1 1.1-1.1-.49-1.1-1.1.49-1.1 1.1-1.1z" fill="currentColor" />
         </svg>
         <p>您目前不是任何设备的负责人</p>
       </div>
     );
   }
-
-  const totalPending = posDevices.reduce((sum, d) => sum + (d.pendingBorrowCount || 0), 0) +
-                       mobileDevices.reduce((sum, d) => sum + (d.pendingBorrowCount || 0), 0);
 
   const currentDevices = activeSubTab === 'pos' ? posDevices : mobileDevices;
 
@@ -117,9 +139,9 @@ const MyDevicesTab = () => {
       {totalPending > 0 && (
         <div style={styles.warningBanner}>
           <svg style={styles.warningIcon} viewBox="0 0 24 24" fill="none">
-            <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" fill="currentColor"/>
+            <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" fill="currentColor" />
           </svg>
-          您有 {totalPending} 个借用申请待审核
+          您有 {totalPending} 个借用申请待审批
         </div>
       )}
 
@@ -145,9 +167,7 @@ const MyDevicesTab = () => {
       </div>
 
       {currentDevices.length === 0 ? (
-        <div style={styles.emptySmall}>
-          暂无负责的{activeSubTab === 'pos' ? 'POS' : '移动'}设备
-        </div>
+        <div style={styles.emptySmall}>暂无负责的{activeSubTab === 'pos' ? 'POS' : '移动'}设备</div>
       ) : (
         <div style={styles.tableContainer}>
           <table style={styles.table}>
@@ -158,35 +178,41 @@ const MyDevicesTab = () => {
                 <th style={styles.th}>借用人</th>
                 <th style={styles.th}>借用目的</th>
                 <th style={styles.th}>应归还时间</th>
-                <th style={styles.th}>待审核借用</th>
+                <th style={styles.th}>待审批借用</th>
                 <th style={styles.th}>操作</th>
               </tr>
             </thead>
             <tbody>
               {currentDevices.map((device) => {
-                const key = activeSubTab === 'pos' ? `pos-${device.merchantId}` : `mobile-${device.deviceId}`;
-                const isReleasing = releasing === key;
+                const type = device.asset_type || device.type;
+                const targetId = type === 'pos' ? device.merchantId || device.merchant_id : device.deviceId || device.device_id;
+                const releaseKey = `${type}-${targetId}`;
+                const isReleasing = releasing === releaseKey;
+                const isOccupied = Boolean(device.is_occupied ?? device.isOccupied);
+                const pendingCount = device.pending_borrow_count ?? device.pendingBorrowCount ?? 0;
                 return (
-                  <tr key={key} style={styles.tr}>
-                    <td style={{ ...styles.td, fontWeight: '500' }}>{device.deviceName}</td>
+                  <tr key={releaseKey} style={styles.tr}>
+                    <td style={{ ...styles.td, fontWeight: '500' }}>{device.device_name || device.deviceName}</td>
                     <td style={styles.td}>
-                      <span style={{
-                        ...styles.badge,
-                        backgroundColor: device.isOccupied ? 'rgba(255, 149, 0, 0.12)' : 'rgba(52, 199, 89, 0.12)',
-                        color: device.isOccupied ? '#FF9500' : '#34C759',
-                      }}>
-                        {device.isOccupied ? '已借出' : '空闲'}
+                      <span
+                        style={{
+                          ...styles.badge,
+                          backgroundColor: isOccupied ? 'rgba(255, 149, 0, 0.12)' : 'rgba(52, 199, 89, 0.12)',
+                          color: isOccupied ? '#FF9500' : '#34C759',
+                        }}
+                      >
+                        {isOccupied ? '已借出' : '空闲'}
                       </span>
                     </td>
-                    <td style={styles.td}>{device.occupancy?.username || device.occupancy?.userId || '——'}</td>
-                    <td style={styles.td}>{getPurposeText(device.occupancy?.purpose) || '——'}</td>
+                    <td style={styles.td}>{device.occupancy?.username || device.occupancy?.userId || '--'}</td>
+                    <td style={styles.td}>{getPurposeText(device.occupancy?.purpose) || '--'}</td>
                     <td style={styles.td}>
-                      {device.occupancy ? formatTime(device.occupancy.endTime) : '——'}
+                      {device.occupancy ? formatTime(device.occupancy.end_time || device.occupancy.endTime) : '--'}
                     </td>
                     <td style={styles.td}>
-                      {device.pendingBorrowCount > 0 ? (
+                      {pendingCount > 0 ? (
                         <span style={{ ...styles.badge, backgroundColor: 'rgba(255, 149, 0, 0.12)', color: '#FF9500' }}>
-                          {device.pendingBorrowCount} 个待审核
+                          {pendingCount} 个待审批
                         </span>
                       ) : (
                         <span style={{ ...styles.badge, backgroundColor: 'rgba(52, 199, 89, 0.12)', color: '#34C759' }}>
@@ -195,18 +221,17 @@ const MyDevicesTab = () => {
                       )}
                     </td>
                     <td style={styles.td}>
-                      {device.isOccupied ? (
+                      {isOccupied ? (
                         <button
-                          onClick={() => activeSubTab === 'pos' ? handleReleasePos(device.merchantId) : handleReleaseMobile(device.deviceId)}
+                          onClick={() => handleRelease(device)}
                           disabled={isReleasing}
-                          style={{
-                            ...styles.btnRelease,
-                            opacity: isReleasing ? 0.5 : 1,
-                          }}
+                          style={{ ...styles.btnRelease, opacity: isReleasing ? 0.5 : 1 }}
                         >
                           {isReleasing ? '释放中...' : '释放占用'}
                         </button>
-                      ) : '——'}
+                      ) : (
+                        '--'
+                      )}
                     </td>
                   </tr>
                 );
@@ -221,7 +246,7 @@ const MyDevicesTab = () => {
         title="确认释放"
         message="确定要释放此设备的占用吗？"
         onConfirm={confirmRelease}
-        onCancel={() => setConfirmDialog({ show: false, type: null, id: null })}
+        onCancel={() => setConfirmDialog({ show: false, item: null })}
         confirmText="释放"
       />
     </div>

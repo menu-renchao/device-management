@@ -1,25 +1,36 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import MyRequestsTab from '../components/workspace/MyRequestsTab';
 import MyBorrowsTab from '../components/workspace/MyBorrowsTab';
 import MyDevicesTab from '../components/workspace/MyDevicesTab';
 import NotificationsTab from '../components/workspace/NotificationsTab';
 import PendingApprovalsTab from '../components/workspace/PendingApprovalsTab';
+import { AVAILABLE_WORKSPACE_TABS, getWorkspaceTab } from './workspacePageState';
 
 const WorkspacePage = () => {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useState(tabFromUrl || 'approvals');
+  const initialTab = getWorkspaceTab(tabFromUrl);
+  const [activeTab, setActiveTab] = useState(initialTab);
 
-  // 监听 URL 参数变化
   useEffect(() => {
-    if (tabFromUrl) {
-      setActiveTab(tabFromUrl);
+    const nextTab = getWorkspaceTab(tabFromUrl);
+    if (tabFromUrl !== nextTab) {
+      setSearchParams({ tab: nextTab }, { replace: true });
     }
-  }, [tabFromUrl]);
+    if (AVAILABLE_WORKSPACE_TABS.includes(nextTab)) {
+      setActiveTab(nextTab);
+      return;
+    }
+  }, [tabFromUrl, setSearchParams]);
+
+  const handleTabChange = (tabKey) => {
+    setActiveTab(tabKey);
+    setSearchParams({ tab: tabKey });
+  };
 
   const tabs = [
-    { key: 'approvals', label: '待我审核', icon: 'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z' },
+    { key: 'approvals', label: '待我审批', icon: 'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z' },
     { key: 'requests', label: '我的申请', icon: 'M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z' },
     { key: 'borrows', label: '我的借用', icon: 'M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z' },
     { key: 'devices', label: '我的设备', icon: 'M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z' },
@@ -50,7 +61,7 @@ const WorkspacePage = () => {
         {tabs.map((tab) => (
           <button
             key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => handleTabChange(tab.key)}
             style={{
               ...styles.tab,
               ...(activeTab === tab.key ? styles.activeTab : {}),
@@ -63,9 +74,7 @@ const WorkspacePage = () => {
           </button>
         ))}
       </div>
-      <div style={styles.content}>
-        {renderContent()}
-      </div>
+      <div style={styles.content}>{renderContent()}</div>
     </div>
   );
 };
