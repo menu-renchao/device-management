@@ -22,8 +22,6 @@ func openBorrowRequestRepoTestDB(t *testing.T) *gorm.DB {
 		&models.User{},
 		&models.ScanResult{},
 		&models.MobileDevice{},
-		&models.DeviceBorrowRequest{},
-		&models.MobileBorrowRequest{},
 		&models.BorrowRequest{},
 	); err != nil {
 		t.Fatalf("failed to migrate test db: %v", err)
@@ -120,7 +118,7 @@ func TestBorrowRequestRepositoryCreateAndListByAssetType(t *testing.T) {
 	}
 }
 
-func TestBorrowRequestRepositoryMigrateLegacyRequests(t *testing.T) {
+func TestBorrowRequestRepositoryListByRequesterReturnsPOSAndMobile(t *testing.T) {
 	db := openBorrowRequestRepoTestDB(t)
 	repo := NewBorrowRequestRepository(db)
 	requester, owner := seedBorrowRequestRepoUsers(t, db)
@@ -150,35 +148,35 @@ func TestBorrowRequestRepositoryMigrateLegacyRequests(t *testing.T) {
 		t.Fatalf("create mobile device: %v", err)
 	}
 
-	posRequest := &models.DeviceBorrowRequest{
-		MerchantID: merchantID,
-		UserID:     requester.ID,
-		Purpose:    "legacy pos",
-		EndTime:    time.Now().Add(3 * time.Hour),
-		Status:     "pending",
+	posRequest := &models.BorrowRequest{
+		AssetType:      models.BorrowAssetTypePOS,
+		MerchantID:     &merchantID,
+		RequesterID:    requester.ID,
+		ApproverUserID: &owner.ID,
+		Purpose:        "pos request",
+		EndTime:        time.Now().Add(3 * time.Hour),
+		Status:         models.BorrowRequestStatusPending,
 	}
 	if err := db.Create(posRequest).Error; err != nil {
-		t.Fatalf("create device borrow request: %v", err)
+		t.Fatalf("create pos borrow request: %v", err)
 	}
 
-	mobileRequest := &models.MobileBorrowRequest{
-		DeviceID: mobileDevice.ID,
-		UserID:   requester.ID,
-		Purpose:  "legacy mobile",
-		EndTime:  time.Now().Add(4 * time.Hour),
-		Status:   "approved",
+	mobileRequest := &models.BorrowRequest{
+		AssetType:      models.BorrowAssetTypeMobile,
+		AssetID:        &mobileDevice.ID,
+		RequesterID:    requester.ID,
+		ApproverUserID: &owner.ID,
+		Purpose:        "mobile request",
+		EndTime:        time.Now().Add(4 * time.Hour),
+		Status:         models.BorrowRequestStatusApproved,
 	}
 	if err := db.Create(mobileRequest).Error; err != nil {
-		t.Fatalf("create mobile borrow request: %v", err)
+		t.Fatalf("create unified mobile borrow request: %v", err)
 	}
 
-	if err := repo.MigrateLegacyBorrowRequests(); err != nil {
-		t.Fatalf("MigrateLegacyBorrowRequests returned error: %v", err)
-	}
-
-	items, err := repo.List(BorrowRequestListOptions{})
+	items, err := repo.ListByRequester(requester.ID)
 	if err != nil {
-		t.Fatalf("List returned error: %v", err)
+		t.Fatalf("ListByRequester returned error: %v", err)
 	}
 	if len(items) != 2 {
 		t.Fatalf("len(items) = %d, want 2", len(items))
@@ -202,30 +200,9 @@ func TestBorrowRequestRepositoryMigrateLegacyRequests(t *testing.T) {
 	}
 
 	if !foundPOS {
-		t.Fatalf("expected migrated POS borrow request")
+		t.Fatalf("expected POS borrow request")
 	}
 	if !foundMobile {
-		t.Fatalf("expected migrated mobile borrow request")
-	}
-}
-
-func TestBorrowRequestRepositoryMigrateLegacyRequestsSkipsMissingLegacyTables(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("failed to open test db: %v", err)
-	}
-
-	if err := db.AutoMigrate(
-		&models.User{},
-		&models.ScanResult{},
-		&models.MobileDevice{},
-		&models.BorrowRequest{},
-	); err != nil {
-		t.Fatalf("failed to migrate test db: %v", err)
-	}
-
-	repo := NewBorrowRequestRepository(db)
-	if err := repo.MigrateLegacyBorrowRequests(); err != nil {
-		t.Fatalf("MigrateLegacyBorrowRequests should ignore missing legacy tables, got error: %v", err)
+		t.Fatalf("expected mobile borrow request")
 	}
 }

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { borrowAPI } from '../../services/api';
+import { getRequestDisplayName, getRequestValue, splitRequestsByAssetType } from './myRequestsState';
 
 const STATUS_CONFIG = {
   pending: { bg: 'rgba(255, 149, 0, 0.12)', color: '#FF9500', text: '待审批' },
@@ -31,12 +32,8 @@ const MyRequestsTab = () => {
     }
   };
 
-  const posRequests = useMemo(
-    () => requests.filter((item) => item.asset_type === 'pos'),
-    [requests]
-  );
-  const mobileRequests = useMemo(
-    () => requests.filter((item) => item.asset_type === 'mobile'),
+  const { posRequests, mobileRequests } = useMemo(
+    () => splitRequestsByAssetType(requests),
     [requests]
   );
 
@@ -129,17 +126,19 @@ const MyRequestsTab = () => {
             <tbody>
               {currentRequests.map((request) => (
                 <tr key={request.id} style={styles.tr}>
-                  <td style={{ ...styles.td, fontWeight: '500' }}>{request.device_name || '--'}</td>
-                  {activeSubTab === 'pos' && <td style={styles.td}>{request.ip || '--'}</td>}
+                  <td style={{ ...styles.td, fontWeight: '500' }}>{getRequestDisplayName(request)}</td>
+                  {activeSubTab === 'pos' && <td style={styles.td}>{getRequestValue(request, 'ip', 'ip') || '--'}</td>}
                   <td style={{ ...styles.td, ...styles.tdWrap }}>{request.purpose || '--'}</td>
-                  <td style={styles.td}>{formatTime(request.end_time)}</td>
+                  <td style={styles.td}>{formatTime(getRequestValue(request, 'end_time', 'endTime'))}</td>
                   <td style={styles.td}>{getStatusBadge(request.status)}</td>
                   <td style={{ ...styles.td, ...styles.tdWrap }}>
-                    {request.status === 'rejected' && request.rejection_reason ? (
-                      <span style={{ color: '#FF3B30', whiteSpace: 'pre-wrap' }}>{request.rejection_reason}</span>
+                    {request.status === 'rejected' && getRequestValue(request, 'rejection_reason', 'rejectionReason') ? (
+                      <span style={{ color: '#FF3B30', whiteSpace: 'pre-wrap' }}>
+                        {getRequestValue(request, 'rejection_reason', 'rejectionReason')}
+                      </span>
                     ) : '--'}
                   </td>
-                  <td style={styles.td}>{formatTime(request.created_at)}</td>
+                  <td style={styles.td}>{formatTime(getRequestValue(request, 'created_at', 'createdAt'))}</td>
                 </tr>
               ))}
             </tbody>

@@ -5,30 +5,23 @@ import MyBorrowsTab from '../components/workspace/MyBorrowsTab';
 import MyDevicesTab from '../components/workspace/MyDevicesTab';
 import NotificationsTab from '../components/workspace/NotificationsTab';
 import PendingApprovalsTab from '../components/workspace/PendingApprovalsTab';
-
-const DEFAULT_TAB = 'requests';
-const AVAILABLE_TABS = ['approvals', 'requests', 'borrows', 'devices', 'notifications'];
+import { AVAILABLE_WORKSPACE_TABS, getWorkspaceTab } from './workspacePageState';
 
 const WorkspacePage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-  const initialTab = AVAILABLE_TABS.includes(tabFromUrl) ? tabFromUrl : DEFAULT_TAB;
+  const initialTab = getWorkspaceTab(tabFromUrl);
   const [activeTab, setActiveTab] = useState(initialTab);
 
   useEffect(() => {
-    if (!tabFromUrl) {
-      setSearchParams({ tab: DEFAULT_TAB }, { replace: true });
-      setActiveTab(DEFAULT_TAB);
+    const nextTab = getWorkspaceTab(tabFromUrl);
+    if (tabFromUrl !== nextTab) {
+      setSearchParams({ tab: nextTab }, { replace: true });
+    }
+    if (AVAILABLE_WORKSPACE_TABS.includes(nextTab)) {
+      setActiveTab(nextTab);
       return;
     }
-
-    if (AVAILABLE_TABS.includes(tabFromUrl)) {
-      setActiveTab(tabFromUrl);
-      return;
-    }
-
-    setSearchParams({ tab: DEFAULT_TAB }, { replace: true });
-    setActiveTab(DEFAULT_TAB);
   }, [tabFromUrl, setSearchParams]);
 
   const handleTabChange = (tabKey) => {
@@ -57,7 +50,7 @@ const WorkspacePage = () => {
       case 'notifications':
         return <NotificationsTab />;
       default:
-        return <MyRequestsTab />;
+        return <PendingApprovalsTab />;
     }
   };
 

@@ -110,10 +110,6 @@ func main() {
 	scanJobLogRepo := repository.NewScanJobLogRepository(db)
 	featureRequestRepo := repository.NewFeatureRequestRepository(db)
 
-	if err := borrowRequestRepo.MigrateLegacyBorrowRequests(); err != nil {
-		logger.Fatal("Failed to migrate legacy borrow requests", "error", err)
-	}
-
 	// Initialize services
 	authService := services.NewAuthService(userRepo)
 	scanService := services.NewScanService()

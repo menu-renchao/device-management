@@ -960,7 +960,7 @@ export const releaseDevice = async (merchantId) => {
 
 export const releaseMobileDevice = async (deviceId) => {
   const authAxios = createAuthAxios();
-  const response = await authAxios.post(`/mobile/devices/${deviceId}/release`);
+  const response = await authAxios.put(`/mobile/devices/${deviceId}/release`);
   return response.data;
 };
 
