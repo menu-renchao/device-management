@@ -5,24 +5,28 @@ import MyBorrowsTab from '../components/workspace/MyBorrowsTab';
 import MyDevicesTab from '../components/workspace/MyDevicesTab';
 import NotificationsTab from '../components/workspace/NotificationsTab';
 import PendingApprovalsTab from '../components/workspace/PendingApprovalsTab';
-import { AVAILABLE_WORKSPACE_TABS, getWorkspaceTab } from './workspacePageState';
+import { useAuth } from '../contexts/AuthContext';
+import { getAvailableWorkspaceTabs, getWorkspaceTab } from './workspacePageState';
 
 const WorkspacePage = () => {
+  const { isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-  const initialTab = getWorkspaceTab(tabFromUrl);
+  const isAdminUser = isAdmin();
+  const availableTabs = getAvailableWorkspaceTabs(isAdminUser);
+  const initialTab = getWorkspaceTab(tabFromUrl, { isAdmin: isAdminUser });
   const [activeTab, setActiveTab] = useState(initialTab);
 
   useEffect(() => {
-    const nextTab = getWorkspaceTab(tabFromUrl);
+    const nextTab = getWorkspaceTab(tabFromUrl, { isAdmin: isAdminUser });
     if (tabFromUrl !== nextTab) {
       setSearchParams({ tab: nextTab }, { replace: true });
     }
-    if (AVAILABLE_WORKSPACE_TABS.includes(nextTab)) {
+    if (availableTabs.includes(nextTab)) {
       setActiveTab(nextTab);
       return;
     }
-  }, [tabFromUrl, setSearchParams]);
+  }, [availableTabs, isAdminUser, tabFromUrl, setSearchParams]);
 
   const handleTabChange = (tabKey) => {
     setActiveTab(tabKey);
@@ -36,6 +40,7 @@ const WorkspacePage = () => {
     { key: 'devices', label: '我的设备', icon: 'M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z' },
     { key: 'notifications', label: '系统通知', icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z' },
   ];
+  const visibleTabs = tabs.filter((tab) => availableTabs.includes(tab.key));
 
   const renderContent = () => {
     switch (activeTab) {
@@ -58,7 +63,7 @@ const WorkspacePage = () => {
     <div style={styles.container}>
       <h2 style={styles.title}>工作台</h2>
       <div style={styles.tabsContainer}>
-        {tabs.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => handleTabChange(tab.key)}
