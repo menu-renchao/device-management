@@ -86,7 +86,7 @@ const WorkspacePage = () => {
 
 const styles = {
   container: {
-    padding: '24px',
+    padding: '24px 0',
     maxWidth: '1200px',
     margin: '0 auto',
   },
@@ -104,6 +104,10 @@ const styles = {
     padding: '4px',
     borderRadius: '10px',
     width: 'fit-content',
+    maxWidth: '100%',
+    overflowX: 'auto',
+    overflowY: 'hidden',
+    scrollbarWidth: 'thin',
   },
   tab: {
     display: 'flex',
@@ -118,6 +122,8 @@ const styles = {
     fontWeight: '500',
     color: '#86868B',
     transition: 'all 0.2s ease',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
   },
   activeTab: {
     backgroundColor: 'white',
