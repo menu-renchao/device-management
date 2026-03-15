@@ -62,7 +62,6 @@ func main() {
 	if err := db.AutoMigrate(autoMigrateModels()...); err != nil {
 		logger.Fatal("Failed to migrate database", "error", err)
 	}
-	backfillTemplateNeedRestart(db)
 
 	// Bootstrap first admin only from explicit environment configuration.
 	var adminCount int64
