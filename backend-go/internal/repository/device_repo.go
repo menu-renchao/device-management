@@ -86,7 +86,7 @@ func (r *DeviceRepository) ListScanResults(page, pageSize int, search string, ty
 	query = query.Where("scan_results.merchant_id IS NOT NULL AND TRIM(scan_results.merchant_id) != ''")
 	if search != "" {
 		searchPattern := "%" + search + "%"
-		query = query.Where("ip LIKE ? OR merchant_id LIKE ? OR name LIKE ? OR version LIKE ?",
+		query = query.Where("scan_results.ip LIKE ? OR scan_results.merchant_id LIKE ? OR scan_results.name LIKE ? OR scan_results.version LIKE ?",
 			searchPattern, searchPattern, searchPattern, searchPattern)
 	}
 

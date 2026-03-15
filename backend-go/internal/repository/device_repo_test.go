@@ -191,3 +191,28 @@ func TestDeviceRepositoryListScanResultsExcludesInvalidMerchantRows(t *testing.T
 		t.Fatalf("merchantID = %#v, want %q", results[0].MerchantID, validMerchantID)
 	}
 }
+
+func TestDeviceRepositoryListScanResultsSupportsSearchWithPropertyFilter(t *testing.T) {
+	db := openDeviceRepoTestDB(t)
+	repo := NewDeviceRepository(db)
+
+	seedScanResult(t, db, "merchant-match")
+	seedScanResult(t, db, "merchant-other")
+	seedDeviceProperty(t, db, "merchant-match", "QA资产")
+	seedDeviceProperty(t, db, "merchant-other", "自动化设备")
+
+	results, total, _, err := repo.ListScanResults(1, 20, "match", nil, []string{"QA资产", "自动化设备"}, false, 0)
+	if err != nil {
+		t.Fatalf("ListScanResults returned error: %v", err)
+	}
+
+	if total != 1 {
+		t.Fatalf("total = %d, want 1", total)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].MerchantID == nil || *results[0].MerchantID != "merchant-match" {
+		t.Fatalf("merchantID = %#v, want merchant-match", results[0].MerchantID)
+	}
+}
