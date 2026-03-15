@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 	"time"
 
 	"device-management/internal/middleware"
@@ -284,21 +285,11 @@ func (h *ScanHandler) GetDeviceDetails(c *gin.Context) {
 // saveScanResult saves a scan result to the database
 func (h *ScanHandler) saveScanResult(result map[string]interface{}) {
 	merchantID, _ := result["merchantId"].(string)
+	merchantID = strings.TrimSpace(merchantID)
 	if merchantID == "" {
-		// Handle device without merchant ID
-		ip, _ := result["ip"].(string)
-		existing, err := h.deviceRepo.GetScanResultByIPAndEmptyMerchant(ip)
-		if err == nil && existing != nil {
-			// Update existing
-			h.updateScanResultFromMap(existing, result)
-			h.deviceRepo.UpdateScanResult(existing)
-		} else {
-			// Create new
-			scanResult := h.createScanResultFromMap(result)
-			h.deviceRepo.CreateScanResult(scanResult)
-		}
 		return
 	}
+	result["merchantId"] = merchantID
 
 	// Check if device exists
 	existing, err := h.deviceRepo.GetScanResultByMerchantID(merchantID)

@@ -26,7 +26,7 @@ func openScanHandlerTestDB(t *testing.T) *gorm.DB {
 		t.Fatalf("failed to open test db: %v", err)
 	}
 
-	if err := db.AutoMigrate(&models.ScanResult{}, &models.ScanSession{}, &models.AutoScanConfig{}, &models.ScanJobLog{}); err != nil {
+	if err := db.AutoMigrate(&models.ScanResult{}, &models.DeviceProperty{}, &models.ScanSession{}, &models.AutoScanConfig{}, &models.ScanJobLog{}); err != nil {
 		t.Fatalf("failed to migrate test db: %v", err)
 	}
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getDeviceStatusPresentation, normalizeMerchantId } from './scanTableState.js';
 
 const ScanTable = ({
   devices = [],
@@ -219,7 +220,8 @@ const ScanTable = ({
         <tbody>
           {devices.map((device, index) => {
             const rowKey = device.id || `${device.ip}-${device.merchantId || index}`;
-            const hasMerchantId = !!device.merchantId;
+            const merchantId = normalizeMerchantId(device.merchantId);
+            const hasMerchantId = merchantId !== '';
             const isOnlineDevice = device.isOnline === true;
             const canOpen = isOnlineDevice && hasMerchantId;
             const canShowDetails = hasMerchantId;
@@ -236,15 +238,19 @@ const ScanTable = ({
             const canBackupRestoreDatabase = canManageLicense && typeof onBackupRestoreDatabase === 'function';
             const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow || canManageLicenseBackup || canBackupRestoreDatabase;
             const offlineTimeText = formatLastOnlineTime(device.lastOnlineTime);
-            const statusText = isOnlineDevice
-              ? (hasMerchantId ? '在线' : '服务异常')
+            let statusText = isOnlineDevice
+              ? '在线'
               : (offlineTimeText ? `离线 ${offlineTimeText}` : '离线');
-            const statusToneClassName = isOnlineDevice
-              ? (hasMerchantId ? 'online' : 'error')
+            let statusToneClassName = isOnlineDevice
+              ? 'online'
               : 'offline';
-            const statusDotClassName = isOnlineDevice
-              ? (hasMerchantId ? 'online-indicator' : 'error-indicator')
+            let statusDotClassName = isOnlineDevice
+              ? 'online-indicator'
               : 'offline-indicator';
+            const statusPresentation = getDeviceStatusPresentation(device, offlineTimeText);
+            statusText = statusPresentation.text;
+            statusToneClassName = statusPresentation.toneClassName;
+            statusDotClassName = statusPresentation.dotClassName;
             const merchantIdText = device.merchantId || (device.name && device.version ? 'Free Trials' : '——');
             const propertyText = (device.property || '').trim();
             const typeLower = (device.type || '').toLowerCase();

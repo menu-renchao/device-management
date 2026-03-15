@@ -61,6 +61,29 @@ func seedDeviceProperty(t *testing.T, db *gorm.DB, merchantID, property string) 
 	}
 }
 
+func seedCustomScanResult(t *testing.T, db *gorm.DB, ip string, merchantID *string) {
+	t.Helper()
+
+	deviceType := "PC"
+	name := "POS Device"
+	version := "1.0.0"
+	now := time.Now()
+	result := &models.ScanResult{
+		IP:             ip,
+		MerchantID:     merchantID,
+		Name:           &name,
+		Version:        &version,
+		Type:           &deviceType,
+		ScannedAt:      now,
+		IsOnline:       true,
+		LastOnlineTime: now,
+	}
+
+	if err := db.Create(result).Error; err != nil {
+		t.Fatalf("failed to seed custom scan result for ip %s: %v", ip, err)
+	}
+}
+
 func TestDeviceRepositoryListScanResultsTreatsMissingPropertyAsPC(t *testing.T) {
 	db := openDeviceRepoTestDB(t)
 	repo := NewDeviceRepository(db)
@@ -137,5 +160,34 @@ func TestDeviceRepositoryCreateScanResultCreatesDefaultPropertyRecord(t *testing
 	}
 	if property.Property != "PC" {
 		t.Fatalf("property.Property = %q, want PC", property.Property)
+	}
+}
+
+func TestDeviceRepositoryListScanResultsExcludesInvalidMerchantRows(t *testing.T) {
+	db := openDeviceRepoTestDB(t)
+	repo := NewDeviceRepository(db)
+
+	validMerchantID := "M123"
+	blankMerchantID := ""
+	whitespaceMerchantID := "   "
+
+	seedCustomScanResult(t, db, "10.0.0.1", &validMerchantID)
+	seedCustomScanResult(t, db, "10.0.0.2", &blankMerchantID)
+	seedCustomScanResult(t, db, "10.0.0.3", &whitespaceMerchantID)
+	seedCustomScanResult(t, db, "10.0.0.4", nil)
+
+	results, total, _, err := repo.ListScanResults(1, 20, "", nil, nil, false, 0)
+	if err != nil {
+		t.Fatalf("ListScanResults returned error: %v", err)
+	}
+
+	if total != 1 {
+		t.Fatalf("total = %d, want 1", total)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].MerchantID == nil || *results[0].MerchantID != validMerchantID {
+		t.Fatalf("merchantID = %#v, want %q", results[0].MerchantID, validMerchantID)
 	}
 }

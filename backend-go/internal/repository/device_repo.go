@@ -83,6 +83,7 @@ func (r *DeviceRepository) ListScanResults(page, pageSize int, search string, ty
 	var total int64
 
 	query := r.db.Model(&models.ScanResult{})
+	query = query.Where("scan_results.merchant_id IS NOT NULL AND TRIM(scan_results.merchant_id) != ''")
 	if search != "" {
 		searchPattern := "%" + search + "%"
 		query = query.Where("ip LIKE ? OR merchant_id LIKE ? OR name LIKE ? OR version LIKE ?",
