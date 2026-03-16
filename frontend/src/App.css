@@ -769,6 +769,36 @@ body {
   gap: 12px;
 }
 
+.db-backup-cross-filter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.db-backup-cross-filter-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--apple-text-secondary);
+}
+
+.db-backup-cross-select {
+  min-width: 220px;
+  max-width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--apple-radius-sm);
+  border: 1px solid rgba(255, 149, 0, 0.28);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--apple-text);
+  font-size: 13px;
+}
+
+.db-backup-cross-select:focus {
+  outline: none;
+  border-color: rgba(255, 149, 0, 0.58);
+  box-shadow: 0 0 0 3px rgba(255, 149, 0, 0.14);
+}
+
 .db-backup-cross-group {
   display: flex;
   flex-direction: column;

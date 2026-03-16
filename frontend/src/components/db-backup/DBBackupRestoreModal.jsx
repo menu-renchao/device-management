@@ -13,11 +13,10 @@ const DBBackupRestoreModal = ({ isOpen, onClose, device }) => {
   const [restoringUpload, setRestoringUpload] = useState(false);
   const [restartAfterRestore, setRestartAfterRestore] = useState(false);
   const [crossMerchantLoading, setCrossMerchantLoading] = useState(false);
-  const [crossMerchantLoaded, setCrossMerchantLoaded] = useState(false);
-  const [crossMerchantExpanded, setCrossMerchantExpanded] = useState(false);
   const [crossMerchantGroups, setCrossMerchantGroups] = useState([]);
   const [licenseBackupReady, setLicenseBackupReady] = useState(null);
   const [crossRestoringKey, setCrossRestoringKey] = useState('');
+  const [selectedSourceMerchantId, setSelectedSourceMerchantId] = useState('');
 
   const merchantId = (device?.merchantId || '').trim();
   const isLinuxDevice = useMemo(() => {
@@ -29,11 +28,10 @@ const DBBackupRestoreModal = ({ isOpen, onClose, device }) => {
     if (!isOpen) return;
     setUploadFile(null);
     setRestartAfterRestore(false);
-    setCrossMerchantExpanded(false);
     setCrossMerchantGroups([]);
-    setCrossMerchantLoaded(false);
     setLicenseBackupReady(null);
     setCrossRestoringKey('');
+    setSelectedSourceMerchantId('');
     if (merchantId) {
       loadBackups();
       loadCrossMerchantBackups();
@@ -53,19 +51,24 @@ const DBBackupRestoreModal = ({ isOpen, onClose, device }) => {
     }
   };
 
-  const loadCrossMerchantBackups = async ({ expand = false } = {}) => {
+  const loadCrossMerchantBackups = async () => {
     if (!merchantId) return;
     setCrossMerchantLoading(true);
     try {
       const result = await deviceAPI.listAllDatabaseBackups(merchantId);
+      const groups = result.data?.groups || [];
       setLicenseBackupReady(Boolean(result.data?.license_backup_ready));
-      setCrossMerchantGroups(result.data?.groups || []);
-      setCrossMerchantLoaded(true);
-      if (expand) {
-        setCrossMerchantExpanded(true);
-      }
+      setCrossMerchantGroups(groups);
+      setSelectedSourceMerchantId((current) => {
+        if (groups.some((group) => group.source_merchant_id === current)) {
+          return current;
+        }
+        return groups[0]?.source_merchant_id || '';
+      });
     } catch (error) {
       setLicenseBackupReady(false);
+      setCrossMerchantGroups([]);
+      setSelectedSourceMerchantId('');
       toast.error(error.response?.data?.error || '加载其他设备数据库备份失败');
     } finally {
       setCrossMerchantLoading(false);
@@ -160,20 +163,6 @@ const DBBackupRestoreModal = ({ isOpen, onClose, device }) => {
     }
   };
 
-  const handleOpenCrossMerchantImport = async () => {
-    if (crossMerchantExpanded) {
-      setCrossMerchantExpanded(false);
-      return;
-    }
-
-    if (!crossMerchantLoaded) {
-      await loadCrossMerchantBackups({ expand: true });
-      return;
-    }
-
-    setCrossMerchantExpanded(true);
-  };
-
   const handleRestoreFromOtherMerchant = async (sourceMerchantId, fileName) => {
     const ok = await toast.confirm(
       `确定将来源 MID ${sourceMerchantId} 的备份 ${fileName} 导入到当前设备 MID ${merchantId} 吗？此操作会覆盖当前设备数据库。导入前请确认当前设备 License 已完成备份。`,
@@ -247,6 +236,10 @@ const DBBackupRestoreModal = ({ isOpen, onClose, device }) => {
     if (Number.isNaN(date.getTime())) return '-';
     return date.toLocaleString('zh-CN');
   };
+
+  const selectedCrossMerchantGroup = crossMerchantGroups.find(
+    (group) => group.source_merchant_id === selectedSourceMerchantId
+  );
 
   if (!isOpen || !device) return null;
 
@@ -360,24 +353,15 @@ const DBBackupRestoreModal = ({ isOpen, onClose, device }) => {
             <div className="db-backup-cross-header">
               <div>
                 <div className="db-backup-cross-title">导入其他设备数据</div>
-                <div className="db-backup-cross-subtitle">浏览其他可访问 MID 的服务端数据库备份，并导入到当前设备。</div>
               </div>
               <div className="db-backup-cross-actions">
                 <button
                   type="button"
                   className="db-backup-btn db-backup-btn-secondary"
-                  onClick={() => loadCrossMerchantBackups({ expand: crossMerchantExpanded })}
+                  onClick={loadCrossMerchantBackups}
                   disabled={crossMerchantLoading}
                 >
                   {crossMerchantLoading ? '检查中...' : '检查备份'}
-                </button>
-                <button
-                  type="button"
-                  className="db-backup-btn db-backup-btn-warning"
-                  onClick={handleOpenCrossMerchantImport}
-                  disabled={crossMerchantLoading || licenseBackupReady === false}
-                >
-                  {crossMerchantLoading ? '加载中...' : crossMerchantExpanded ? '收起其他设备数据' : '导入其他设备数据'}
                 </button>
               </div>
             </div>
@@ -388,59 +372,82 @@ const DBBackupRestoreModal = ({ isOpen, onClose, device }) => {
               </div>
             )}
 
-            {licenseBackupReady === true && crossMerchantExpanded && (
+            {licenseBackupReady === true && (
               <div className="db-backup-cross-groups">
                 {crossMerchantGroups.length === 0 ? (
                   <div className="db-backup-empty db-backup-empty-inline">暂无可导入的其他 MID 服务端备份</div>
                 ) : (
-                  crossMerchantGroups.map((group) => (
-                    <div key={group.source_merchant_id} className="db-backup-cross-group">
-                      <div className="db-backup-cross-group-header">
-                        <div className="db-backup-cross-group-title">来源 MID：{group.source_merchant_id}</div>
-                        <div className="db-backup-cross-group-meta">{group.total || group.items?.length || 0} 份备份</div>
-                      </div>
-
-                      <div className="db-backup-table-wrap db-backup-table-wrap-compact">
-                        <table className="db-backup-table">
-                          <thead>
-                            <tr>
-                              <th>文件名</th>
-                              <th>版本</th>
-                              <th>大小</th>
-                              <th>时间</th>
-                              <th>操作</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(group.items || []).map((item) => {
-                              const restoreKey = `${group.source_merchant_id}:${item.name}`;
-                              const isRestoringThisItem = crossRestoringKey === restoreKey;
-                              return (
-                                <tr key={restoreKey}>
-                                  <td className="db-backup-cell-filename" title={item.name}>{item.name}</td>
-                                  <td>{item.version || '-'}</td>
-                                  <td>{formatSize(item.size)}</td>
-                                  <td>{formatTime(item.mod_time)}</td>
-                                  <td>
-                                    <div className="db-backup-row-actions">
-                                      <button
-                                        type="button"
-                                        className="db-backup-action db-backup-action-restore"
-                                        onClick={() => handleRestoreFromOtherMerchant(group.source_merchant_id, item.name)}
-                                        disabled={isAnyRestoreRunning}
-                                      >
-                                        {isRestoringThisItem ? '导入中...' : '导入到当前设备'}
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                  <>
+                    <div className="db-backup-cross-filter">
+                      <label className="db-backup-cross-filter-label" htmlFor="db-backup-source-mid">
+                        选择 MID
+                      </label>
+                      <select
+                        id="db-backup-source-mid"
+                        className="db-backup-cross-select"
+                        value={selectedSourceMerchantId}
+                        onChange={(e) => setSelectedSourceMerchantId(e.target.value)}
+                        disabled={crossMerchantLoading || isAnyRestoreRunning}
+                      >
+                        {crossMerchantGroups.map((group) => (
+                          <option key={group.source_merchant_id} value={group.source_merchant_id}>
+                            {group.source_merchant_id}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                  ))
+
+                    {selectedCrossMerchantGroup ? (
+                      <div className="db-backup-cross-group">
+                        <div className="db-backup-cross-group-header">
+                          <div className="db-backup-cross-group-title">来源 MID：{selectedCrossMerchantGroup.source_merchant_id}</div>
+                          <div className="db-backup-cross-group-meta">{selectedCrossMerchantGroup.total || selectedCrossMerchantGroup.items?.length || 0} 份备份</div>
+                        </div>
+
+                        <div className="db-backup-table-wrap db-backup-table-wrap-compact">
+                          <table className="db-backup-table">
+                            <thead>
+                              <tr>
+                                <th>文件名</th>
+                                <th>版本</th>
+                                <th>大小</th>
+                                <th>时间</th>
+                                <th>操作</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(selectedCrossMerchantGroup.items || []).map((item) => {
+                                const restoreKey = `${selectedCrossMerchantGroup.source_merchant_id}:${item.name}`;
+                                const isRestoringThisItem = crossRestoringKey === restoreKey;
+                                return (
+                                  <tr key={restoreKey}>
+                                    <td className="db-backup-cell-filename" title={item.name}>{item.name}</td>
+                                    <td>{item.version || '-'}</td>
+                                    <td>{formatSize(item.size)}</td>
+                                    <td>{formatTime(item.mod_time)}</td>
+                                    <td>
+                                      <div className="db-backup-row-actions">
+                                        <button
+                                          type="button"
+                                          className="db-backup-action db-backup-action-restore"
+                                          onClick={() => handleRestoreFromOtherMerchant(selectedCrossMerchantGroup.source_merchant_id, item.name)}
+                                          disabled={isAnyRestoreRunning}
+                                        >
+                                          {isRestoringThisItem ? '导入中...' : '导入到当前设备'}
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="db-backup-empty db-backup-empty-inline">请先选择要查看的来源 MID</div>
+                    )}
+                  </>
                 )}
               </div>
             )}
