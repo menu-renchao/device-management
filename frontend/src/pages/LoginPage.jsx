@@ -85,7 +85,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    background: 'linear-gradient(180deg, #d2d6da 0%, #bcc2c8 100%)',
     padding: '16px',
   },
   card: {
