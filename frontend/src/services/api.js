@@ -297,6 +297,12 @@ export const deviceAPI = {
     return response.data;
   },
 
+  listAllDatabaseBackups: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.get(`/device/db/backups/all?merchant_id=${encodeURIComponent(merchantId)}`);
+    return response.data;
+  },
+
   // 删除服务端备份
   deleteDatabaseBackup: async (merchantId, fileName) => {
     const authAxios = createAuthAxios();
@@ -311,12 +317,18 @@ export const deviceAPI = {
   },
 
   // 从服务端备份恢复
-  restoreDatabaseFromServer: async (merchantId, fileName, restartPosAfterRestore = false) => {
+  restoreDatabaseFromServer: async (merchantId, fileName, restartPosAfterRestore = false, sourceMerchantId = '') => {
     const authAxios = createAuthAxios();
-    const response = await authAxios.post('/device/db/restore/server', {
+    const payload = {
       merchant_id: merchantId,
       file_name: fileName,
       restart_pos_after_restore: restartPosAfterRestore
+    };
+    if (sourceMerchantId) {
+      payload.source_merchant_id = sourceMerchantId;
+    }
+    const response = await authAxios.post('/device/db/restore/server', {
+      ...payload
     });
     return response.data;
   },

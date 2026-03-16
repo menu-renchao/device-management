@@ -199,6 +199,7 @@ func main() {
 			device.POST("/license/restore/upload", deviceHandler.RestoreLicenseFromUpload)
 			device.POST("/db/backup", deviceHandler.BackupDatabase)
 			device.GET("/db/backups", deviceHandler.ListDatabaseBackups)
+			device.GET("/db/backups/all", deviceHandler.ListAllDatabaseBackups)
 			device.GET("/db/backups/download", deviceHandler.DownloadDatabaseBackup)
 			device.DELETE("/db/backups", deviceHandler.DeleteDatabaseBackup)
 			device.POST("/db/restore/server", deviceHandler.RestoreDatabaseFromServer)

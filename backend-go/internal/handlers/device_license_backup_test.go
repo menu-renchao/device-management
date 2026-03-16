@@ -69,7 +69,7 @@ func openDeviceLicenseHandlerTestDB(t *testing.T) *gorm.DB {
 		t.Fatalf("failed to open test db: %v", err)
 	}
 
-	if err := db.AutoMigrate(&models.User{}, &models.ScanResult{}, &models.DeviceOccupancy{}); err != nil {
+	if err := db.AutoMigrate(&models.User{}, &models.ScanResult{}, &models.DeviceOccupancy{}, &models.DeviceProperty{}); err != nil {
 		t.Fatalf("failed to migrate test db: %v", err)
 	}
 

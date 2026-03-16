@@ -19,9 +19,11 @@ type licenseBackupManager interface {
 type dbBackupManager interface {
 	CreateBackup(host, merchantID, version string) (*services.DBBackupFileInfo, error)
 	ListBackups(merchantID string) ([]services.DBBackupFileInfo, error)
+	ListBackupGroups(merchantIDs []string, excludeMerchantID string) ([]services.DBBackupGroup, error)
 	OpenBackupFile(merchantID, fileName string) (*os.File, int64, error)
 	DeleteBackup(merchantID, fileName string) error
 	RestoreFromServerFile(host, merchantID, fileName string) error
+	RestoreFromMerchantBackupFile(host, sourceMerchantID, fileName string) error
 	RestoreFromUploadFile(host, filePath string) error
 }
 

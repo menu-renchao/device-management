@@ -538,6 +538,12 @@ body {
   padding: 10px 12px;
 }
 
+.db-backup-hint-strong {
+  color: #8b1e00;
+  background: rgba(255, 59, 48, 0.08);
+  border: 1px solid rgba(255, 59, 48, 0.18);
+}
+
 .db-backup-checkbox {
   display: flex;
   align-items: center;
@@ -710,6 +716,91 @@ body {
   flex-shrink: 0;
 }
 
+.db-backup-cross-card {
+  padding: 14px 16px;
+  background: linear-gradient(180deg, rgba(255, 249, 240, 0.9), rgba(255, 255, 255, 0.95));
+  border-radius: var(--apple-radius);
+  border: 1px solid rgba(255, 149, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.db-backup-cross-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.db-backup-cross-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--apple-text);
+}
+
+.db-backup-cross-subtitle {
+  font-size: 12px;
+  color: var(--apple-text-secondary);
+  margin-top: 4px;
+  max-width: 460px;
+}
+
+.db-backup-cross-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.db-backup-cross-warning {
+  font-size: 12px;
+  color: #8b1e00;
+  background: rgba(255, 59, 48, 0.08);
+  border: 1px solid rgba(255, 59, 48, 0.18);
+  border-radius: var(--apple-radius-sm);
+  padding: 10px 12px;
+}
+
+.db-backup-cross-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.db-backup-cross-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.db-backup-cross-group-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.db-backup-cross-group-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--apple-text);
+}
+
+.db-backup-cross-group-meta {
+  font-size: 12px;
+  color: var(--apple-text-secondary);
+}
+
+.db-backup-table-wrap-compact {
+  min-height: 0;
+}
+
+.db-backup-empty-inline {
+  min-height: 120px;
+}
+
 .db-backup-upload-title {
   font-size: 13px;
   font-weight: 600;
@@ -760,6 +851,20 @@ body {
   font-size: 12px;
   color: var(--apple-gray);
   margin-top: 6px;
+}
+
+@media (max-width: 720px) {
+  .db-backup-toolbar,
+  .db-backup-cross-actions,
+  .db-backup-upload-row,
+  .db-backup-cross-group-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .db-backup-cross-header {
+    flex-direction: column;
+  }
 }
 
 .remark-input {
