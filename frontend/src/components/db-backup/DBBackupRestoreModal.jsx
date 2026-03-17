@@ -371,6 +371,11 @@ const DBBackupRestoreModal = ({ isOpen, onClose, device }) => {
                 当前设备尚未备份 License，无法导入其他设备数据。请先在“License备份/导入”中至少创建一份当前设备的 License 服务端备份。
               </div>
             )}
+            {licenseBackupReady === true && (
+              <div className="db-backup-cross-warning">
+                警告：导入数据后，务必释放license或者恢复原设备license！
+              </div>
+            )}
 
             {licenseBackupReady === true && (
               <div className="db-backup-cross-groups">
