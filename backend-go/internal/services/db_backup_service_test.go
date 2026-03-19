@@ -7,6 +7,20 @@ import (
 	"time"
 )
 
+func TestNewDBBackupServiceUsesShohokuDefaults(t *testing.T) {
+	service := NewDBBackupService()
+
+	if service.dbUser != "shohoku" {
+		t.Fatalf("dbUser = %q, want %q", service.dbUser, "shohoku")
+	}
+	if service.dbPort != 22108 {
+		t.Fatalf("dbPort = %d, want %d", service.dbPort, 22108)
+	}
+	if service.dbName != "kpos" {
+		t.Fatalf("dbName = %q, want %q", service.dbName, "kpos")
+	}
+}
+
 func TestDBBackupServiceListBackupGroupsExcludesTargetAndSortsNewestFirst(t *testing.T) {
 	rootDir := t.TempDir()
 

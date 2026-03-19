@@ -18,7 +18,7 @@ import (
 
 const (
 	defaultDBBackupPort     = 22108
-	defaultDBBackupUser     = "root"
+	defaultDBBackupUser     = "shohoku"
 	defaultDBBackupPassword = "N0mur@4$99!"
 	defaultDBBackupDatabase = "kpos"
 )

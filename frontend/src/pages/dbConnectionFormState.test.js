@@ -12,7 +12,7 @@ test('createPendingDBConnectionForm leaves password empty while saved connection
     host: '192.168.1.10',
     port: 22108,
     database_name: 'kpos',
-    username: 'root',
+    username: 'shohoku',
     password: '',
   });
 });

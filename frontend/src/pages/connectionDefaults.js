@@ -5,7 +5,7 @@ export const DEFAULT_LINUX_PASSWORD = 'M2ei#a$19!';
 export const DEFAULT_DB_TYPE = 'mysql';
 export const DEFAULT_DB_PORT = 22108;
 export const DEFAULT_DB_NAME = 'kpos';
-export const DEFAULT_DB_USER = 'root';
+export const DEFAULT_DB_USER = 'shohoku';
 export const DEFAULT_DB_PASSWORD = 'N0mur@4$99!';
 
 export function createDefaultLinuxConnectionForm(host = '') {
