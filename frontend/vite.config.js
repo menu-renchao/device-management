@@ -6,6 +6,8 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3000,
+	  // 添加这一行，允许特定主机访问
+    allowedHosts: ['10458242houj9.vicp.fun', 'device.menusifu.cloud'], // 将花生壳域名和您的自定义域名都加进去
     proxy: {
       '/api': {
         target: 'http://localhost:5000',

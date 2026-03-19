@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
+import { getDBPasswordPlaceholder } from './connectionPanelState.js';
 
 const ConnectionPanel = ({
   form,
+  hasSavedPassword = false,
   onFormChange,
   onTest,
   testing,
@@ -71,7 +73,7 @@ const ConnectionPanel = ({
             type={showPassword ? 'text' : 'password'}
             value={form.password}
             onChange={(e) => onFormChange('password', e.target.value)}
-            placeholder="请输入数据库密码"
+            placeholder={getDBPasswordPlaceholder(hasSavedPassword, form.password)}
             style={{ ...styles.input, ...styles.passwordInput }}
           />
           <button type="button" onClick={() => setShowPassword(!showPassword)} style={styles.toggleBtn}>

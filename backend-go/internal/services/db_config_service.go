@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -20,12 +21,13 @@ import (
 )
 
 type DBConnectionInput struct {
-	DBType       string `json:"db_type"`
-	Host         string `json:"host"`
-	Port         int    `json:"port"`
-	DatabaseName string `json:"database_name"`
-	Username     string `json:"username"`
-	Password     string `json:"password"`
+	DBType           string `json:"db_type"`
+	Host             string `json:"host"`
+	Port             int    `json:"port"`
+	DatabaseName     string `json:"database_name"`
+	Username         string `json:"username"`
+	Password         string `json:"password"`
+	UseSavedPassword bool   `json:"use_saved_password"`
 }
 
 type ExecuteTemplatesInput struct {
@@ -130,17 +132,12 @@ func (s *DBConfigService) TestConnection(input DBConnectionInput) error {
 		input.Port = 3306
 	}
 
-	db, err := openMySQL(input)
+	db, err := openAndPingMySQL(input)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("连接失败: %w", err)
-	}
 	return nil
 }
 
@@ -152,31 +149,46 @@ func (s *DBConfigService) TestConnectionForMerchant(merchantID string, input DBC
 	if err != nil {
 		return err
 	}
-	if existing != nil {
-		if strings.TrimSpace(input.DBType) == "" {
-			input.DBType = existing.DBType
-		}
-		if strings.TrimSpace(input.Host) == "" {
-			input.Host = existing.Host
-		}
-		if input.Port <= 0 {
-			input.Port = existing.Port
-		}
-		if strings.TrimSpace(input.DatabaseName) == "" {
-			input.DatabaseName = existing.DatabaseName
-		}
-		if strings.TrimSpace(input.Username) == "" {
-			input.Username = existing.Username
-		}
-		if strings.TrimSpace(input.Password) == "" {
-			decrypted, decErr := s.decryptConnection(existing)
-			if decErr != nil {
-				return decErr
-			}
-			input.Password = decrypted.Password
-		}
+	input, err = s.resolveTestConnectionInput(input, existing)
+	if err != nil {
+		return err
 	}
 	return s.TestConnection(input)
+}
+
+func (s *DBConfigService) resolveTestConnectionInput(input DBConnectionInput, existing *models.DeviceDBConnection) (DBConnectionInput, error) {
+	if existing == nil {
+		return input, nil
+	}
+
+	if strings.TrimSpace(input.DBType) == "" {
+		input.DBType = existing.DBType
+	}
+	if strings.TrimSpace(input.Host) == "" {
+		input.Host = existing.Host
+	}
+	if input.Port <= 0 {
+		input.Port = existing.Port
+	}
+	if strings.TrimSpace(input.DatabaseName) == "" {
+		input.DatabaseName = existing.DatabaseName
+	}
+	if strings.TrimSpace(input.Username) == "" {
+		input.Username = existing.Username
+	}
+	if strings.TrimSpace(input.Password) != "" {
+		return input, nil
+	}
+	if !input.UseSavedPassword {
+		return DBConnectionInput{}, errors.New("database password is required, or set use_saved_password=true")
+	}
+
+	decrypted, err := s.decryptConnection(existing)
+	if err != nil {
+		return DBConnectionInput{}, err
+	}
+	input.Password = decrypted.Password
+	return input, nil
 }
 
 func (s *DBConfigService) ExecuteTemplates(input ExecuteTemplatesInput) (*models.DBSQLExecuteTask, []models.DBSQLExecuteTaskItem, error) {
@@ -272,7 +284,7 @@ func (s *DBConfigService) ExecuteTemplates(input ExecuteTemplatesInput) (*models
 		return nil, nil, err
 	}
 
-	db, err := openMySQL(dbInput)
+	db, err := openAndPingMySQL(dbInput)
 	if err != nil {
 		return s.finishTaskOnError(task, len(statements), fmt.Errorf("创建数据库连接失败: %w", err))
 	}
@@ -458,4 +470,125 @@ func openMySQL(input DBConnectionInput) (*sql.DB, error) {
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(30 * time.Second)
 	return db, nil
+}
+
+func openAndPingMySQL(input DBConnectionInput) (*sql.DB, error) {
+	hosts := mysqlConnectionHosts(input.Host, getLocalIPv4s())
+	var lastErr error
+
+	for _, host := range hosts {
+		candidate := input
+		candidate.Host = host
+
+		db, err := openMySQL(candidate)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		pingErr := db.PingContext(ctx)
+		cancel()
+		if pingErr == nil {
+			return db, nil
+		}
+
+		lastErr = pingErr
+		_ = db.Close()
+	}
+
+	if lastErr == nil {
+		lastErr = errors.New("mysql connection failed")
+	}
+	return nil, fmt.Errorf("connection failed: %w", lastErr)
+}
+
+func mysqlConnectionHosts(host string, localIPs []string) []string {
+	trimmedHost := strings.TrimSpace(host)
+	if trimmedHost == "" {
+		return nil
+	}
+
+	hosts := []string{trimmedHost}
+	if isLocalIPv4(trimmedHost, localIPs) {
+		hosts = append(hosts, "localhost", "127.0.0.1")
+	}
+
+	return uniqueStrings(hosts)
+}
+
+func isLocalIPv4(host string, localIPs []string) bool {
+	ip := net.ParseIP(strings.TrimSpace(host))
+	if ip == nil || ip.To4() == nil {
+		return false
+	}
+	if ip.IsLoopback() {
+		return true
+	}
+
+	for _, localIP := range localIPs {
+		if strings.TrimSpace(localIP) == ip.String() {
+			return true
+		}
+	}
+	return false
+}
+
+func getLocalIPv4s() []string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+
+	ips := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, iface := range ifaces {
+		addrs, addrErr := iface.Addrs()
+		if addrErr != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch value := addr.(type) {
+			case *net.IPNet:
+				ip = value.IP
+			case *net.IPAddr:
+				ip = value.IP
+			}
+
+			ip = ip.To4()
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+
+			normalized := ip.String()
+			if _, exists := seen[normalized]; exists {
+				continue
+			}
+			seen[normalized] = struct{}{}
+			ips = append(ips, normalized)
+		}
+	}
+	return ips
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return values
+	}
+
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
 }

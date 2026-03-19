@@ -7,12 +7,16 @@ import ConnectionPanel from '../components/db-config/ConnectionPanel';
 import TemplateModal from '../components/db-config/TemplateModal';
 import ExecuteResultPanel from '../components/db-config/ExecuteResultPanel';
 import {
-  createDefaultDBConnectionForm,
   DEFAULT_DB_NAME,
   DEFAULT_DB_PORT,
   DEFAULT_DB_TYPE,
   DEFAULT_DB_USER,
 } from './connectionDefaults';
+import {
+  createPendingDBConnectionForm,
+  mergeLoadedDBConnectionForm,
+} from './dbConnectionFormState.js';
+import { buildDBConnectionPayload } from './dbConnectionRequestState.js';
 
 const TEMPLATE_FETCH_PAGE_SIZE = 100;
 
@@ -26,7 +30,7 @@ const DBConfigPage = () => {
   const toast = useToast();
   const deviceIP = (device?.ip || '').trim();
 
-  const [connectionForm, setConnectionForm] = useState(() => createDefaultDBConnectionForm(device?.ip || ''));
+  const [connectionForm, setConnectionForm] = useState(() => createPendingDBConnectionForm(device?.ip || ''));
   const [hasSavedPassword, setHasSavedPassword] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
 
@@ -94,7 +98,7 @@ const DBConfigPage = () => {
 
   useEffect(() => {
     if (!merchantId) return;
-    setConnectionForm(createDefaultDBConnectionForm(deviceIP));
+    setConnectionForm(createPendingDBConnectionForm(deviceIP));
     setHasSavedPassword(false);
   }, [merchantId, deviceIP]);
 
@@ -107,19 +111,12 @@ const DBConfigPage = () => {
         const connection = result.data?.connection;
         if (!connection) {
           setHasSavedPassword(false);
+          setConnectionForm((prev) => mergeLoadedDBConnectionForm(prev, null, deviceIP));
           return;
         }
 
         setHasSavedPassword(Boolean(connection.password_set));
-        setConnectionForm((prev) => ({
-          ...prev,
-          db_type: connection.db_type || DEFAULT_DB_TYPE,
-          host: connection.host || deviceIP || prev.host,
-          port: connection.port || DEFAULT_DB_PORT,
-          database_name: connection.database_name || DEFAULT_DB_NAME,
-          username: connection.username || DEFAULT_DB_USER,
-          password: '',
-        }));
+        setConnectionForm((prev) => mergeLoadedDBConnectionForm(prev, connection, deviceIP));
       } catch (error) {
         if (error.response?.status !== 404) {
           console.error('Failed to load DB connection:', error);
@@ -144,19 +141,13 @@ const DBConfigPage = () => {
     if (field === 'host') {
       return;
     }
-    if (field === 'password') {
-      setHasSavedPassword(false);
-    }
     setConnectionForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const buildConnectionPayload = () => ({
-    db_type: connectionForm.db_type || DEFAULT_DB_TYPE,
-    host: deviceIP || connectionForm.host.trim(),
-    port: Number(connectionForm.port) > 0 ? Number(connectionForm.port) : DEFAULT_DB_PORT,
-    database_name: (connectionForm.database_name || '').trim() || DEFAULT_DB_NAME,
-    username: (connectionForm.username || '').trim(),
-    password: (connectionForm.password || '').trim(),
+  const buildConnectionPayloadForRequest = () => buildDBConnectionPayload({
+    form: connectionForm,
+    deviceIP,
+    hasSavedPassword,
   });
 
   const validateConnection = (form) => {
@@ -180,7 +171,7 @@ const DBConfigPage = () => {
   };
 
   const ensureConnectionSynced = async () => {
-    const payload = buildConnectionPayload();
+    const payload = buildConnectionPayloadForRequest();
     if (!validateConnection(payload)) {
       return null;
     }
@@ -318,7 +309,7 @@ const DBConfigPage = () => {
       toast.warning('请先选择要执行的模板');
       return;
     }
-    const payload = buildConnectionPayload();
+    const payload = buildConnectionPayloadForRequest();
     if (!validateConnection(payload)) {
       return;
     }
@@ -406,6 +397,7 @@ const DBConfigPage = () => {
 
       <ConnectionPanel
         form={connectionForm}
+        hasSavedPassword={hasSavedPassword}
         onFormChange={setFormField}
         onTest={handleTestConnection}
         testing={testingConnection}
