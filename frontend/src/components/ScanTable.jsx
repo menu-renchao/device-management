@@ -355,7 +355,7 @@ const ScanTable = ({
                       className="btn btn-sm btn-primary"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onOpenDevice(device.ip);
+                        onOpenDevice(device);
                       }}
                     >
                       打开

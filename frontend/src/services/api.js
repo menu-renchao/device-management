@@ -143,6 +143,12 @@ export const scanAPI = {
 
 // 设备占用 API（需要认证）
 export const deviceAPI = {
+  getPosAccess: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.get(`/device/${encodeURIComponent(merchantId)}/pos-access`);
+    return response.data;
+  },
+
   // 获取所有占用信息
   getOccupancies: async () => {
     const authAxios = createAuthAxios();

@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +30,17 @@ type DeviceHandler struct {
 	dbBackupService     dbBackupManager
 	linuxService        *services.LinuxService
 	accessService       *services.AssetAccessService
+	posAccessService    posAccessResolver
+	deviceWebAccessLogRepo deviceWebAccessLogger
+}
+
+type posAccessResolver interface {
+	ResolveAccessInfo(merchantID string) (*services.POSAccessInfo, error)
+	ResolveMerchantIDFromProxyHost(host string) (string, bool)
+}
+
+type deviceWebAccessLogger interface {
+	Create(log *models.DeviceWebAccessLog) error
 }
 
 func NewDeviceHandler(
@@ -37,6 +51,8 @@ func NewDeviceHandler(
 	dbBackupService dbBackupManager,
 	linuxService *services.LinuxService,
 	accessService *services.AssetAccessService,
+	posAccessService posAccessResolver,
+	deviceWebAccessLogRepo deviceWebAccessLogger,
 ) *DeviceHandler {
 	return &DeviceHandler{
 		deviceRepo:          deviceRepo,
@@ -46,6 +62,8 @@ func NewDeviceHandler(
 		dbBackupService:     dbBackupService,
 		linuxService:        linuxService,
 		accessService:       accessService,
+		posAccessService:    posAccessService,
+		deviceWebAccessLogRepo: deviceWebAccessLogRepo,
 	}
 }
 
@@ -58,6 +76,252 @@ type SetOccupancyRequest struct {
 
 type SubmitClaimRequest struct {
 	MerchantID string `json:"merchant_id" binding:"required"`
+}
+
+func (h *DeviceHandler) GetPOSAccess(c *gin.Context) {
+	if h.posAccessService == nil {
+		response.InternalError(c, "POS access service unavailable")
+		return
+	}
+
+	info, err := h.posAccessService.ResolveAccessInfo(c.Param("merchant_id"))
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	response.Success(c, gin.H{
+		"merchantId":     info.MerchantID,
+		"ip":             info.IP,
+		"port":           info.Port,
+		"directUrl":      info.DirectURL,
+		"proxyUrl":       info.ProxyURL,
+		"preferDirect":   info.PreferDirect,
+		"isOnline":       info.IsOnline,
+		"lastOnlineTime": info.LastOnlineTime.Format(time.RFC3339),
+	})
+}
+
+func (h *DeviceHandler) ProxyPOS(c *gin.Context) {
+	h.proxyPOSForMerchant(c, c.Param("merchant_id"), fmt.Sprintf("/api/device/%s/pos-proxy", c.Param("merchant_id")), ensureTrailingSlash(fmt.Sprintf("/api/device/%s/pos-proxy", c.Param("merchant_id"))), strings.TrimSpace(c.Query("token")))
+}
+
+func (h *DeviceHandler) ResolvePOSProxyMerchantID(host string) (string, bool) {
+	if h.posAccessService == nil {
+		return "", false
+	}
+	return h.posAccessService.ResolveMerchantIDFromProxyHost(host)
+}
+
+func (h *DeviceHandler) ProxyPOSSubdomain(c *gin.Context, merchantID string) {
+	h.proxyPOSForMerchant(c, merchantID, "", "/", "")
+}
+
+func (h *DeviceHandler) proxyPOSForMerchant(c *gin.Context, merchantID, proxyBasePath, authCookiePath, rewriteToken string) {
+	if h.posAccessService == nil {
+		response.InternalError(c, "POS access service unavailable")
+		return
+	}
+
+	info, err := h.posAccessService.ResolveAccessInfo(merchantID)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	targetURL := &url.URL{
+		Scheme: "http",
+		Host:   fmt.Sprintf("%s:%d", info.IP, info.Port),
+	}
+	proxyToken := strings.TrimSpace(c.Query("token"))
+	if proxyToken != "" {
+		c.SetCookie("pos_proxy_token", proxyToken, 3600, authCookiePath, "", false, true)
+	}
+	rewriteAuthToken := strings.TrimSpace(rewriteToken)
+	startedAt := time.Now()
+
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		rewriteProxyLocationHeader(resp.Header, proxyBasePath, rewriteAuthToken)
+		rewriteProxyCookiePaths(resp.Header, proxyBasePath)
+		if err := rewriteProxyHTMLResponse(resp, proxyBasePath, rewriteAuthToken); err != nil {
+			return err
+		}
+		return nil
+	}
+	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, proxyErr error) {
+		response.Error(c, http.StatusBadGateway, proxyErr.Error())
+	}
+
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		proxyPath := c.Param("path")
+		if proxyBasePath == "" {
+			proxyPath = c.Request.URL.Path
+		}
+		req.URL.Path = proxyPath
+		if req.URL.Path == "" {
+			req.URL.Path = "/"
+		}
+		req.Host = targetURL.Host
+	}
+
+	proxy.ServeHTTP(c.Writer, c.Request)
+
+	if h.deviceWebAccessLogRepo != nil {
+		_ = h.deviceWebAccessLogRepo.Create(&models.DeviceWebAccessLog{
+			MerchantID: info.MerchantID,
+			TargetIP:   info.IP,
+			TargetPort: info.Port,
+			Method:     c.Request.Method,
+			Path:       c.Request.URL.Path,
+			StatusCode: c.Writer.Status(),
+			UserID:     middleware.GetUserID(c),
+			ClientIP:   c.ClientIP(),
+			DurationMs: time.Since(startedAt).Milliseconds(),
+		})
+	}
+}
+
+func rewriteProxyLocationHeader(header http.Header, proxyBasePath, proxyToken string) {
+	location := strings.TrimSpace(header.Get("Location"))
+	if location == "" {
+		return
+	}
+
+	rewritten := rewriteProxyPathValue(location, proxyBasePath, proxyToken)
+	if rewritten != "" {
+		header.Set("Location", rewritten)
+	}
+}
+
+func rewriteProxyCookiePaths(header http.Header, proxyBasePath string) {
+	setCookies := header.Values("Set-Cookie")
+	if len(setCookies) == 0 {
+		return
+	}
+
+	header.Del("Set-Cookie")
+	targetPath := ensureTrailingSlash(proxyBasePath)
+	stripDomain := strings.TrimSpace(proxyBasePath) == ""
+	for _, cookie := range setCookies {
+		rewritten := strings.Replace(cookie, "Path=/;", "Path="+targetPath+";", 1)
+		rewritten = strings.Replace(rewritten, "Path=/ ", "Path="+targetPath+" ", 1)
+		if strings.HasSuffix(rewritten, "Path=/") {
+			rewritten = strings.TrimSuffix(rewritten, "Path=/") + "Path=" + targetPath
+		}
+		if stripDomain {
+			parts := strings.Split(rewritten, ";")
+			filteredParts := make([]string, 0, len(parts))
+			for _, part := range parts {
+				if strings.HasPrefix(strings.ToLower(strings.TrimSpace(part)), "domain=") {
+					continue
+				}
+				filteredParts = append(filteredParts, strings.TrimSpace(part))
+			}
+			rewritten = strings.Join(filteredParts, "; ")
+		}
+		header.Add("Set-Cookie", rewritten)
+	}
+}
+
+func rewriteProxyPathValue(rawValue, proxyBasePath, proxyToken string) string {
+	trimmedValue := strings.TrimSpace(rawValue)
+	if trimmedValue == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(trimmedValue, "/") {
+		return appendProxyToken(joinProxyPath(proxyBasePath, trimmedValue), proxyToken)
+	}
+
+	parsedURL, err := url.Parse(trimmedValue)
+	if err != nil {
+		return ""
+	}
+	if parsedURL.Path == "" {
+		return ""
+	}
+
+	rewrittenPath := joinProxyPath(proxyBasePath, parsedURL.Path)
+	if parsedURL.RawQuery != "" {
+		rewrittenPath += "?" + parsedURL.RawQuery
+	}
+	if parsedURL.Fragment != "" {
+		rewrittenPath += "#" + parsedURL.Fragment
+	}
+	return appendProxyToken(rewrittenPath, proxyToken)
+}
+
+func joinProxyPath(proxyBasePath, targetPath string) string {
+	base := strings.TrimRight(proxyBasePath, "/")
+	path := targetPath
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return base + path
+}
+
+func ensureTrailingSlash(value string) string {
+	if strings.HasSuffix(value, "/") {
+		return value
+	}
+	return value + "/"
+}
+
+var htmlRootRelativeAttrPattern = regexp.MustCompile(`(href|src|action)="/([^"]*)"`)
+
+func appendProxyToken(rawValue, proxyToken string) string {
+	if strings.TrimSpace(proxyToken) == "" || strings.TrimSpace(rawValue) == "" {
+		return rawValue
+	}
+
+	fragment := ""
+	value := rawValue
+	if hashIndex := strings.Index(value, "#"); hashIndex >= 0 {
+		fragment = value[hashIndex:]
+		value = value[:hashIndex]
+	}
+
+	separator := "?"
+	if strings.Contains(value, "?") {
+		separator = "&"
+	}
+
+	return value + separator + "token=" + url.QueryEscape(proxyToken) + fragment
+}
+
+func rewriteProxyHTMLResponse(resp *http.Response, proxyBasePath, proxyToken string) error {
+	contentType := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type")))
+	if !strings.HasPrefix(contentType, "text/html") || resp.Body == nil {
+		return nil
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+
+	rewritten := string(body)
+	rewritten = htmlRootRelativeAttrPattern.ReplaceAllStringFunc(rewritten, func(match string) string {
+		submatches := htmlRootRelativeAttrPattern.FindStringSubmatch(match)
+		if len(submatches) != 3 {
+			return match
+		}
+
+		attrName := submatches[1]
+		targetPath := "/" + submatches[2]
+		rewrittenValue := appendProxyToken(joinProxyPath(proxyBasePath, targetPath), proxyToken)
+		return attrName + `="` + rewrittenValue + `"`
+	})
+
+	rewrittenBytes := []byte(rewritten)
+	resp.Body = io.NopCloser(bytes.NewReader(rewrittenBytes))
+	resp.ContentLength = int64(len(rewrittenBytes))
+	resp.Header.Set("Content-Length", strconv.Itoa(len(rewrittenBytes)))
+	return nil
 }
 
 // GetDevices returns paginated device list

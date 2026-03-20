@@ -4,6 +4,7 @@
   "description": "POS设备扫描Web界面",
   "scripts": {
     "dev": "vite",
+    "test": "node --test src/pages/posOpenMode.test.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

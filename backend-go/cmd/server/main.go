@@ -13,6 +13,7 @@ import (
 	"device-management/internal/models"
 	"device-management/internal/repository"
 	"device-management/internal/services"
+	"device-management/pkg/response"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -108,6 +109,7 @@ func main() {
 	autoScanConfigRepo := repository.NewAutoScanConfigRepository(db)
 	scanJobLogRepo := repository.NewScanJobLogRepository(db)
 	featureRequestRepo := repository.NewFeatureRequestRepository(db)
+	deviceWebAccessLogRepo := repository.NewDeviceWebAccessLogRepository(db)
 
 	// Initialize services
 	authService := services.NewAuthService(userRepo)
@@ -122,11 +124,12 @@ func main() {
 	assetAccessService := services.NewAssetAccessService(userRepo, deviceRepo, mobileRepo)
 	borrowService := services.NewBorrowService(borrowRequestRepo, deviceRepo, mobileRepo, userRepo, assetAccessService)
 	workspaceService := services.NewWorkspaceService(borrowRequestRepo, deviceRepo, mobileRepo, userRepo)
+	posAccessService := services.NewPOSAccessService(deviceRepo, config.AppConfig.Server.POSProxyHostTemplate)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
 	adminHandler := handlers.NewAdminHandler(userRepo, deviceRepo)
-	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, linuxService, assetAccessService)
+	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, linuxService, assetAccessService, posAccessService, deviceWebAccessLogRepo)
 	mobileHandler := handlers.NewMobileHandler(mobileRepo, userRepo, notificationService, assetAccessService)
 	scanHandler := handlers.NewScanHandler(scanService, deviceRepo, autoScanConfigRepo, scanJobLogRepo, autoScanScheduler)
 	linuxHandler := handlers.NewLinuxHandler(linuxService, fileConfigRepo, deviceRepo, userRepo, assetAccessService)
@@ -145,6 +148,20 @@ func main() {
 	router.Use(middleware.RequestIDMiddleware())
 	router.Use(middleware.LoggerMiddleware())
 	router.Use(middleware.RecoveryMiddleware())
+	router.NoRoute(func(c *gin.Context) {
+		merchantID, ok := deviceHandler.ResolvePOSProxyMerchantID(c.Request.Host)
+		if !ok {
+			response.NotFound(c, "resource not found")
+			return
+		}
+
+		middleware.Auth()(c)
+		if c.IsAborted() {
+			return
+		}
+
+		deviceHandler.ProxyPOSSubdomain(c, merchantID)
+	})
 
 	// API routes
 	api := router.Group("/api")
@@ -190,6 +207,9 @@ func main() {
 			device.POST("/claim/:id/reject", middleware.AdminOnly(userRepo), deviceHandler.RejectClaim)
 			device.DELETE("/:merchant_id/owner", middleware.AdminOnly(userRepo), deviceHandler.ResetOwner)
 			device.DELETE("/:merchant_id", middleware.AdminOnly(userRepo), deviceHandler.DeleteDevice)
+			device.GET("/:merchant_id/pos-access", deviceHandler.GetPOSAccess)
+			device.Any("/:merchant_id/pos-proxy", deviceHandler.ProxyPOS)
+			device.Any("/:merchant_id/pos-proxy/*path", deviceHandler.ProxyPOS)
 			device.POST("/license/backup", deviceHandler.CreateLicenseBackup)
 			device.POST("/license/import", deviceHandler.ImportLicense)
 			device.GET("/license/backups", deviceHandler.ListLicenseBackups)
@@ -428,6 +448,7 @@ func autoMigrateModels() []interface{} {
 		&models.DBSQLExecuteTaskItem{},
 		&models.SystemConfig{},
 		&models.SystemNotification{},
+		&models.DeviceWebAccessLog{},
 		&models.WarPackageMetadata{},
 		&models.FeatureRequest{},
 		&models.FeatureRequestLike{},
