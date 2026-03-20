@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -114,6 +115,9 @@ func (h *DeviceHandler) ProxyPOS(c *gin.Context) {
 	proxy.ModifyResponse = func(resp *http.Response) error {
 		rewriteProxyLocationHeader(resp.Header, proxyBasePath)
 		rewriteProxyCookiePaths(resp.Header, proxyBasePath)
+		if err := rewriteProxyHTMLResponse(resp, proxyBasePath); err != nil {
+			return err
+		}
 		return nil
 	}
 	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, proxyErr error) {
@@ -205,6 +209,31 @@ func ensureTrailingSlash(value string) string {
 		return value
 	}
 	return value + "/"
+}
+
+func rewriteProxyHTMLResponse(resp *http.Response, proxyBasePath string) error {
+	contentType := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type")))
+	if !strings.HasPrefix(contentType, "text/html") || resp.Body == nil {
+		return nil
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+
+	proxyPrefix := ensureTrailingSlash(strings.TrimRight(proxyBasePath, "/"))
+	rewritten := string(body)
+	rewritten = strings.ReplaceAll(rewritten, `href="/`, `href="`+proxyPrefix)
+	rewritten = strings.ReplaceAll(rewritten, `src="/`, `src="`+proxyPrefix)
+	rewritten = strings.ReplaceAll(rewritten, `action="/`, `action="`+proxyPrefix)
+
+	rewrittenBytes := []byte(rewritten)
+	resp.Body = io.NopCloser(bytes.NewReader(rewrittenBytes))
+	resp.ContentLength = int64(len(rewrittenBytes))
+	resp.Header.Set("Content-Length", strconv.Itoa(len(rewrittenBytes)))
+	return nil
 }
 
 // GetDevices returns paginated device list

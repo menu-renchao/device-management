@@ -124,3 +124,42 @@ func TestPOSProxyRewritesLocationAndCookiePath(t *testing.T) {
 		t.Fatalf("unexpected cookie path: %s", cookies[0].Path)
 	}
 }
+
+func TestPOSProxyRewritesHTMLRootRelativePaths(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><link href="/css/app.css"><script src="/js/app.js"></script><form action="/login"></form></html>`))
+	}))
+	defer upstream.Close()
+
+	handler := newProxyHandlerPointingTo(t, upstream.URL)
+	router := gin.New()
+	router.Any("/device/:merchant_id/pos-proxy/*path", withAuthenticatedUser(handler.ProxyPOS))
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/device/M123/pos-proxy/")
+	if err != nil {
+		t.Fatalf("http.Get() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+
+	bodyText := string(body)
+	if !strings.Contains(bodyText, `/api/device/M123/pos-proxy/css/app.css`) {
+		t.Fatalf("expected rewritten css path, got %s", bodyText)
+	}
+	if !strings.Contains(bodyText, `/api/device/M123/pos-proxy/js/app.js`) {
+		t.Fatalf("expected rewritten script path, got %s", bodyText)
+	}
+	if !strings.Contains(bodyText, `/api/device/M123/pos-proxy/login`) {
+		t.Fatalf("expected rewritten form action, got %s", bodyText)
+	}
+}
