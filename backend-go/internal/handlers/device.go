@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"path/filepath"
 	"strconv"
@@ -89,6 +90,41 @@ func (h *DeviceHandler) GetPOSAccess(c *gin.Context) {
 		"isOnline":       info.IsOnline,
 		"lastOnlineTime": info.LastOnlineTime.Format(time.RFC3339),
 	})
+}
+
+func (h *DeviceHandler) ProxyPOS(c *gin.Context) {
+	if h.posAccessService == nil {
+		response.InternalError(c, "POS access service unavailable")
+		return
+	}
+
+	info, err := h.posAccessService.ResolveAccessInfo(c.Param("merchant_id"))
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	targetURL := &url.URL{
+		Scheme: "http",
+		Host:   fmt.Sprintf("%s:%d", info.IP, info.Port),
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, proxyErr error) {
+		response.Error(c, http.StatusBadGateway, proxyErr.Error())
+	}
+
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.URL.Path = c.Param("path")
+		if req.URL.Path == "" {
+			req.URL.Path = "/"
+		}
+		req.Host = targetURL.Host
+	}
+
+	proxy.ServeHTTP(c.Writer, c.Request)
 }
 
 // GetDevices returns paginated device list
