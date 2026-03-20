@@ -257,7 +257,7 @@ func TestNewDeviceHandlerKeepsInjectedBackupManagers(t *testing.T) {
 	licenseFake := &fakeLicenseService{}
 	dbFake := &fakeDBBackupService{}
 
-	handler := NewDeviceHandler(nil, nil, nil, licenseFake, dbFake, nil, nil)
+	handler := NewDeviceHandler(nil, nil, nil, licenseFake, dbFake, nil, nil, nil)
 
 	if handler.licenseService != licenseFake {
 		t.Fatalf("licenseService was not preserved by constructor")

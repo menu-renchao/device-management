@@ -107,6 +107,7 @@ func TestDeviceGetDevicesAutoReturnCreatesNotification(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 
 	router := gin.New()

@@ -27,6 +27,11 @@ type DeviceHandler struct {
 	dbBackupService     dbBackupManager
 	linuxService        *services.LinuxService
 	accessService       *services.AssetAccessService
+	posAccessService    posAccessResolver
+}
+
+type posAccessResolver interface {
+	ResolveAccessInfo(merchantID string) (*services.POSAccessInfo, error)
 }
 
 func NewDeviceHandler(
@@ -37,6 +42,7 @@ func NewDeviceHandler(
 	dbBackupService dbBackupManager,
 	linuxService *services.LinuxService,
 	accessService *services.AssetAccessService,
+	posAccessService posAccessResolver,
 ) *DeviceHandler {
 	return &DeviceHandler{
 		deviceRepo:          deviceRepo,
@@ -46,6 +52,7 @@ func NewDeviceHandler(
 		dbBackupService:     dbBackupService,
 		linuxService:        linuxService,
 		accessService:       accessService,
+		posAccessService:    posAccessService,
 	}
 }
 
@@ -58,6 +65,30 @@ type SetOccupancyRequest struct {
 
 type SubmitClaimRequest struct {
 	MerchantID string `json:"merchant_id" binding:"required"`
+}
+
+func (h *DeviceHandler) GetPOSAccess(c *gin.Context) {
+	if h.posAccessService == nil {
+		response.InternalError(c, "POS access service unavailable")
+		return
+	}
+
+	info, err := h.posAccessService.ResolveAccessInfo(c.Param("merchant_id"))
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	response.Success(c, gin.H{
+		"merchantId":     info.MerchantID,
+		"ip":             info.IP,
+		"port":           info.Port,
+		"directUrl":      info.DirectURL,
+		"proxyUrl":       info.ProxyURL,
+		"preferDirect":   info.PreferDirect,
+		"isOnline":       info.IsOnline,
+		"lastOnlineTime": info.LastOnlineTime.Format(time.RFC3339),
+	})
 }
 
 // GetDevices returns paginated device list

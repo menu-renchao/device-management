@@ -122,11 +122,12 @@ func main() {
 	assetAccessService := services.NewAssetAccessService(userRepo, deviceRepo, mobileRepo)
 	borrowService := services.NewBorrowService(borrowRequestRepo, deviceRepo, mobileRepo, userRepo, assetAccessService)
 	workspaceService := services.NewWorkspaceService(borrowRequestRepo, deviceRepo, mobileRepo, userRepo)
+	posAccessService := services.NewPOSAccessService(deviceRepo)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
 	adminHandler := handlers.NewAdminHandler(userRepo, deviceRepo)
-	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, linuxService, assetAccessService)
+	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, linuxService, assetAccessService, posAccessService)
 	mobileHandler := handlers.NewMobileHandler(mobileRepo, userRepo, notificationService, assetAccessService)
 	scanHandler := handlers.NewScanHandler(scanService, deviceRepo, autoScanConfigRepo, scanJobLogRepo, autoScanScheduler)
 	linuxHandler := handlers.NewLinuxHandler(linuxService, fileConfigRepo, deviceRepo, userRepo, assetAccessService)
@@ -190,6 +191,7 @@ func main() {
 			device.POST("/claim/:id/reject", middleware.AdminOnly(userRepo), deviceHandler.RejectClaim)
 			device.DELETE("/:merchant_id/owner", middleware.AdminOnly(userRepo), deviceHandler.ResetOwner)
 			device.DELETE("/:merchant_id", middleware.AdminOnly(userRepo), deviceHandler.DeleteDevice)
+			device.GET("/:merchant_id/pos-access", deviceHandler.GetPOSAccess)
 			device.POST("/license/backup", deviceHandler.CreateLicenseBackup)
 			device.POST("/license/import", deviceHandler.ImportLicense)
 			device.GET("/license/backups", deviceHandler.ListLicenseBackups)
