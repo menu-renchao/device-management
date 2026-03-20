@@ -28,6 +28,55 @@ export function writePOSOpenMode(storage, userId, mode) {
   return normalizedMode;
 }
 
+export function beginPOSOpenWindow(openWindow) {
+  if (typeof openWindow !== 'function') {
+    return null;
+  }
+
+  const popup = openWindow('', '_blank');
+  if (!popup) {
+    return null;
+  }
+
+  try {
+    popup.opener = null;
+  } catch {
+    // Ignore cross-browser opener assignment failures.
+  }
+
+  return popup;
+}
+
+export function navigatePOSOpenWindow(popup, targetUrl) {
+  if (!popup || !targetUrl) {
+    return false;
+  }
+
+  try {
+    if (popup.location && typeof popup.location.replace === 'function') {
+      popup.location.replace(targetUrl);
+      return true;
+    }
+
+    popup.location.href = targetUrl;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function cleanupPOSOpenWindow(popup) {
+  if (!popup || popup.closed || typeof popup.close !== 'function') {
+    return;
+  }
+
+  try {
+    popup.close();
+  } catch {
+    // Ignore popup close failures.
+  }
+}
+
 function appendToken(url, token) {
   if (!token) {
     return url;

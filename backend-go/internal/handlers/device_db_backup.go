@@ -22,7 +22,7 @@ import (
 
 func (h *DeviceHandler) BackupDatabase(c *gin.Context) {
 	if h.dbBackupService == nil {
-		response.InternalError(c, "鏁版嵁搴撳浠芥湇鍔℃湭鍒濆鍖?")
+		response.InternalError(c, "数据库备份服务未初始化")
 		return
 	}
 
@@ -30,13 +30,13 @@ func (h *DeviceHandler) BackupDatabase(c *gin.Context) {
 		MerchantID string `json:"merchant_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "璇锋眰鏍煎紡鏃犳晥")
+		response.BadRequest(c, "请求格式无效")
 		return
 	}
 
 	merchantID := strings.TrimSpace(req.MerchantID)
 	if merchantID == "" {
-		response.BadRequest(c, "鍟嗗ID涓嶈兘涓虹┖")
+		response.BadRequest(c, "商家ID不能为空")
 		return
 	}
 
@@ -47,7 +47,7 @@ func (h *DeviceHandler) BackupDatabase(c *gin.Context) {
 
 	host := strings.TrimSpace(device.IP)
 	if host == "" {
-		response.BadRequest(c, "璁惧IP涓虹┖锛屾棤娉曞浠芥暟鎹簱")
+		response.BadRequest(c, "设备IP为空，无法备份数据库")
 		return
 	}
 
@@ -62,20 +62,20 @@ func (h *DeviceHandler) BackupDatabase(c *gin.Context) {
 		return
 	}
 
-	response.SuccessWithMessage(c, "鏁版嵁澶囦唤鎴愬姛", gin.H{
+	response.SuccessWithMessage(c, "数据备份成功", gin.H{
 		"backup": result,
 	})
 }
 
 func (h *DeviceHandler) ListDatabaseBackups(c *gin.Context) {
 	if h.dbBackupService == nil {
-		response.InternalError(c, "鏁版嵁搴撳浠芥湇鍔℃湭鍒濆鍖?")
+		response.InternalError(c, "数据库备份服务未初始化")
 		return
 	}
 
 	merchantID := strings.TrimSpace(c.Query("merchant_id"))
 	if merchantID == "" {
-		response.BadRequest(c, "merchant_id 涓嶈兘涓虹┖")
+		response.BadRequest(c, "merchant_id 不能为空")
 		return
 	}
 
@@ -85,7 +85,7 @@ func (h *DeviceHandler) ListDatabaseBackups(c *gin.Context) {
 
 	items, err := h.dbBackupService.ListBackups(merchantID)
 	if err != nil {
-		response.InternalError(c, "鏌ヨ澶囦唤鍒楄〃澶辫触: "+err.Error())
+		response.InternalError(c, "查询备份列表失败: "+err.Error())
 		return
 	}
 
@@ -174,14 +174,14 @@ func (h *DeviceHandler) ListAllDatabaseBackups(c *gin.Context) {
 
 func (h *DeviceHandler) DownloadDatabaseBackup(c *gin.Context) {
 	if h.dbBackupService == nil {
-		response.InternalError(c, "鏁版嵁搴撳浠芥湇鍔℃湭鍒濆鍖?")
+		response.InternalError(c, "数据库备份服务未初始化")
 		return
 	}
 
 	merchantID := strings.TrimSpace(c.Query("merchant_id"))
 	fileName := strings.TrimSpace(c.Query("file_name"))
 	if merchantID == "" || fileName == "" {
-		response.BadRequest(c, "鍙傛暟涓嶅畬鏁?")
+		response.BadRequest(c, "参数不完整")
 		return
 	}
 
@@ -192,7 +192,7 @@ func (h *DeviceHandler) DownloadDatabaseBackup(c *gin.Context) {
 	file, size, err := h.dbBackupService.OpenBackupFile(merchantID, fileName)
 	if err != nil {
 		if os.IsNotExist(err) {
-			response.NotFound(c, "澶囦唤鏂囦欢涓嶅瓨鍦?")
+			response.NotFound(c, "备份文件不存在")
 			return
 		}
 		response.BadRequest(c, err.Error())
@@ -212,14 +212,14 @@ func (h *DeviceHandler) DownloadDatabaseBackup(c *gin.Context) {
 
 func (h *DeviceHandler) DeleteDatabaseBackup(c *gin.Context) {
 	if h.dbBackupService == nil {
-		response.InternalError(c, "鏁版嵁搴撳浠芥湇鍔℃湭鍒濆鍖?")
+		response.InternalError(c, "数据库备份服务未初始化")
 		return
 	}
 
 	merchantID := strings.TrimSpace(c.Query("merchant_id"))
 	fileName := strings.TrimSpace(c.Query("file_name"))
 	if merchantID == "" || fileName == "" {
-		response.BadRequest(c, "鍙傛暟涓嶅畬鏁?")
+		response.BadRequest(c, "参数不完整")
 		return
 	}
 
@@ -229,19 +229,19 @@ func (h *DeviceHandler) DeleteDatabaseBackup(c *gin.Context) {
 
 	if err := h.dbBackupService.DeleteBackup(merchantID, fileName); err != nil {
 		if os.IsNotExist(err) {
-			response.NotFound(c, "澶囦唤鏂囦欢涓嶅瓨鍦?")
+			response.NotFound(c, "备份文件不存在")
 			return
 		}
 		response.BadRequest(c, err.Error())
 		return
 	}
 
-	response.SuccessWithMessage(c, "澶囦唤鏂囦欢鍒犻櫎鎴愬姛", nil)
+	response.SuccessWithMessage(c, "备份文件删除成功", nil)
 }
 
 func (h *DeviceHandler) RestoreDatabaseFromServer(c *gin.Context) {
 	if h.dbBackupService == nil {
-		response.InternalError(c, "鏁版嵁搴撳浠芥湇鍔℃湭鍒濆鍖?")
+		response.InternalError(c, "数据库备份服务未初始化")
 		return
 	}
 
@@ -252,7 +252,7 @@ func (h *DeviceHandler) RestoreDatabaseFromServer(c *gin.Context) {
 		RestartPOSAfterRestore bool   `json:"restart_pos_after_restore"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "璇锋眰鏍煎紡鏃犳晥")
+		response.BadRequest(c, "请求格式无效")
 		return
 	}
 
@@ -260,7 +260,7 @@ func (h *DeviceHandler) RestoreDatabaseFromServer(c *gin.Context) {
 	sourceMerchantID := strings.TrimSpace(req.SourceMerchantID)
 	fileName := strings.TrimSpace(req.FileName)
 	if merchantID == "" || fileName == "" {
-		response.BadRequest(c, "鍙傛暟涓嶅畬鏁?")
+		response.BadRequest(c, "参数不完整")
 		return
 	}
 
@@ -271,7 +271,7 @@ func (h *DeviceHandler) RestoreDatabaseFromServer(c *gin.Context) {
 
 	host := strings.TrimSpace(device.IP)
 	if host == "" {
-		response.BadRequest(c, "璁惧IP涓虹┖锛屾棤娉曟仮澶嶆暟鎹簱")
+		response.BadRequest(c, "设备IP为空，无法恢复数据库")
 		return
 	}
 
@@ -313,7 +313,7 @@ func (h *DeviceHandler) RestoreDatabaseFromServer(c *gin.Context) {
 	}
 
 	restartResult := h.tryRestartPOSAfterRestore(device, merchantID, req.RestartPOSAfterRestore)
-	response.SuccessWithMessage(c, "鏁版嵁鎭㈠鎴愬姛", gin.H{
+	response.SuccessWithMessage(c, "数据恢复成功", gin.H{
 		"source_type":        "server",
 		"file_name":          fileName,
 		"source_merchant_id": restoreSourceMerchantID,
@@ -323,13 +323,13 @@ func (h *DeviceHandler) RestoreDatabaseFromServer(c *gin.Context) {
 
 func (h *DeviceHandler) RestoreDatabaseFromUpload(c *gin.Context) {
 	if h.dbBackupService == nil {
-		response.InternalError(c, "鏁版嵁搴撳浠芥湇鍔℃湭鍒濆鍖?")
+		response.InternalError(c, "数据库备份服务未初始化")
 		return
 	}
 
 	merchantID := strings.TrimSpace(c.PostForm("merchant_id"))
 	if merchantID == "" {
-		response.BadRequest(c, "鍟嗗ID涓嶈兘涓虹┖")
+		response.BadRequest(c, "商家ID不能为空")
 		return
 	}
 
@@ -340,21 +340,21 @@ func (h *DeviceHandler) RestoreDatabaseFromUpload(c *gin.Context) {
 
 	host := strings.TrimSpace(device.IP)
 	if host == "" {
-		response.BadRequest(c, "璁惧IP涓虹┖锛屾棤娉曟仮澶嶆暟鎹簱")
+		response.BadRequest(c, "设备IP为空，无法恢复数据库")
 		return
 	}
 
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
-		response.BadRequest(c, "璇蜂笂浼?.sql 鏂囦欢")
+		response.BadRequest(c, "请上传 .sql 文件")
 		return
 	}
 	if fileHeader.Size <= 0 {
-		response.BadRequest(c, "涓婁紶鏂囦欢涓虹┖")
+		response.BadRequest(c, "上传文件为空")
 		return
 	}
 	if strings.ToLower(filepath.Ext(fileHeader.Filename)) != ".sql" {
-		response.BadRequest(c, "浠呮敮鎸佷笂浼?.sql 鏂囦欢")
+		response.BadRequest(c, "仅支持上传 .sql 文件")
 		return
 	}
 
@@ -364,7 +364,7 @@ func (h *DeviceHandler) RestoreDatabaseFromUpload(c *gin.Context) {
 		fmt.Sprintf("db_restore_%d_%s", time.Now().UnixNano(), filepath.Base(fileHeader.Filename)),
 	)
 	if err := c.SaveUploadedFile(fileHeader, tempFilePath); err != nil {
-		response.InternalError(c, "淇濆瓨涓婁紶鏂囦欢澶辫触")
+		response.InternalError(c, "保存上传文件失败")
 		return
 	}
 	defer os.Remove(tempFilePath)
@@ -375,7 +375,7 @@ func (h *DeviceHandler) RestoreDatabaseFromUpload(c *gin.Context) {
 	}
 
 	restartResult := h.tryRestartPOSAfterRestore(device, merchantID, restartPOSAfterRestore)
-	response.SuccessWithMessage(c, "鏁版嵁鎭㈠鎴愬姛", gin.H{
+	response.SuccessWithMessage(c, "数据恢复成功", gin.H{
 		"source_type": "upload",
 		"file_name":   fileHeader.Filename,
 		"restart":     restartResult,
@@ -388,7 +388,7 @@ func (h *DeviceHandler) tryRestartPOSAfterRestore(device *models.ScanResult, mer
 			"requested": false,
 			"attempted": false,
 			"success":   false,
-			"message":   "鏈姹傞噸鍚疨OS",
+			"message":   "未请求重启POS",
 		}
 	}
 
@@ -397,7 +397,7 @@ func (h *DeviceHandler) tryRestartPOSAfterRestore(device *models.ScanResult, mer
 			"requested": true,
 			"attempted": false,
 			"success":   false,
-			"message":   "褰撳墠璁惧闈濴inux锛屽凡璺宠繃閲嶅惎",
+			"message":   "当前设备非Linux，已跳过重启",
 		}
 	}
 
@@ -406,7 +406,7 @@ func (h *DeviceHandler) tryRestartPOSAfterRestore(device *models.ScanResult, mer
 			"requested": true,
 			"attempted": false,
 			"success":   false,
-			"message":   "Linux鏈嶅姟鏈垵濮嬪寲锛屽凡璺宠繃閲嶅惎",
+			"message":   "Linux服务未初始化，已跳过重启",
 		}
 	}
 
@@ -415,7 +415,7 @@ func (h *DeviceHandler) tryRestartPOSAfterRestore(device *models.ScanResult, mer
 			"requested": true,
 			"attempted": false,
 			"success":   false,
-			"message":   "鏈缓绔婼SH杩炴帴锛屽凡璺宠繃閲嶅惎",
+			"message":   "未建立SSH连接，已跳过重启",
 		}
 	}
 
@@ -425,7 +425,7 @@ func (h *DeviceHandler) tryRestartPOSAfterRestore(device *models.ScanResult, mer
 			"requested": true,
 			"attempted": true,
 			"success":   false,
-			"message":   "鎭㈠鎴愬姛锛屼絾閲嶅惎POS澶辫触: " + err.Error(),
+			"message":   "恢复成功，但重启POS失败: " + err.Error(),
 		}
 	}
 

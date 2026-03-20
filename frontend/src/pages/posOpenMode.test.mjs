@@ -2,10 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  beginPOSOpenWindow,
+  cleanupPOSOpenWindow,
   DEFAULT_POS_OPEN_MODE,
   POS_OPEN_MODE_DIRECT,
   POS_OPEN_MODE_PROXY,
   getPOSOpenModeStorageKey,
+  navigatePOSOpenWindow,
   readPOSOpenMode,
   resolvePOSOpenTarget,
   writePOSOpenMode,
@@ -65,6 +68,51 @@ test('resolvePOSOpenTarget appends token for proxy mode browser navigation', () 
     resolvePOSOpenTarget(accessInfo, POS_OPEN_MODE_PROXY, 'token-123'),
     '/api/device/M123/pos-proxy/?token=token-123'
   );
+});
+
+test('beginPOSOpenWindow opens a blank page immediately for later navigation', () => {
+  let callArgs = null;
+  const popup = { opener: 'parent-window' };
+
+  const result = beginPOSOpenWindow((url, target) => {
+    callArgs = [url, target];
+    return popup;
+  });
+
+  assert.equal(result, popup);
+  assert.deepEqual(callArgs, ['', '_blank']);
+  assert.equal(popup.opener, null);
+});
+
+test('navigatePOSOpenWindow prefers replace when the popup supports it', () => {
+  const replaceCalls = [];
+  const popup = {
+    location: {
+      href: '',
+      replace(url) {
+        replaceCalls.push(url);
+      },
+    },
+  };
+
+  assert.equal(navigatePOSOpenWindow(popup, 'http://192.168.1.88:22080/'), true);
+  assert.deepEqual(replaceCalls, ['http://192.168.1.88:22080/']);
+});
+
+test('cleanupPOSOpenWindow closes an opened placeholder popup', () => {
+  let closeCalls = 0;
+  const popup = {
+    closed: false,
+    close() {
+      closeCalls += 1;
+      this.closed = true;
+    },
+  };
+
+  cleanupPOSOpenWindow(popup);
+
+  assert.equal(closeCalls, 1);
+  assert.equal(popup.closed, true);
 });
 
 test('resolvePOSOpenTarget throws when the configured URL is missing', () => {

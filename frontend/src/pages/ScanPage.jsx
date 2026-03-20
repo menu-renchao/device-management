@@ -15,7 +15,10 @@ import {
   shouldLoadAutoScanPanel
 } from './scanPageUtils';
 import {
+  beginPOSOpenWindow,
+  cleanupPOSOpenWindow,
   DEFAULT_POS_OPEN_MODE,
+  navigatePOSOpenWindow,
   POS_OPEN_MODE_DIRECT,
   POS_OPEN_MODE_PROXY,
   readPOSOpenMode,
@@ -409,17 +412,34 @@ const ScanPage = () => {
       return;
     }
 
+    const openedWindow = beginPOSOpenWindow((url, target) => window.open(url, target));
+    if (!openedWindow) {
+      toast.warning('浏览器拦截了新窗口，请允许弹窗后重试');
+      return;
+    }
+
     try {
-      const result = await deviceAPI.getPosAccess(merchantId);
+      const result = await deviceAPI.getPosAccess(merchantId).catch((error) => {
+        cleanupPOSOpenWindow(openedWindow);
+        throw error;
+      });
       if (!result.success || !result.data) {
+        cleanupPOSOpenWindow(openedWindow);
         toast.error(result.error || '获取 POS 访问地址失败');
         return;
       }
 
       const token = localStorage.getItem('access_token') || '';
-      const targetUrl = resolvePOSOpenTarget(result.data, posOpenMode, token);
-      const openedWindow = window.open(targetUrl, '_blank', 'noopener');
-      if (!openedWindow) {
+      const targetUrl = (() => {
+        try {
+          return resolvePOSOpenTarget(result.data, posOpenMode, token);
+        } catch (error) {
+          cleanupPOSOpenWindow(openedWindow);
+          throw error;
+        }
+      })();
+      if (!navigatePOSOpenWindow(openedWindow, targetUrl)) {
+        cleanupPOSOpenWindow(openedWindow);
         toast.warning('浏览器拦截了新窗口，请允许弹窗后重试');
       }
     } catch (error) {

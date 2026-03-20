@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,6 +153,27 @@ func TestListDatabaseBackupsReturnsItems(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"1.0.0_20260311_120000.sql"`)) {
 		t.Fatalf("expected response to include backup file name: %s", rec.Body.String())
+	}
+}
+
+func TestDeviceDBBackupSourceDoesNotContainMojibake(t *testing.T) {
+	sourcePath := filepath.Join("device_db_backup.go")
+	content, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", sourcePath, err)
+	}
+
+	text := string(content)
+	for _, fragment := range []string{
+		"閺佺増宓",
+		"鐠囬攱",
+		"閸欏倹鏆",
+		"娑撳﹣",
+		"褰撳墠璁惧闈濴inux",
+	} {
+		if strings.Contains(text, fragment) {
+			t.Fatalf("source file still contains mojibake fragment %q", fragment)
+		}
 	}
 }
 

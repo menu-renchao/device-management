@@ -553,29 +553,6 @@ func (h *DBConfigHandler) checkDevicePermission(c *gin.Context, merchantID strin
 	return false
 }
 
-/*
-func (h *DBConfigHandler) authorizeDeviceAction(c *gin.Context, merchantID string, user *models.User, action services.Action) bool {
-	allowed, err := h.accessService.CanAccessUser(user, services.AssetScope{
-		AssetType:  models.BorrowAssetTypePOS,
-		MerchantID: merchantID,
-	}, action)
-	if err != nil {
-		if errors.Is(err, services.ErrAssetAccessAssetNotFound) {
-			response.NotFound(c, "璁惧涓嶅瓨鍦?)
-			return false
-		}
-		response.InternalError(c, "鏉冮檺妫€鏌ュけ璐?)
-		return false
-	}
-	if !allowed {
-		response.Forbidden(c, "鎮ㄦ病鏈夋潈闄愭搷浣滄璁惧锛屽彧鏈夌鐞嗗憳銆佽礋璐ｄ汉鎴栧€熺敤浜烘墠鑳借闂?)
-		return false
-	}
-	return true
-}
-
-*/
-
 func (h *DBConfigHandler) authorizeDeviceAction(c *gin.Context, merchantID string, user *models.User, action services.Action) bool {
 	allowed, err := h.accessService.CanAccessUser(user, services.AssetScope{
 		AssetType:  models.BorrowAssetTypePOS,
