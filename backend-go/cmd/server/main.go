@@ -13,6 +13,7 @@ import (
 	"device-management/internal/models"
 	"device-management/internal/repository"
 	"device-management/internal/services"
+	"device-management/pkg/response"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -123,7 +124,7 @@ func main() {
 	assetAccessService := services.NewAssetAccessService(userRepo, deviceRepo, mobileRepo)
 	borrowService := services.NewBorrowService(borrowRequestRepo, deviceRepo, mobileRepo, userRepo, assetAccessService)
 	workspaceService := services.NewWorkspaceService(borrowRequestRepo, deviceRepo, mobileRepo, userRepo)
-	posAccessService := services.NewPOSAccessService(deviceRepo)
+	posAccessService := services.NewPOSAccessService(deviceRepo, config.AppConfig.Server.POSProxyHostTemplate)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
@@ -147,6 +148,20 @@ func main() {
 	router.Use(middleware.RequestIDMiddleware())
 	router.Use(middleware.LoggerMiddleware())
 	router.Use(middleware.RecoveryMiddleware())
+	router.NoRoute(func(c *gin.Context) {
+		merchantID, ok := deviceHandler.ResolvePOSProxyMerchantID(c.Request.Host)
+		if !ok {
+			response.NotFound(c, "resource not found")
+			return
+		}
+
+		middleware.Auth()(c)
+		if c.IsAborted() {
+			return
+		}
+
+		deviceHandler.ProxyPOSSubdomain(c, merchantID)
+	})
 
 	// API routes
 	api := router.Group("/api")

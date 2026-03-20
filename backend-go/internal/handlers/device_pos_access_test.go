@@ -12,12 +12,20 @@ import (
 )
 
 type fakePOSAccessService struct {
-	info *services.POSAccessInfo
-	err  error
+	info           *services.POSAccessInfo
+	err            error
+	hostMerchantID string
 }
 
 func (f fakePOSAccessService) ResolveAccessInfo(merchantID string) (*services.POSAccessInfo, error) {
 	return f.info, f.err
+}
+
+func (f fakePOSAccessService) ResolveMerchantIDFromProxyHost(host string) (string, bool) {
+	if f.hostMerchantID == "" {
+		return "", false
+	}
+	return f.hostMerchantID, true
 }
 
 func TestGetPOSAccessReturnsURLs(t *testing.T) {

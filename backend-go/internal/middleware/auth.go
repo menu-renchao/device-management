@@ -30,6 +30,12 @@ func Auth() gin.HandlerFunc {
 		}
 
 		if tokenString == "" {
+			if cookieToken, err := c.Cookie("pos_proxy_token"); err == nil {
+				tokenString = strings.TrimSpace(cookieToken)
+			}
+		}
+
+		if tokenString == "" {
 			response.Unauthorized(c, "请提供认证令牌")
 			c.Abort()
 			return

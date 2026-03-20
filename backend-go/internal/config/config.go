@@ -25,6 +25,7 @@ type ServerConfig struct {
 	Mode          string
 	RunMode       string
 	PublicBaseURL string
+	POSProxyHostTemplate string
 }
 
 type JWTConfig struct {
@@ -79,6 +80,7 @@ func Init() error {
 	viper.SetDefault("PORT", "5000")
 	viper.SetDefault("GIN_MODE", "debug")
 	viper.SetDefault("PUBLIC_BASE_URL", "")
+	viper.SetDefault("POS_PROXY_HOST_TEMPLATE", "")
 	viper.SetDefault("JWT_SECRET_KEY", "dev-secret-key-change-in-production")
 	viper.SetDefault("JWT_ACCESS_TOKEN_EXPIRES", "24")
 	viper.SetDefault("JWT_REFRESH_TOKEN_EXPIRES", "720")
@@ -132,6 +134,7 @@ func Init() error {
 			Mode:          viper.GetString("GIN_MODE"),
 			RunMode:       viper.GetString("GIN_MODE"),
 			PublicBaseURL: strings.TrimSpace(viper.GetString("PUBLIC_BASE_URL")),
+			POSProxyHostTemplate: strings.TrimSpace(viper.GetString("POS_PROXY_HOST_TEMPLATE")),
 		},
 		JWT: JWTConfig{
 			SecretKey:           viper.GetString("JWT_SECRET_KEY"),

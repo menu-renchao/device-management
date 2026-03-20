@@ -14,6 +14,14 @@ import {
   getMineOnlyToggleActiveStyle,
   shouldLoadAutoScanPanel
 } from './scanPageUtils';
+import {
+  DEFAULT_POS_OPEN_MODE,
+  POS_OPEN_MODE_DIRECT,
+  POS_OPEN_MODE_PROXY,
+  readPOSOpenMode,
+  resolvePOSOpenTarget,
+  writePOSOpenMode,
+} from './posOpenMode.mjs';
 
 const getOnlyMyDevicesStorageKey = (userId) => `scan_page_only_my_devices_${userId || 'default'}`;
 
@@ -74,6 +82,7 @@ const ScanPage = () => {
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
   const [showPropertyDropdown, setShowPropertyDropdown] = useState(false);
   const [onlyMyDevices, setOnlyMyDevices] = useState(false);
+  const [posOpenMode, setPosOpenMode] = useState(DEFAULT_POS_OPEN_MODE);
 
   // 确认对话框
   const [confirmDialog, setConfirmDialog] = useState({ show: false, type: null, data: null });
@@ -168,6 +177,7 @@ const ScanPage = () => {
     const storageKey = getOnlyMyDevicesStorageKey(user.id);
     const savedOnlyMyDevices = localStorage.getItem(storageKey) === '1';
     setOnlyMyDevices(savedOnlyMyDevices);
+    setPosOpenMode(readPOSOpenMode(localStorage, user.id));
     setCurrentPage(1);
     loadDevices(1, pageSize, '', [], [], savedOnlyMyDevices);
     loadFilterOptions();
@@ -387,8 +397,34 @@ const ScanPage = () => {
   };
 
   // 打开设备
-  const handleOpenDevice = (ip) => {
-    window.open(`http://${ip}:22080`, '_blank');
+  const handlePOSOpenModeChange = (mode) => {
+    const nextMode = writePOSOpenMode(localStorage, user?.id, mode);
+    setPosOpenMode(nextMode);
+  };
+
+  const handleOpenDevice = async (device) => {
+    const merchantId = device?.merchantId?.trim();
+    if (!merchantId) {
+      toast.warning('设备缺少商家ID，无法打开 POS');
+      return;
+    }
+
+    try {
+      const result = await deviceAPI.getPosAccess(merchantId);
+      if (!result.success || !result.data) {
+        toast.error(result.error || '获取 POS 访问地址失败');
+        return;
+      }
+
+      const token = localStorage.getItem('access_token') || '';
+      const targetUrl = resolvePOSOpenTarget(result.data, posOpenMode, token);
+      const openedWindow = window.open(targetUrl, '_blank', 'noopener');
+      if (!openedWindow) {
+        toast.warning('浏览器拦截了新窗口，请允许弹窗后重试');
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.error || error.message || '打开 POS 失败');
+    }
   };
 
   // 格式化最后扫描时间
@@ -904,6 +940,32 @@ const ScanPage = () => {
             />
             <span>只展示我的设备</span>
           </label>
+
+          <div style={styles.openModeControl} title="当前登录用户的 POS 默认打开方式">
+            <span style={styles.openModeLabel}>打开方式</span>
+            <div style={styles.openModeSegment}>
+              <button
+                type="button"
+                onClick={() => handlePOSOpenModeChange(POS_OPEN_MODE_DIRECT)}
+                style={{
+                  ...styles.openModeOption,
+                  ...(posOpenMode === POS_OPEN_MODE_DIRECT ? styles.openModeOptionActive : {})
+                }}
+              >
+                直连
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePOSOpenModeChange(POS_OPEN_MODE_PROXY)}
+                style={{
+                  ...styles.openModeOption,
+                  ...(posOpenMode === POS_OPEN_MODE_PROXY ? styles.openModeOptionActive : {})
+                }}
+              >
+                代理
+              </button>
+            </div>
+          </div>
 
           <input
             type="text"
@@ -1749,6 +1811,45 @@ const styles = {
   mineOnlyCheckbox: {
     margin: 0,
     cursor: 'pointer',
+  },
+  openModeControl: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '4px 6px',
+    border: '1px solid #D1D1D6',
+    borderRadius: '8px',
+    backgroundColor: '#fff',
+  },
+  openModeLabel: {
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#51607A',
+    whiteSpace: 'nowrap',
+  },
+  openModeSegment: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '2px',
+    borderRadius: '999px',
+    backgroundColor: '#F3F5F8',
+  },
+  openModeOption: {
+    padding: '6px 12px',
+    border: 'none',
+    borderRadius: '999px',
+    backgroundColor: 'transparent',
+    color: '#51607A',
+    fontSize: '12px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  openModeOptionActive: {
+    backgroundColor: '#0B63CE',
+    color: '#FFFFFF',
+    boxShadow: '0 6px 16px rgba(11, 99, 206, 0.18)',
   },
   toolbarRight: {
     display: 'flex',

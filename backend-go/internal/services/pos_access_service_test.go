@@ -27,7 +27,7 @@ func TestResolveAccessInfoBuildsDirectAndProxyURLs(t *testing.T) {
 		},
 	}
 
-	svc := NewPOSAccessService(repo)
+	svc := NewPOSAccessService(repo, "https://{merchant_id}.pos.example.com")
 
 	info, err := svc.ResolveAccessInfo("M123")
 	if err != nil {
@@ -38,7 +38,7 @@ func TestResolveAccessInfoBuildsDirectAndProxyURLs(t *testing.T) {
 		t.Fatalf("unexpected direct url: %s", info.DirectURL)
 	}
 
-	if info.ProxyURL != "/api/device/M123/pos-proxy/" {
+	if info.ProxyURL != "https://m123.pos.example.com/" {
 		t.Fatalf("unexpected proxy url: %s", info.ProxyURL)
 	}
 
@@ -56,7 +56,7 @@ func TestResolveAccessInfoRejectsOfflineDevice(t *testing.T) {
 		},
 	}
 
-	svc := NewPOSAccessService(repo)
+	svc := NewPOSAccessService(repo, "")
 
 	_, err := svc.ResolveAccessInfo("M123")
 	if err == nil {

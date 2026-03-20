@@ -36,11 +36,27 @@ type POSDeviceLookup interface {
 }
 
 type POSAccessService struct {
-	repo POSDeviceLookup
+	repo              POSDeviceLookup
+	proxyHostResolver *POSProxyHostResolver
 }
 
-func NewPOSAccessService(repo POSDeviceLookup) *POSAccessService {
-	return &POSAccessService{repo: repo}
+func NewPOSAccessService(repo POSDeviceLookup, proxyHostTemplate string) *POSAccessService {
+	resolver, err := NewPOSProxyHostResolver(proxyHostTemplate)
+	if err != nil {
+		resolver = &POSProxyHostResolver{}
+	}
+
+	return &POSAccessService{
+		repo:              repo,
+		proxyHostResolver: resolver,
+	}
+}
+
+func (s *POSAccessService) ResolveMerchantIDFromProxyHost(host string) (string, bool) {
+	if s == nil || s.proxyHostResolver == nil {
+		return "", false
+	}
+	return s.proxyHostResolver.ResolveMerchantID(host)
 }
 
 func (s *POSAccessService) ResolveAccessInfo(merchantID string) (*POSAccessInfo, error) {
@@ -65,12 +81,17 @@ func (s *POSAccessService) ResolveAccessInfo(merchantID string) (*POSAccessInfo,
 		return nil, err
 	}
 
+	proxyURL, ok := s.proxyHostResolver.BuildURL(trimmedMerchantID)
+	if !ok {
+		proxyURL = fmt.Sprintf("/api/device/%s/pos-proxy/", trimmedMerchantID)
+	}
+
 	return &POSAccessInfo{
 		MerchantID:     trimmedMerchantID,
 		IP:             targetIP,
 		Port:           posHTTPPort,
 		DirectURL:      fmt.Sprintf("http://%s:%d/", targetIP, posHTTPPort),
-		ProxyURL:       fmt.Sprintf("/api/device/%s/pos-proxy/", trimmedMerchantID),
+		ProxyURL:       proxyURL,
 		PreferDirect:   true,
 		IsOnline:       result.IsOnline,
 		LastOnlineTime: result.LastOnlineTime,
