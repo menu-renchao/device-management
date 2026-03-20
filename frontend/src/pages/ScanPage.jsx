@@ -941,8 +941,30 @@ const ScanPage = () => {
             <span>只展示我的设备</span>
           </label>
 
-          <div style={styles.openModeControl} title="当前登录用户的 POS 默认打开方式">
-            <span style={styles.openModeLabel}>打开方式</span>
+          <input
+            type="text"
+            placeholder="搜索IP/ID/名称/版本..."
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            style={styles.searchInput}
+          />
+          <button onClick={handleSearch} style={styles.searchBtn}>搜索</button>
+          {(searchText || filterTypes.length > 0 || filterProperties.length > 0) && (
+            <button onClick={clearSearch} style={styles.clearBtn}>清除</button>
+          )}
+
+          <div style={styles.openModeControl}>
+            <span style={styles.openModeLabelWrap}>
+              <span style={styles.openModeLabel}>打开方式</span>
+              <span
+                style={styles.openModeHint}
+                title="设置当前账号打开 POS 的默认方式。直连适合内网访问，代理适合外网访问。"
+                aria-label="设置当前账号打开 POS 的默认方式。直连适合内网访问，代理适合外网访问。"
+              >
+                ?
+              </span>
+            </span>
             <div style={styles.openModeSegment}>
               <button
                 type="button"
@@ -966,19 +988,6 @@ const ScanPage = () => {
               </button>
             </div>
           </div>
-
-          <input
-            type="text"
-            placeholder="搜索IP/ID/名称/版本..."
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            style={styles.searchInput}
-          />
-          <button onClick={handleSearch} style={styles.searchBtn}>搜索</button>
-          {(searchText || filterTypes.length > 0 || filterProperties.length > 0) && (
-            <button onClick={clearSearch} style={styles.clearBtn}>清除</button>
-          )}
         </div>
 
         <div style={styles.toolbarRight}>
@@ -1816,10 +1825,12 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
-    padding: '4px 6px',
+    minHeight: '32px',
+    padding: '1px 6px',
     border: '1px solid #D1D1D6',
-    borderRadius: '8px',
+    borderRadius: '6px',
     backgroundColor: '#fff',
+    boxSizing: 'border-box',
   },
   openModeLabel: {
     fontSize: '12px',
@@ -1827,16 +1838,37 @@ const styles = {
     color: '#51607A',
     whiteSpace: 'nowrap',
   },
+  openModeLabelWrap: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  openModeHint: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '16px',
+    height: '16px',
+    borderRadius: '999px',
+    border: '1px solid #C9D3E0',
+    color: '#607085',
+    backgroundColor: '#F6F8FC',
+    fontSize: '11px',
+    fontWeight: '700',
+    lineHeight: 1,
+    cursor: 'help',
+    userSelect: 'none',
+  },
   openModeSegment: {
     display: 'inline-flex',
     alignItems: 'center',
     gap: '4px',
-    padding: '2px',
+    padding: '1px',
     borderRadius: '999px',
     backgroundColor: '#F3F5F8',
   },
   openModeOption: {
-    padding: '6px 12px',
+    padding: '5px 10px',
     border: 'none',
     borderRadius: '999px',
     backgroundColor: 'transparent',
