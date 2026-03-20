@@ -10,10 +10,21 @@ import (
 	"strings"
 	"testing"
 
+	"device-management/internal/models"
 	"device-management/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
+
+type fakeDeviceWebAccessLogRepo struct {
+	logs []*models.DeviceWebAccessLog
+	err  error
+}
+
+func (f *fakeDeviceWebAccessLogRepo) Create(log *models.DeviceWebAccessLog) error {
+	f.logs = append(f.logs, log)
+	return f.err
+}
 
 func newProxyHandlerPointingTo(t *testing.T, upstreamURL string) *DeviceHandler {
 	t.Helper()
@@ -161,5 +172,41 @@ func TestPOSProxyRewritesHTMLRootRelativePaths(t *testing.T) {
 	}
 	if !strings.Contains(bodyText, `/api/device/M123/pos-proxy/login`) {
 		t.Fatalf("expected rewritten form action, got %s", bodyText)
+	}
+}
+
+func TestPOSProxyWritesAccessLog(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<html>ok</html>"))
+	}))
+	defer upstream.Close()
+
+	handler := newProxyHandlerPointingTo(t, upstream.URL)
+	logRepo := &fakeDeviceWebAccessLogRepo{}
+	handler.deviceWebAccessLogRepo = logRepo
+
+	router := gin.New()
+	router.Any("/device/:merchant_id/pos-proxy/*path", withAuthenticatedUser(handler.ProxyPOS))
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/device/M123/pos-proxy/")
+	if err != nil {
+		t.Fatalf("http.Get() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if len(logRepo.logs) != 1 {
+		t.Fatalf("expected one access log, got %d", len(logRepo.logs))
+	}
+	if logRepo.logs[0].MerchantID != "M123" {
+		t.Fatalf("unexpected merchant id in log: %s", logRepo.logs[0].MerchantID)
+	}
+	if logRepo.logs[0].StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status code in log: %d", logRepo.logs[0].StatusCode)
 	}
 }

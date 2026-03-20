@@ -30,10 +30,15 @@ type DeviceHandler struct {
 	linuxService        *services.LinuxService
 	accessService       *services.AssetAccessService
 	posAccessService    posAccessResolver
+	deviceWebAccessLogRepo deviceWebAccessLogger
 }
 
 type posAccessResolver interface {
 	ResolveAccessInfo(merchantID string) (*services.POSAccessInfo, error)
+}
+
+type deviceWebAccessLogger interface {
+	Create(log *models.DeviceWebAccessLog) error
 }
 
 func NewDeviceHandler(
@@ -45,6 +50,7 @@ func NewDeviceHandler(
 	linuxService *services.LinuxService,
 	accessService *services.AssetAccessService,
 	posAccessService posAccessResolver,
+	deviceWebAccessLogRepo deviceWebAccessLogger,
 ) *DeviceHandler {
 	return &DeviceHandler{
 		deviceRepo:          deviceRepo,
@@ -55,6 +61,7 @@ func NewDeviceHandler(
 		linuxService:        linuxService,
 		accessService:       accessService,
 		posAccessService:    posAccessService,
+		deviceWebAccessLogRepo: deviceWebAccessLogRepo,
 	}
 }
 
@@ -110,6 +117,7 @@ func (h *DeviceHandler) ProxyPOS(c *gin.Context) {
 		Host:   fmt.Sprintf("%s:%d", info.IP, info.Port),
 	}
 	proxyBasePath := fmt.Sprintf("/api/device/%s/pos-proxy", info.MerchantID)
+	startedAt := time.Now()
 
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 	proxy.ModifyResponse = func(resp *http.Response) error {
@@ -135,6 +143,20 @@ func (h *DeviceHandler) ProxyPOS(c *gin.Context) {
 	}
 
 	proxy.ServeHTTP(c.Writer, c.Request)
+
+	if h.deviceWebAccessLogRepo != nil {
+		_ = h.deviceWebAccessLogRepo.Create(&models.DeviceWebAccessLog{
+			MerchantID: info.MerchantID,
+			TargetIP:   info.IP,
+			TargetPort: info.Port,
+			Method:     c.Request.Method,
+			Path:       c.Request.URL.Path,
+			StatusCode: c.Writer.Status(),
+			UserID:     middleware.GetUserID(c),
+			ClientIP:   c.ClientIP(),
+			DurationMs: time.Since(startedAt).Milliseconds(),
+		})
+	}
 }
 
 func rewriteProxyLocationHeader(header http.Header, proxyBasePath string) {

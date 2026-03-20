@@ -108,6 +108,7 @@ func main() {
 	autoScanConfigRepo := repository.NewAutoScanConfigRepository(db)
 	scanJobLogRepo := repository.NewScanJobLogRepository(db)
 	featureRequestRepo := repository.NewFeatureRequestRepository(db)
+	deviceWebAccessLogRepo := repository.NewDeviceWebAccessLogRepository(db)
 
 	// Initialize services
 	authService := services.NewAuthService(userRepo)
@@ -127,7 +128,7 @@ func main() {
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
 	adminHandler := handlers.NewAdminHandler(userRepo, deviceRepo)
-	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, linuxService, assetAccessService, posAccessService)
+	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, linuxService, assetAccessService, posAccessService, deviceWebAccessLogRepo)
 	mobileHandler := handlers.NewMobileHandler(mobileRepo, userRepo, notificationService, assetAccessService)
 	scanHandler := handlers.NewScanHandler(scanService, deviceRepo, autoScanConfigRepo, scanJobLogRepo, autoScanScheduler)
 	linuxHandler := handlers.NewLinuxHandler(linuxService, fileConfigRepo, deviceRepo, userRepo, assetAccessService)
@@ -432,6 +433,7 @@ func autoMigrateModels() []interface{} {
 		&models.DBSQLExecuteTaskItem{},
 		&models.SystemConfig{},
 		&models.SystemNotification{},
+		&models.DeviceWebAccessLog{},
 		&models.WarPackageMetadata{},
 		&models.FeatureRequest{},
 		&models.FeatureRequestLike{},
