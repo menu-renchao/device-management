@@ -64,6 +64,18 @@ func TestResolveAccessInfoRejectsOfflineDevice(t *testing.T) {
 	}
 }
 
+func TestValidatePOSTargetRejectsPublicIP(t *testing.T) {
+	if err := validatePOSTarget("8.8.8.8", 22080); err == nil {
+		t.Fatal("expected public ip to be rejected")
+	}
+}
+
+func TestValidatePOSTargetRejectsUnexpectedPort(t *testing.T) {
+	if err := validatePOSTarget("192.168.1.50", 8080); err == nil {
+		t.Fatal("expected unexpected port to be rejected")
+	}
+}
+
 func testStringPtr(value string) *string {
 	return &value
 }
