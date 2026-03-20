@@ -2,9 +2,9 @@
 
 > **For Codex:** REQUIRED SUB-SKILL: Use executing-plans to implement this plan task-by-task.
 
-**Goal:** Add a Go-backed POS reverse proxy and a per-user frontend open mode so users can open POS pages by direct LAN mode or server proxy mode through one `打开` action.
+**Goal:** Add a Go-backed POS reverse proxy and a per-user frontend open mode so users can open POS pages by direct LAN mode or server proxy mode through one `打开` action, without hardcoding the public access address.
 
-**Architecture:** Nginx remains the public ingress, while Go resolves `merchantId -> current POS IP` and proxies requests to `http://<ip>:22080`. The frontend adds a per-user global open mode preference and uses one `打开` button to choose between `directUrl` and `proxyUrl`.
+**Architecture:** Nginx remains the public ingress, while Go resolves `merchantId -> current POS IP` and proxies requests to `http://<ip>:22080`. The frontend adds a per-user global open mode preference and uses one `打开` button to choose between `directUrl` and `proxyUrl`. Any public host/domain information must come from configuration rather than hardcoded IP values.
 
 **Tech Stack:** Go, Gin, GORM, SQLite, net/http/httputil, React, Axios, Vite
 
@@ -16,6 +16,7 @@
 - Create: `backend-go/internal/services/pos_access_service.go`
 - Create: `backend-go/internal/services/pos_access_service_test.go`
 - Modify: `backend-go/internal/repository/device_repo.go`
+- Modify: `backend-go/internal/config/config.go` or the active server config definition file
 
 **Step 1: Write the failing test**
 
@@ -87,6 +88,7 @@ Implement resolution rules:
 - require `IsOnline == true`
 - build `DirectURL` with fixed port `22080`
 - build `ProxyURL` with `/api/device/:merchantId/pos-proxy/`
+- add a configurable public-base setting for future domain access, while keeping `ProxyURL` frontend-safe as a relative path
 
 **Step 4: Run test to verify it passes**
 
@@ -97,7 +99,7 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add backend-go/internal/services/pos_access_service.go backend-go/internal/services/pos_access_service_test.go backend-go/internal/repository/device_repo.go
+git add backend-go/internal/services/pos_access_service.go backend-go/internal/services/pos_access_service_test.go backend-go/internal/repository/device_repo.go backend-go/internal/config/config.go
 git commit -m "feat: add pos access resolution service"
 ```
 
@@ -669,6 +671,7 @@ Expected: build success
 4. Open a POS and confirm the browser opens `/api/device/:merchantId/pos-proxy/`
 5. Validate POS page navigation, form submissions, and redirect flows
 6. Validate proxy logs record merchant, target IP, user, status, and duration
+7. Validate that changing the configured public base URL for future domain access does not require code changes in proxy behavior
 
 **Step 4: Fix only observed compatibility issues**
 

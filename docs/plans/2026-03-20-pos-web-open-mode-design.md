@@ -2,7 +2,7 @@
 
 **Problem**
 
-Current POS page access only supports LAN direct open via `http://<ip>:22080`. This works for users on the same local network as the POS, but fails for users visiting the device management service through the public entry `153.3.250.178:3000`. The previous proxy design is discarded.
+Current POS page access only supports LAN direct open via `http://<ip>:22080`. This works for users on the same local network as the POS, but fails for users visiting the device management service through the current public entry. The previous proxy design is discarded.
 
 The new design must satisfy these requirements:
 
@@ -13,6 +13,7 @@ The new design must satisfy these requirements:
 - The product rule is simple: any logged-in user may access any POS
 - The POS list page should expose one `打开` entry only
 - The default open mode should be a per-user global setting: `直连` or `代理`
+- The public access host/base URL must be configurable so future domain access does not require code changes
 
 **Decision**
 
@@ -23,6 +24,7 @@ Use an application-layer POS reverse proxy in Go, with Nginx only acting as the 
 - Go provides a POS access metadata endpoint and a POS reverse proxy endpoint
 - Frontend adds a per-user global default open mode setting
 - The scan page keeps a single `打开` button and chooses direct or proxied open based on the user's default mode
+- Public access address details are configuration-driven rather than hardcoded
 
 **Why This Approach**
 
@@ -44,6 +46,7 @@ Included:
 - Proxy open mode
 - Basic access logging for proxied requests
 - Redirect and cookie-path rewriting required for path-prefix proxying
+- Configuration-driven public access host/base URL
 
 Not included:
 
@@ -58,13 +61,15 @@ Not included:
 The design has four parts:
 
 1. **Public ingress**
-- Nginx remains the public ingress on `153.3.250.178:3000`
+- Nginx remains the public ingress on the configured public address
 - Nginx forwards frontend assets and `/api/*` requests to the Go service
+- The public address may be an IP:port today and a domain later
 
 2. **POS target resolution**
 - Go resolves a POS target from `merchantId`
 - Source of truth is the latest scan result stored in `scan_results`
 - The resolved target is always `http://<resolved-ip>:22080`
+- Any absolute public-facing URL generation must read from configuration, not from hardcoded IP/domain values
 
 3. **POS reverse proxy**
 - Go accepts proxied browser requests under `/api/device/:merchantId/pos-proxy`
@@ -102,6 +107,11 @@ Example response:
 }
 ```
 
+Notes:
+
+- `proxyUrl` should remain safe for frontend use as a relative path
+- if an absolute public-facing URL is needed in the future, it must be derived from configuration
+
 2. `ANY /api/device/:merchantId/pos-proxy`
 3. `ANY /api/device/:merchantId/pos-proxy/*path`
 
@@ -121,9 +131,15 @@ Rules:
 - Resolve device by `merchantId`
 - Read the current IP from scan results
 - Return a conflict/error if the device is offline or lacks a usable IP
+- Avoid embedding any public IP or domain in service logic
 - Build:
   - `directUrl = http://<ip>:22080/`
   - `proxyUrl = /api/device/:merchantId/pos-proxy/`
+
+Suggested configuration addition:
+
+- add a configurable `PUBLIC_BASE_URL` or equivalent server public-address field
+- keep relative proxy URLs supported so frontend open behavior is not coupled to a specific host string
 
 **Proxy transport**
 
@@ -217,10 +233,13 @@ For `pos-proxy`:
 2. Some pages may still embed paths in inline scripts
 - Mitigation: validate against real POS pages and patch only proven cases
 
-3. Scan result IPs may be stale
+3. Public access address may change from IP to domain later
+- Mitigation: centralize the public host/base URL in configuration and avoid hardcoded values in handlers, services, and frontend logic
+
+4. Scan result IPs may be stale
 - Mitigation: resolve on each request rather than caching aggressively in frontend logic
 
-4. Proxy usage may increase server bandwidth usage
+5. Proxy usage may increase server bandwidth usage
 - Mitigation: keep LAN users on direct mode by default
 
 **Acceptance Criteria**
@@ -231,6 +250,7 @@ For `pos-proxy`:
 - The scan table exposes a single `打开` action
 - Proxy mode supports normal POS page navigation, form submission, and redirected flows
 - Proxy failures surface clear errors and useful server logs
+- Public access host or domain changes do not require code changes in open-mode or proxy logic
 
 **Next Step**
 
@@ -241,3 +261,4 @@ Write an implementation plan covering:
 - proxy compatibility rewrites
 - frontend open-mode preference
 - scan page integration
+- configurable public base URL support
