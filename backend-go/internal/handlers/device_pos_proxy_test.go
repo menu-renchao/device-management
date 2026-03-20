@@ -81,3 +81,46 @@ func TestPOSProxyForwardsHTMLResponse(t *testing.T) {
 		t.Fatalf("unexpected body: %s", string(body))
 	}
 }
+
+func TestPOSProxyRewritesLocationAndCookiePath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "sid", Value: "abc", Path: "/"})
+		w.Header().Set("Location", "http://192.168.1.50:22080/login")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer upstream.Close()
+
+	handler := newProxyHandlerPointingTo(t, upstream.URL)
+	router := gin.New()
+	router.Any("/device/:merchant_id/pos-proxy/*path", withAuthenticatedUser(handler.ProxyPOS))
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := client.Get(server.URL + "/device/M123/pos-proxy/")
+	if err != nil {
+		t.Fatalf("client.Get() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	location := resp.Header.Get("Location")
+	if location != "/api/device/M123/pos-proxy/login" {
+		t.Fatalf("unexpected location: %s", location)
+	}
+
+	cookies := resp.Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookie count = %d, want 1", len(cookies))
+	}
+	if cookies[0].Path != "/api/device/M123/pos-proxy/" {
+		t.Fatalf("unexpected cookie path: %s", cookies[0].Path)
+	}
+}

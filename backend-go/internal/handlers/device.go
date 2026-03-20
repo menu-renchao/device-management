@@ -108,8 +108,14 @@ func (h *DeviceHandler) ProxyPOS(c *gin.Context) {
 		Scheme: "http",
 		Host:   fmt.Sprintf("%s:%d", info.IP, info.Port),
 	}
+	proxyBasePath := fmt.Sprintf("/api/device/%s/pos-proxy", info.MerchantID)
 
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		rewriteProxyLocationHeader(resp.Header, proxyBasePath)
+		rewriteProxyCookiePaths(resp.Header, proxyBasePath)
+		return nil
+	}
 	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, proxyErr error) {
 		response.Error(c, http.StatusBadGateway, proxyErr.Error())
 	}
@@ -125,6 +131,80 @@ func (h *DeviceHandler) ProxyPOS(c *gin.Context) {
 	}
 
 	proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+func rewriteProxyLocationHeader(header http.Header, proxyBasePath string) {
+	location := strings.TrimSpace(header.Get("Location"))
+	if location == "" {
+		return
+	}
+
+	rewritten := rewriteProxyPathValue(location, proxyBasePath)
+	if rewritten != "" {
+		header.Set("Location", rewritten)
+	}
+}
+
+func rewriteProxyCookiePaths(header http.Header, proxyBasePath string) {
+	setCookies := header.Values("Set-Cookie")
+	if len(setCookies) == 0 {
+		return
+	}
+
+	header.Del("Set-Cookie")
+	targetPath := ensureTrailingSlash(proxyBasePath)
+	for _, cookie := range setCookies {
+		rewritten := strings.Replace(cookie, "Path=/;", "Path="+targetPath+";", 1)
+		rewritten = strings.Replace(rewritten, "Path=/ ", "Path="+targetPath+" ", 1)
+		if strings.HasSuffix(rewritten, "Path=/") {
+			rewritten = strings.TrimSuffix(rewritten, "Path=/") + "Path=" + targetPath
+		}
+		header.Add("Set-Cookie", rewritten)
+	}
+}
+
+func rewriteProxyPathValue(rawValue, proxyBasePath string) string {
+	trimmedValue := strings.TrimSpace(rawValue)
+	if trimmedValue == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(trimmedValue, "/") {
+		return joinProxyPath(proxyBasePath, trimmedValue)
+	}
+
+	parsedURL, err := url.Parse(trimmedValue)
+	if err != nil {
+		return ""
+	}
+	if parsedURL.Path == "" {
+		return ""
+	}
+
+	rewrittenPath := joinProxyPath(proxyBasePath, parsedURL.Path)
+	if parsedURL.RawQuery != "" {
+		rewrittenPath += "?" + parsedURL.RawQuery
+	}
+	if parsedURL.Fragment != "" {
+		rewrittenPath += "#" + parsedURL.Fragment
+	}
+	return rewrittenPath
+}
+
+func joinProxyPath(proxyBasePath, targetPath string) string {
+	base := strings.TrimRight(proxyBasePath, "/")
+	path := targetPath
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return base + path
+}
+
+func ensureTrailingSlash(value string) string {
+	if strings.HasSuffix(value, "/") {
+		return value
+	}
+	return value + "/"
 }
 
 // GetDevices returns paginated device list
