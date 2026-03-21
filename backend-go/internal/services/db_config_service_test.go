@@ -34,12 +34,12 @@ func TestMySQLConnectionHostsKeepsRemoteHostUnchanged(t *testing.T) {
 func TestResolveTestConnectionInputRequiresExplicitSavedPasswordOptIn(t *testing.T) {
 	t.Parallel()
 
-	encrypted, err := appcrypto.EncryptPassword("saved-secret", "db-config-default-secret")
+	service := &DBConfigService{}
+	encrypted, err := appcrypto.EncryptPassword("saved-secret", service.getCipherSecret())
 	if err != nil {
 		t.Fatalf("encrypt password: %v", err)
 	}
 
-	service := &DBConfigService{}
 	_, err = service.resolveTestConnectionInput(DBConnectionInput{}, &models.DeviceDBConnection{
 		MerchantID:        "M100",
 		DBType:            "mysql",
@@ -60,12 +60,12 @@ func TestResolveTestConnectionInputRequiresExplicitSavedPasswordOptIn(t *testing
 func TestResolveTestConnectionInputUsesSavedPasswordWhenExplicitlyRequested(t *testing.T) {
 	t.Parallel()
 
-	encrypted, err := appcrypto.EncryptPassword("saved-secret", "db-config-default-secret")
+	service := &DBConfigService{}
+	encrypted, err := appcrypto.EncryptPassword("saved-secret", service.getCipherSecret())
 	if err != nil {
 		t.Fatalf("encrypt password: %v", err)
 	}
 
-	service := &DBConfigService{}
 	resolved, err := service.resolveTestConnectionInput(DBConnectionInput{
 		UseSavedPassword: true,
 	}, &models.DeviceDBConnection{

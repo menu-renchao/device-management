@@ -5,3 +5,11 @@
 backend-go/db-backups
 /.worktrees
 backend-go/data.db
+backend-go/.env
+backend-go/server.exe
+backend-go/test_build.exe
+backend-go/cmd/cleanup/data.db
+backend-go/license-backups/
+backend-go/uploads/
+frontend/dist/
+frontend/node_modules/

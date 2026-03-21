@@ -27,7 +27,10 @@ func openAuthServiceTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func configureAuthServiceJWT() {
+func configureAuthServiceJWT(t *testing.T) {
+	t.Helper()
+
+	previous := config.AppConfig
 	config.AppConfig = &config.Config{
 		JWT: config.JWTConfig{
 			SecretKey:           "test-secret",
@@ -35,6 +38,9 @@ func configureAuthServiceJWT() {
 			RefreshTokenExpires: 24 * time.Hour,
 		},
 	}
+	t.Cleanup(func() {
+		config.AppConfig = previous
+	})
 }
 
 func createApprovedAuthUser(t *testing.T, repo *repository.UserRepository, username string) *models.User {
@@ -55,7 +61,7 @@ func createApprovedAuthUser(t *testing.T, repo *repository.UserRepository, usern
 }
 
 func TestAuthServiceRefreshReturnsNewTokenPair(t *testing.T) {
-	configureAuthServiceJWT()
+	configureAuthServiceJWT(t)
 
 	db := openAuthServiceTestDB(t)
 	repo := repository.NewUserRepository(db)
@@ -84,7 +90,7 @@ func TestAuthServiceRefreshReturnsNewTokenPair(t *testing.T) {
 }
 
 func TestAuthServiceRefreshRejectsInvalidToken(t *testing.T) {
-	configureAuthServiceJWT()
+	configureAuthServiceJWT(t)
 
 	db := openAuthServiceTestDB(t)
 	repo := repository.NewUserRepository(db)
