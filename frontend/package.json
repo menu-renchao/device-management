@@ -1,10 +1,11 @@
 {
   "name": "pos-scanner-frontend",
   "version": "1.0.0",
+  "type": "module",
   "description": "POS设备扫描Web界面",
   "scripts": {
     "dev": "vite",
-    "test": "node --test src/pages/posOpenMode.test.mjs",
+    "test": "node --test src/pages/connectionDefaults.test.js src/pages/dbConnectionFormState.test.js src/pages/dbConnectionRequestState.test.js src/pages/posOpenMode.test.mjs src/pages/scanPageState.test.js src/pages/scanPageUtils.test.js src/pages/workspacePageState.test.js src/components/detailModalState.test.js src/components/scanTableState.test.js src/components/linux/upgradeStepTemplates.test.js src/components/linux/upgradeTabState.test.js",
     "build": "vite build",
     "preview": "vite preview"
   },

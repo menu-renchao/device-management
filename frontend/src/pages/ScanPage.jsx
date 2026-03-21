@@ -16,6 +16,13 @@ import {
   shouldLoadAutoScanPanel
 } from './scanPageUtils';
 import {
+  formatLastScanTime,
+  getOnlyMyDevicesStorageKey,
+  getPurposeText,
+  getScanConfirmConfig,
+  toggleMultiValueFilter,
+} from './scanPageState.js';
+import {
   beginPOSOpenWindow,
   cleanupPOSOpenWindow,
   DEFAULT_POS_OPEN_ENTRY,
@@ -31,8 +38,6 @@ import {
   writePOSOpenEntry,
   writePOSOpenMode,
 } from './posOpenMode.mjs';
-
-const getOnlyMyDevicesStorageKey = (userId) => `scan_page_only_my_devices_${userId || 'default'}`;
 
 const ScanPage = () => {
   const { isAdmin, user } = useAuth();
@@ -380,16 +385,12 @@ const ScanPage = () => {
   // 筛选变化处理
   const handleFilterChange = (type, value, checked) => {
     if (type === 'type') {
-      const newTypes = checked
-        ? [...filterTypes, value]
-        : filterTypes.filter(t => t !== value);
+      const newTypes = toggleMultiValueFilter(filterTypes, value, checked);
       setFilterTypes(newTypes);
       setCurrentPage(1);
       loadDevices(1, pageSize, searchText, newTypes, filterProperties);
     } else if (type === 'property') {
-      const newProperties = checked
-        ? [...filterProperties, value]
-        : filterProperties.filter(p => p !== value);
+      const newProperties = toggleMultiValueFilter(filterProperties, value, checked);
       setFilterProperties(newProperties);
       setCurrentPage(1);
       loadDevices(1, pageSize, searchText, filterTypes, newProperties);
@@ -458,32 +459,6 @@ const ScanPage = () => {
     } catch (error) {
       toast.error(error.response?.data?.error || error.message || `打开 ${entry.label} 失败`);
     }
-  };
-
-  // 格式化最后扫描时间
-  const formatLastScanTime = (isoString) => {
-    if (!isoString || isoString === '') return '';
-    const date = new Date(isoString);
-    if (isNaN(date.getTime())) return '';
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-
-    if (diffMins < 1) return '刚刚';
-    if (diffMins < 60) return `${diffMins}分钟前`;
-    if (diffHours < 24) return `${diffHours}小时前`;
-    return date.toLocaleDateString('zh-CN');
-  };
-
-  const getPurposeText = (purpose) => {
-    if (purpose === null || purpose === undefined) return '';
-    if (typeof purpose === 'string') return purpose.trim();
-    if (typeof purpose === 'object') {
-      if (typeof purpose.String === 'string') return purpose.String.trim();
-      if (typeof purpose.value === 'string') return purpose.value.trim();
-    }
-    return String(purpose).trim();
   };
 
   // 显示详情
@@ -683,22 +658,7 @@ const ScanPage = () => {
   };
 
   // 获取确认对话框配置
-  const getConfirmConfig = () => {
-    const { type, data } = confirmDialog;
-    const deviceName = data?.name || data?.merchantId || data?.ip || '';
-    switch (type) {
-      case 'release':
-        return { title: '确认归还', message: '确定要释放此设备吗？', confirmText: '归还' };
-      case 'delete':
-        return { title: '确认删除', message: `确定要删除设备 ${deviceName} 吗？此操作不可恢复。`, confirmText: '删除' };
-      case 'claim':
-        return { title: '确认认领', message: `确定要认领设备 ${deviceName} 吗？认领申请将提交给管理员审核。`, confirmText: '认领' };
-      case 'resetOwner':
-        return { title: '确认重置', message: `确定要重置设备 ${deviceName} 的认领状态吗？`, confirmText: '重置' };
-      default:
-        return { title: '确认', message: '', confirmText: '确定' };
-    }
-  };
+  const getConfirmConfig = () => getScanConfirmConfig(confirmDialog.type, confirmDialog.data);
 
   // 刷新设备列表
   const refreshDevices = async () => {

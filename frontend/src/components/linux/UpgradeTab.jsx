@@ -4,7 +4,18 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import FileConfigModal from './FileConfigModal';
 import DownloadConfigModal from './DownloadConfigModal';
+import UpgradeConfigStep from './UpgradeConfigStep';
+import UpgradeWarSelectionStep from './UpgradeWarSelectionStep';
+import UpgradeModeStep from './UpgradeModeStep';
+import UpgradeExecutionOverlay from './UpgradeExecutionOverlay';
 import { createUpgradeSteps } from './upgradeStepTemplates.js';
+import {
+  canExecuteUpgrade,
+  getEnabledConfigIds,
+  getNextSelectedConfigIds,
+  getNextSelectedConfigIdsAfterDelete,
+  resolveUpgradeWarPath,
+} from './upgradeTabState.js';
 
 const UpgradeTab = ({ merchantId }) => {
   const { isAdmin } = useAuth();
@@ -171,8 +182,7 @@ const UpgradeTab = ({ merchantId }) => {
     try {
       await linuxAPI.deleteFileConfig(configId);
       toast.success('配置已删除');
-      // 从选中列表中移除
-      setSelectedConfigs(selectedConfigs.filter(id => id !== configId));
+      setSelectedConfigs(getNextSelectedConfigIdsAfterDelete(selectedConfigs, configId));
       loadConfigs();
     } catch (error) {
       toast.error('删除失败：' + (error.response?.data?.message || error.message));
@@ -180,16 +190,12 @@ const UpgradeTab = ({ merchantId }) => {
   };
 
   const handleSelectConfig = (configId, checked) => {
-    if (checked) {
-      setSelectedConfigs([...selectedConfigs, configId]);
-    } else {
-      setSelectedConfigs(selectedConfigs.filter(id => id !== configId));
-    }
+    setSelectedConfigs(getNextSelectedConfigIds(selectedConfigs, configId, checked));
   };
 
   const handleSelectAllConfigs = (checked) => {
     if (checked) {
-      setSelectedConfigs(configs.filter(c => c.enabled).map(c => c.id));
+      setSelectedConfigs(getEnabledConfigIds(configs));
     } else {
       setSelectedConfigs([]);
     }
@@ -228,6 +234,31 @@ const UpgradeTab = ({ merchantId }) => {
       setExecutingConfigs(false);
     }
   };
+
+  const resetWarSelectionState = useCallback(() => {
+    setLocalMD5('');
+    setRemoteMD5('');
+    setMd5Match(null);
+    setMd5Comparing(false);
+    setShowMd5Confirm(false);
+  }, []);
+
+  const handleSelectMode = useCallback((mode) => {
+    setSelectMode(mode);
+    resetWarSelectionState();
+  }, [resetWarSelectionState]);
+
+  const handleChooseLocalFile = useCallback(() => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+
+    setFile(null);
+    resetWarSelectionState();
+    setUploadComplete(false);
+    setRemoteProgress(null);
+    fileInputRef.current?.click();
+  }, [resetWarSelectionState]);
 
   // WAR download handlers
   const handleStartDownload = async (overwrite = false) => {
@@ -561,28 +592,17 @@ const UpgradeTab = ({ merchantId }) => {
 
   // Execute upgrade using SSE
   const handleExecute = async () => {
-    let warPath = '';
+    const { warPath, error } = resolveUpgradeWarPath({
+      selectMode,
+      upgradeMode,
+      file,
+      selectedPackage,
+      selectedHistoryPackage,
+      historyPackages,
+    });
 
-    // 确定 WAR 包路径
-    if (selectMode === 'local' && file) {
-      // 本地上传模式：根据升级模式决定目标路径
-      if (upgradeMode === 'direct') {
-        warPath = '/opt/tomcat7/webapps/kpos.war';
-      } else {
-        warPath = `/home/menu/${selectedPackage}/kpos.war`;
-      }
-    } else if (selectMode === 'history' && selectedHistoryPackage) {
-      const pkg = historyPackages.find(p => p.name === selectedHistoryPackage);
-      if (pkg && pkg.file_name) {
-        warPath = `downloads/${selectedHistoryPackage}/${pkg.file_name}`;
-      } else {
-        toast.error('无法获取包文件信息，请重新选择历史包');
-        return;
-      }
-    }
-
-    if (!warPath) {
-      toast.warning('请先选择 WAR 包');
+    if (error) {
+      toast.warning(error);
       return;
     }
 
@@ -658,7 +678,7 @@ const UpgradeTab = ({ merchantId }) => {
           setExecuteProgress(10 + progress * 0.2);
           setUpgradeSteps((current) => current.map((step, stepIndex) => (
             stepIndex === 1
-              ? { ...step, status: 'running', progress, message: `正在接收本地 WAR 文件... ${progress}%` }
+          ? { ...step, status: 'running', progress, message: `正在接收本地 WAR 文件... ${progress}%` }
               : step
           )));
         });
@@ -678,14 +698,11 @@ const UpgradeTab = ({ merchantId }) => {
     const eventSource = new EventSource(streamUrl);
     eventSourceRef.current = eventSource;
 
-    eventSource.onopen = () => {
-      console.log('[SSE] 连接已建立');
-    };
+    eventSource.onopen = () => {};
 
     eventSource.addEventListener('progress', (e) => {
       try {
         const data = JSON.parse(e.data);
-        console.log('[SSE] progress:', data);
         if (data.progress !== undefined) {
           // 将升级进度映射到 50-100%
           const adjustedProgress = 50 + (data.progress * 0.5);
@@ -708,7 +725,6 @@ const UpgradeTab = ({ merchantId }) => {
     eventSource.addEventListener('step', (e) => {
       try {
         const data = JSON.parse(e.data);
-        console.log('[SSE] step:', data);
         if (data.task) {
           if (data.task.steps) {
             setUpgradeSteps(data.task.steps);
@@ -730,7 +746,6 @@ const UpgradeTab = ({ merchantId }) => {
     });
 
     eventSource.addEventListener('completed', (e) => {
-      console.log('[SSE] completed');
       try {
         const data = JSON.parse(e.data);
         if (data.steps) {
@@ -745,7 +760,6 @@ const UpgradeTab = ({ merchantId }) => {
     });
 
     eventSource.addEventListener('error', (e) => {
-      console.log('[SSE] error event:', e);
       let errorMsg = '升级失败';
       try {
         if (e.data) {
@@ -765,8 +779,8 @@ const UpgradeTab = ({ merchantId }) => {
     eventSource.onerror = (err) => {
       console.error('[SSE] 连接错误:', err);
       // EventSource 的 onerror 会在连接失败时触发
-      // 但如果是正常关闭（任务完成），不需要处理
-      // 这里只记录日志，具体错误由 'error' 事件处理
+      // 但如果是正常关闭（任务完成），不需要额外处理
+      // 这里仅记录日志，具体错误由 'error' 事件处理
     };
   };
 
@@ -823,25 +837,14 @@ const UpgradeTab = ({ merchantId }) => {
     return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
   };
 
-  const canProceedToStep3 = () => {
-    if (selectMode === 'local') {
-      // 本地上传模式：只需要选择了文件即可，不要求已上传
-      return file !== null;
-    } else if (selectMode === 'history') {
-      return selectedHistoryPackage !== null;
-    } else if (selectMode === 'download') {
-      return downloadProgress?.status === 'completed' || selectedHistoryPackage !== null;
-    }
-    return false;
-  };
-
-  const canExecute = () => {
-    if (upgradeMode === 'direct') {
-      return canProceedToStep3();
-    } else {
-      return selectedPackage !== null && canProceedToStep3();
-    }
-  };
+  const canExecute = () => canExecuteUpgrade({
+    upgradeMode,
+    selectMode,
+    file,
+    selectedHistoryPackage,
+    downloadProgress,
+    selectedPackage,
+  });
 
   // Load upgrade packages when package mode is selected
   useEffect(() => {
@@ -850,864 +853,100 @@ const UpgradeTab = ({ merchantId }) => {
     }
   }, [upgradeMode]);
 
-  const renderStep1 = () => (
-    <div style={styles.stepCard}>
-      <div style={styles.stepCardHeader}>
-        <div style={styles.stepCardTitleWrap}>
-          <span style={styles.stepCardBadge}>步骤 1</span>
-          <h4 style={styles.stepCardTitle}>环境与配置</h4>
-        </div>
-      </div>
-      <div style={styles.stepCardBody}>
-        <div style={styles.envSection}>
-          <span style={styles.envLabel}>目标环境</span>
-          <select
-            value={env}
-            onChange={(e) => setEnv(e.target.value)}
-            style={styles.envSelect}
-          >
-            <option value="QA">QA (测试环境)</option>
-            <option value="PROD">PROD (生产环境)</option>
-            <option value="DEV">DEV (开发环境)</option>
-          </select>
-        </div>
-
-        <div style={styles.configSection}>
-          <div
-            style={styles.configHeader}
-            onClick={() => setConfigSectionExpanded(!configSectionExpanded)}
-          >
-            <div style={styles.configHeaderLeft}>
-              <span style={styles.expandIcon}>{configSectionExpanded ? '▼' : '▶'}</span>
-              <span style={styles.configHeaderText}>文件配置（默认执行启用配置，一般无需修改，可单独执行）</span>
-            </div>
-            <div style={styles.configHeaderRight} onClick={(e) => e.stopPropagation()}>
-              {isAdmin() && (
-                <button
-                  onClick={() => setShowConfigModal(true)}
-                  style={styles.manageBtn}
-                >
-                  新增配置
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* 配置执行按钮 - 展开时显示 */}
-          {configSectionExpanded && (
-            <div style={styles.configExecuteBar}>
-              <span style={styles.configSelectInfo}>
-                已选择 {selectedConfigs.length} 个配置
-              </span>
-              <button
-                onClick={handleExecuteConfigsOnly}
-                disabled={executingConfigs || selectedConfigs.length === 0}
-                style={{
-                  ...styles.executeConfigBtn,
-                  ...(executingConfigs || selectedConfigs.length === 0 ? styles.disabled : {}),
-                }}
-              >
-                {executingConfigs ? '执行中...' : '单独执行配置修改'}
-              </button>
-            </div>
-          )}
-
-          {/* 配置执行结果显示 */}
-          {configExecuteResults && (
-            <div style={styles.configResultsCard}>
-              <div style={styles.configResultsHeader}>
-                执行结果：{configExecuteResults.success || 0} 成功，{configExecuteResults.failed || 0} 失败
-              </div>
-              {configExecuteResults.results && configExecuteResults.results.length > 0 && (
-                <div style={styles.configResultsList}>
-                  {configExecuteResults.results.map((result, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        ...styles.configResultItem,
-                        ...(result.startsWith('[失败]') ? styles.configResultFailed : styles.configResultSuccess)
-                      }}
-                    >
-                      {result}
-                    </div>
-                  ))}
-                </div>
-              )}
-              <button
-                onClick={() => setConfigExecuteResults(null)}
-                style={styles.closeResultsBtn}
-              >
-                关闭
-              </button>
-            </div>
-          )}
-
-          {configSectionExpanded && (
-            <>
-              {loadingConfigs ? (
-                <div style={styles.loadingText}>加载中...</div>
-              ) : configs.length === 0 ? (
-                <div style={styles.emptyText}>暂无配置，请先添加配置</div>
-              ) : (
-                <div style={styles.configList}>
-                  <div style={styles.configItemHeader}>
-                    <label style={styles.checkboxLabel}>
-                      <input
-                        type="checkbox"
-                        checked={selectedConfigs.length === configs.filter(c => c.enabled).length && configs.filter(c => c.enabled).length > 0}
-                        onChange={(e) => handleSelectAllConfigs(e.target.checked)}
-                      />
-                      全选
-                    </label>
-                    <span style={{ ...styles.configColName, flex: '1 1 0' }}>配置名称</span>
-                    <span style={{ ...styles.configColPath, flex: '2 1 0' }}>文件路径</span>
-                    <span style={{ ...styles.configColStatus, flex: '1 1 0' }}>状态</span>
-                    <span style={styles.configColAction}>操作</span>
-                  </div>
-                  {configs.map((config) => (
-                    <div key={config.id}>
-                      <div style={styles.configItem}>
-                        <label style={styles.checkboxLabel}>
-                          <input
-                            type="checkbox"
-                            checked={selectedConfigs.includes(config.id)}
-                            onChange={(e) => handleSelectConfig(config.id, e.target.checked)}
-                            disabled={!config.enabled}
-                          />
-                        </label>
-                        <span
-                          style={{ ...styles.configColName, flex: '1 1 0' }}
-                          onClick={() => setExpandedConfig(expandedConfig === config.id ? null : config.id)}
-                        >
-                          <span style={styles.expandIcon}>{expandedConfig === config.id ? '▼' : '▶'}</span>
-                          {config.name}
-                        </span>
-                        <span style={{ ...styles.configColPath, flex: '2 1 0' }}>{config.file_path}</span>
-                        <span style={{
-                          ...styles.configColStatus,
-                          flex: '1 1 0',
-                          color: config.enabled ? '#34C759' : '#86868B'
-                        }}>
-                          <span style={styles.statusDot(config.enabled)}></span>
-                          {config.enabled ? '启用' : '禁用'}
-                        </span>
-                        <div style={styles.configColActionBtns}>
-                          {isAdmin() && (
-                            <>
-                              <button
-                                onClick={() => handleToggleConfig(config.id, !config.enabled)}
-                                style={styles.toggleBtn}
-                              >
-                                {config.enabled ? '禁用' : '启用'}
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setEditingConfig(config);
-                                  setShowConfigModal(true);
-                                }}
-                                style={styles.editBtn}
-                              >
-                                编辑
-                              </button>
-                              <button
-                                onClick={() => handleDeleteConfig(config.id)}
-                                style={styles.deleteBtn}
-                              >
-                                删除
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      {expandedConfig === config.id && (
-                        <div style={styles.configDetail}>
-                          {config.key_values && config.key_values.map((kv, idx) => (
-                            <div key={idx} style={styles.detailRow}>
-                              <span style={styles.detailKey}>{kv.key}</span>
-                              <span style={styles.detailValues}>
-                                <span style={styles.detailValueItem}>
-                                  <span style={styles.detailEnvLabel}>QA:</span>
-                                  <span style={styles.detailEnvValue}>{kv.qa_value || '-'}</span>
-                                </span>
-                                <span style={styles.detailValueItem}>
-                                  <span style={styles.detailEnvLabel}>PROD:</span>
-                                  <span style={styles.detailEnvValue}>{kv.prod_value || '-'}</span>
-                                </span>
-                                <span style={styles.detailValueItem}>
-                                  <span style={styles.detailEnvLabel}>DEV:</span>
-                                  <span style={styles.detailEnvValue}>{kv.dev_value || '-'}</span>
-                                </span>
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderStep2 = () => (
-    <div style={styles.stepCard}>
-      <div style={styles.stepCardHeader}>
-        <div style={styles.stepCardTitleWrap}>
-          <span style={styles.stepCardBadge}>步骤 2</span>
-          <h4 style={styles.stepCardTitle}>选择 WAR 包</h4>
-        </div>
-      </div>
-      <div style={styles.stepCardBody}>
-        {/* Mode Selector - Pill Style */}
-        <div style={styles.modeSelector}>
-          <button
-            style={{
-              ...styles.modePill,
-              ...(selectMode === 'local' ? styles.modePillActive : {})
-            }}
-            onClick={() => {
-              setSelectMode('local');
-              setLocalMD5('');
-              setRemoteMD5('');
-              setMd5Match(null);
-              setMd5Comparing(false);
-              setShowMd5Confirm(false);
-            }}
-          >
-            本地上传
-          </button>
-          <button
-            style={{
-              ...styles.modePill,
-              ...(selectMode === 'download' ? styles.modePillActive : {})
-            }}
-            onClick={() => {
-              setSelectMode('download');
-              setLocalMD5('');
-              setRemoteMD5('');
-              setMd5Match(null);
-              setMd5Comparing(false);
-              setShowMd5Confirm(false);
-            }}
-          >
-            网络下载
-          </button>
-          <button
-            style={{
-              ...styles.modePill,
-              ...(selectMode === 'history' ? styles.modePillActive : {})
-            }}
-            onClick={() => {
-              setSelectMode('history');
-              setLocalMD5('');
-              setRemoteMD5('');
-              setMd5Match(null);
-              setMd5Comparing(false);
-              setShowMd5Confirm(false);
-            }}
-          >
-            历史版本
-          </button>
-        </div>
-
-        {/* Local upload mode */}
-        {selectMode === 'local' && (
-          <div style={styles.modeContent}>
-            <div style={styles.fileRow}>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".war"
-                onChange={handleFileSelect}
-                style={{ display: 'none' }}
-              />
-              <button
-                onClick={() => {
-                  if (fileInputRef.current) {
-                    fileInputRef.current.value = '';
-                  }
-                  setFile(null);
-                  setLocalMD5('');
-                  setRemoteMD5('');
-                  setMd5Match(null);
-                  setShowMd5Confirm(false);
-                  setUploadComplete(false);
-                  setRemoteProgress(null);
-                  fileInputRef.current?.click();
-                }}
-                style={styles.outlineBtn}
-                disabled={uploading}
-              >
-                选择文件
-              </button>
-              {file && (
-                <div style={styles.fileInfo}>
-                  <span style={styles.fileName}>{file.name}</span>
-                  <span style={styles.fileSize}>{formatSize(file.size)}</span>
-                </div>
-              )}
-            </div>
-
-            {/* MD5 Comparison Display */}
-            {(localMD5 || md5Comparing) && (
-              <div style={styles.md5Card}>
-                <div style={styles.md5Header}>MD5 校验比对</div>
-                <div style={styles.md5Row}>
-                  <span style={styles.md5Label}>本地文件</span>
-                  <code style={styles.md5Code}>{localMD5 || '计算中...'}</code>
-                </div>
-                <div style={styles.md5Row}>
-                  <span style={styles.md5Label}>远程 kpos.war</span>
-                  {md5Comparing ? (
-                    <span style={styles.md5Loading}>比对中...</span>
-                  ) : remoteMD5 ? (
-                    <code style={{
-                      ...styles.md5Code,
-                      color: md5Match ? '#FF9500' : '#34C759'
-                    }}>
-                      {remoteMD5}
-                    </code>
-                  ) : (
-                    <span style={styles.md5NotFound}>远程文件不存在</span>
-                  )}
-                </div>
-                {md5Match !== null && (
-                  <div style={{
-                    ...styles.md5Result,
-                    ...(md5Match ? styles.md5MatchWarning : styles.md5NoMatchSuccess)
-                  }}>
-                    {md5Match ? (
-                      <>⚠️ MD5 匹配！目标设备上已存在相同的 WAR 包</>
-                    ) : (
-                      <>✓ MD5 不匹配，这是一个新版本的 WAR 包</>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* MD5 Match Info Dialog - 仅提示，不触发上传 */}
-            {showMd5Confirm && md5Match && (
-              <div style={styles.confirmDialog}>
-                <div style={styles.confirmDialogContent}>
-                  <div style={styles.confirmIcon}>⚠️</div>
-                  <div style={styles.confirmTitle}>MD5 匹配提示</div>
-                  <div style={styles.confirmText}>
-                    检测到目标设备上已存在相同的 WAR 包（MD5 匹配）。
-                    如需更新，请点击"开始执行"。
-                  </div>
-                  <div style={styles.confirmButtons}>
-                    <button onClick={handleConfirmUpload} style={styles.confirmPrimaryBtn}>
-                      知道了
-                    </button>
-                    <button onClick={handleCancelUpload} style={styles.confirmCancelBtn}>
-                      重新选择
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Upload Progress */}
-            {uploading && !executing && (
-              <div style={styles.progressCard}>
-                <div style={styles.progressHeader}>
-                  <span style={styles.progressLabel}>
-                    {remoteProgress ? '远程写入进度' : '上传进度'}
-                  </span>
-                  <span style={styles.progressValue}>
-                    {remoteProgress
-                      ? `${remoteProgress.percentage?.toFixed(1) || 0}%`
-                      : `${uploadProgress}%`
-                    }
-                  </span>
-                </div>
-                <div style={styles.progressBar}>
-                  <div style={{
-                    ...styles.progressFill,
-                    width: remoteProgress
-                      ? `${remoteProgress.percentage || 0}%`
-                      : `${uploadProgress}%`
-                  }} />
-                </div>
-                {remoteProgress && (
-                  <div style={styles.progressStats}>
-                    <span>{formatSize(remoteProgress.transferred || 0)} / {formatSize(remoteProgress.total_size || 0)}</span>
-                  </div>
-                )}
-                {!remoteProgress && uploadProgress === 100 && (
-                  <div style={styles.progressStats}>
-                    <span>正在连接远程服务器...</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Upload Complete Status */}
-            {uploadComplete && file && !executing && (
-              <div style={styles.successCard}>
-                <span>✓ 上传完成</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Network download mode */}
-        {selectMode === 'download' && (
-          <div style={styles.modeContent}>
-            <div style={styles.downloadInputRow}>
-              <input
-                type="text"
-                value={downloadUrl}
-                onChange={(e) => setDownloadUrl(e.target.value)}
-                placeholder="输入 TeamCity 或其他下载 URL..."
-                style={styles.downloadInput}
-              />
-              <button
-                onClick={() => handleStartDownload()}
-                disabled={downloading || !downloadUrl.trim()}
-                style={{
-                  ...styles.downloadBtn,
-                  ...((downloading || !downloadUrl.trim()) ? styles.disabled : {}),
-                }}
-              >
-                {downloading ? '下载中...' : '开始下载'}
-              </button>
-              {downloading && (
-                <button onClick={handleCancelDownload} style={styles.cancelDownloadBtn}>
-                  取消
-                </button>
-              )}
-              {isAdmin() && (
-                <button onClick={() => setShowDownloadConfig(true)} style={styles.configBtn}>
-                  配置
-                </button>
-              )}
-            </div>
-
-            {duplicateVersion && (
-              <div style={styles.duplicateDialog}>
-                <div style={styles.duplicateDialogContent}>
-                  <div style={styles.duplicateIcon}>⚠️</div>
-                  <div style={styles.duplicateTitle}>版本已存在</div>
-                  <div style={styles.duplicateText}>
-                    版本 <strong>{duplicateVersion.version}</strong> 已存在于历史记录中。
-                  </div>
-                  <div style={styles.duplicateButtons}>
-                    <button onClick={handleUseExisting} style={styles.confirmPrimaryBtn}>
-                      使用已有版本
-                    </button>
-                    <button onClick={handleOverwriteDownload} style={styles.dangerBtn}>
-                      覆盖重新下载
-                    </button>
-                    <button onClick={() => setDuplicateVersion(null)} style={styles.confirmCancelBtn}>
-                      取消
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {downloading && downloadProgress && (
-              <div style={styles.progressCard}>
-                <div style={styles.progressHeader}>
-                  <span style={styles.progressLabel}>
-                    下载进度 - {downloadProgress.name || '获取中...'}
-                  </span>
-                  {downloadProgress.total > 0 && (
-                    <span style={styles.progressValue}>{downloadProgress.percentage?.toFixed(1)}%</span>
-                  )}
-                </div>
-                {downloadProgress.total > 0 ? (
-                  <div style={styles.progressBar}>
-                    <div style={{ ...styles.progressFill, width: `${downloadProgress.percentage || 0}%` }} />
-                  </div>
-                ) : (
-                  <div style={styles.indeterminateBar} />
-                )}
-                <div style={styles.progressStats}>
-                  <span>{formatSize(downloadProgress.downloaded || 0)}
-                    {downloadProgress.total > 0 && ` / ${formatSize(downloadProgress.total)}`}</span>
-                  <span>{downloadProgress.speed || ''}</span>
-                </div>
-              </div>
-            )}
-
-            {/* MD5 Comparison for Download */}
-            {!downloading && selectedHistoryPackage && (localMD5 || md5Comparing || remoteMD5) && (
-              <div style={styles.md5Card}>
-                <div style={styles.md5Header}>MD5 校验比对</div>
-                <div style={styles.md5Row}>
-                  <span style={styles.md5Label}>下载包</span>
-                  <code style={styles.md5Code}>{localMD5 || '获取中...'}</code>
-                </div>
-                <div style={styles.md5Row}>
-                  <span style={styles.md5Label}>远程 kpos.war</span>
-                  {md5Comparing ? (
-                    <span style={styles.md5Loading}>比对中...</span>
-                  ) : remoteMD5 ? (
-                    <code style={{ ...styles.md5Code, color: md5Match ? '#FF9500' : '#34C759' }}>
-                      {remoteMD5}
-                    </code>
-                  ) : (
-                    <span style={styles.md5NotFound}>远程文件不存在</span>
-                  )}
-                </div>
-                {md5Match !== null && (
-                  <div style={{ ...styles.md5Result, ...(md5Match ? styles.md5MatchWarning : styles.md5NoMatchSuccess) }}>
-                    {md5Match ? <>⚠️ MD5 匹配！</> : <>✓ 新版本</>}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* History mode */}
-        {selectMode === 'history' && (
-          <div style={styles.modeContent}>
-            {historyPackages.length === 0 ? (
-              <div style={styles.emptyHistory}>暂无历史下载的包</div>
-            ) : (
-              <>
-                <div style={styles.historyList}>
-                  {historyPackages.map((pkg) => (
-                    <div
-                      key={pkg.name}
-                      style={{
-                        ...styles.historyItem,
-                        ...(selectedHistoryPackage === pkg.name ? styles.historyItemSelected : {})
-                      }}
-                      onClick={() => handleSelectHistoryPackage(pkg)}
-                    >
-                      <div style={styles.historyItemLeft}>
-                        <input
-                          type="radio"
-                          name="historyPackage"
-                          checked={selectedHistoryPackage === pkg.name}
-                          onChange={() => handleSelectHistoryPackage(pkg)}
-                        />
-                        <div style={styles.historyItemInfo}>
-                          <span style={styles.historyItemName}>{pkg.name}</span>
-                          <span style={styles.historyItemMeta}>{formatSize(pkg.size)}</span>
-                        </div>
-                      </div>
-                      <div style={styles.historyItemActions}>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            window.open(linuxAPI.downloadWarPackageUrl(pkg.name), '_blank');
-                          }}
-                          style={styles.actionBtn}
-                          title="下载到本地"
-                        >
-                          下载
-                        </button>
-                        {isAdmin() && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeletePackage(pkg.name);
-                            }}
-                            style={{ ...styles.actionBtn, ...styles.deleteActionBtn }}
-                            title="删除"
-                          >
-                            删除
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {selectedHistoryPackage && (
-                  <div style={styles.selectedPackageInfo}>
-                    已选择: <strong>{selectedHistoryPackage}</strong>
-                  </div>
-                )}
-                {/* MD5 Comparison for History */}
-                {selectedHistoryPackage && (localMD5 || md5Comparing || remoteMD5) && (
-                  <div style={styles.md5Card}>
-                    <div style={styles.md5Header}>MD5 校验比对</div>
-                    <div style={styles.md5Row}>
-                      <span style={styles.md5Label}>选中包</span>
-                      <code style={styles.md5Code}>{localMD5 || '获取中...'}</code>
-                    </div>
-                    <div style={styles.md5Row}>
-                      <span style={styles.md5Label}>远程 kpos.war</span>
-                      {md5Comparing ? (
-                        <span style={styles.md5Loading}>比对中...</span>
-                      ) : remoteMD5 ? (
-                        <code style={{ ...styles.md5Code, color: md5Match ? '#FF9500' : '#34C759' }}>
-                          {remoteMD5}
-                        </code>
-                      ) : (
-                        <span style={styles.md5NotFound}>远程文件不存在</span>
-                      )}
-                    </div>
-                    {md5Match !== null && (
-                      <div style={{ ...styles.md5Result, ...(md5Match ? styles.md5MatchWarning : styles.md5NoMatchSuccess) }}>
-                        {md5Match ? <>⚠️ MD5 匹配！</> : <>✓ 新版本</>}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  const renderStep3 = () => (
-    <div style={styles.stepCard}>
-      <div style={styles.stepCardHeader}>
-        <div style={styles.stepCardTitleWrap}>
-          <span style={styles.stepCardBadge}>步骤 3</span>
-          <h4 style={styles.stepCardTitle}>选择升级模式</h4>
-        </div>
-      </div>
-      <div style={styles.stepCardBody}>
-        {/* Mode Selector - Pill Style */}
-        <div style={styles.modeSelector}>
-          <button
-            style={{
-              ...styles.modePill,
-              ...(upgradeMode === 'direct' ? styles.modePillActive : {})
-            }}
-            onClick={() => setUpgradeMode('direct')}
-          >
-            直接替换 WAR
-          </button>
-          <button
-            style={{
-              ...styles.modePill,
-              ...(upgradeMode === 'package' ? styles.modePillActive : {})
-            }}
-            onClick={() => setUpgradeMode('package')}
-          >
-            升级包升级
-          </button>
-        </div>
-
-        {upgradeMode === 'direct' && (
-          <div style={styles.modeContent}>
-            <div style={styles.infoCard}>
-              <div style={styles.infoCardTitle}>直接替换 WAR 模式将执行以下操作：</div>
-              <ol style={styles.infoCardList}>
-                <li>停止 POS 服务</li>
-                <li>替换 /opt/tomcat7/webapps/kpos.war</li>
-                <li>执行配置修改（如果启用了配置）</li>
-                <li>重启 POS 服务</li>
-              </ol>
-            </div>
-          </div>
-        )}
-
-        {upgradeMode === 'package' && (
-          <div style={styles.modeContent}>
-            <div style={styles.infoCard}>
-              升级包升级模式将使用远程服务器上的升级包目录，执行其中的 update.sh 脚本进行升级。
-            </div>
-
-            <div style={styles.packageActions}>
-              <input
-                ref={packageFileInputRef}
-                type="file"
-                accept=".zip"
-                onChange={handlePackageFileSelect}
-                style={{ display: 'none' }}
-              />
-              <button
-                onClick={() => packageFileInputRef.current?.click()}
-                style={styles.outlineBtn}
-              >
-                上传升级包
-              </button>
-              {packageFile && (
-                <>
-                  <span style={styles.fileName}>{packageFile.name}</span>
-                  <button
-                    onClick={handlePackageUpload}
-                    disabled={packageUploading}
-                    style={{
-                      ...styles.uploadBtn,
-                      ...(packageUploading ? styles.disabled : {}),
-                    }}
-                  >
-                    {packageUploading ? `上传中 ${packageUploadProgress}%` : '上传'}
-                  </button>
-                </>
-              )}
-            </div>
-
-            {packageUploading && (
-              <div style={styles.progressCard}>
-                <div style={styles.progressBar}>
-                  <div style={{ ...styles.progressFill, width: `${packageUploadProgress}%` }} />
-                </div>
-              </div>
-            )}
-
-            <div style={styles.packageListSection}>
-              <div style={styles.packageListHeader}>
-                <span style={styles.packageListTitle}>选择升级包</span>
-                <button
-                  onClick={loadUpgradePackages}
-                  disabled={loadingPackages}
-                  style={styles.refreshBtn}
-                >
-                  {loadingPackages ? '刷新中...' : '刷新'}
-                </button>
-              </div>
-
-              {loadingPackages ? (
-                <div style={styles.loadingText}>扫描中...</div>
-              ) : upgradePackages.filter(pkg => pkg.has_update_sh).length === 0 ? (
-                <div style={styles.emptyHistory}>未找到升级包，请先上传</div>
-              ) : (
-                <div style={styles.historyList}>
-                  {upgradePackages.filter(pkg => pkg.has_update_sh).map((pkg) => (
-                    <div
-                      key={pkg.name}
-                      style={{
-                        ...styles.historyItem,
-                        ...(selectedPackage === pkg.name ? styles.historyItemSelected : {})
-                      }}
-                      onClick={() => setSelectedPackage(pkg.name)}
-                    >
-                      <div style={styles.historyItemLeft}>
-                        <input
-                          type="radio"
-                          name="upgradePackage"
-                          checked={selectedPackage === pkg.name}
-                          onChange={() => setSelectedPackage(pkg.name)}
-                        />
-                        <div style={styles.historyItemInfo}>
-                          <span style={styles.historyItemName}>{pkg.name}</span>
-                          <span style={styles.historyItemMeta}>
-                            {pkg.mod_time}
-                            {pkg.has_update_sh ? '' : ' | 无 update.sh'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
 
   return (
     <div style={styles.container}>
-      {/* 全屏升级进度遮罩 */}
-      {(executing || executeResult !== null) && (
-        <div style={styles.upgradeOverlay}>
-          <div style={styles.upgradeModal}>
-            {executeResult === null ? (
-              // 执行中 - 显示步骤列表
-              <>
-                <div style={styles.upgradeHeader}>
-                  <div style={styles.upgradeTitle}>正在升级</div>
-                  <div style={styles.upgradeProgressText}>{Math.round(executeProgress)}%</div>
-                </div>
+      <UpgradeExecutionOverlay
+        styles={styles}
+        executing={executing}
+        executeResult={executeResult}
+        executeProgress={executeProgress}
+        upgradeSteps={upgradeSteps}
+        currentStepIndex={currentStepIndex}
+        executeMessage={executeMessage}
+        executeError={executeError}
+        handleCloseUpgradeResult={handleCloseUpgradeResult}
+      />
 
-                {/* 进度条 */}
-                <div style={styles.upgradeProgressBar}>
-                  <div style={{
-                    ...styles.upgradeProgressFill,
-                    width: `${executeProgress}%`
-                  }}></div>
-                </div>
+      <UpgradeConfigStep
+        styles={styles}
+        env={env}
+        setEnv={setEnv}
+        configSectionExpanded={configSectionExpanded}
+        setConfigSectionExpanded={setConfigSectionExpanded}
+        isAdmin={isAdmin}
+        setShowConfigModal={setShowConfigModal}
+        selectedConfigs={selectedConfigs}
+        handleExecuteConfigsOnly={handleExecuteConfigsOnly}
+        executingConfigs={executingConfigs}
+        configExecuteResults={configExecuteResults}
+        setConfigExecuteResults={setConfigExecuteResults}
+        loadingConfigs={loadingConfigs}
+        configs={configs}
+        handleSelectAllConfigs={handleSelectAllConfigs}
+        handleSelectConfig={handleSelectConfig}
+        expandedConfig={expandedConfig}
+        setExpandedConfig={setExpandedConfig}
+        handleToggleConfig={handleToggleConfig}
+        setEditingConfig={setEditingConfig}
+        handleDeleteConfig={handleDeleteConfig}
+      />
 
-                {/* 步骤列表 */}
-                {upgradeSteps.length > 0 && (
-                  <div style={styles.upgradeStepsContainer}>
-                    {upgradeSteps.map((step, index) => (
-                      <div key={index} style={{
-                        ...styles.upgradeStepItem,
-                        ...(index === currentStepIndex ? styles.upgradeStepActive : {}),
-                        ...(step.status === 'completed' ? styles.upgradeStepCompleted : {}),
-                        ...(step.status === 'failed' ? styles.upgradeStepFailed : {}),
-                      }}>
-                        <div style={styles.upgradeStepIcon}>
-                          {step.status === 'completed' && '✅'}
-                          {step.status === 'running' && '🔄'}
-                          {step.status === 'failed' && '❌'}
-                          {step.status === 'pending' && '⏳'}
-                        </div>
-                        <div style={styles.upgradeStepContent}>
-                          <div style={styles.upgradeStepName}>{step.name}</div>
-                          {step.status === 'running' && step.message && (
-                            <div style={styles.upgradeStepMessage}>{step.message}</div>
-                          )}
-                          {step.status === 'failed' && step.message && (
-                            <div style={styles.upgradeStepError}>{step.message}</div>
-                          )}
-                        </div>
-                        <div style={styles.upgradeStepStatus}>
-                          {step.status === 'completed' && '完成'}
-                          {step.status === 'running' && '进行中...'}
-                          {step.status === 'failed' && '失败'}
-                          {step.status === 'pending' && '等待中'}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+      <UpgradeWarSelectionStep
+        styles={styles}
+        selectMode={selectMode}
+        handleSelectMode={handleSelectMode}
+        fileInputRef={fileInputRef}
+        handleFileSelect={handleFileSelect}
+        handleChooseLocalFile={handleChooseLocalFile}
+        file={file}
+        uploading={uploading}
+        executing={executing}
+        localMD5={localMD5}
+        remoteMD5={remoteMD5}
+        md5Comparing={md5Comparing}
+        md5Match={md5Match}
+        showMd5Confirm={showMd5Confirm}
+        handleConfirmUpload={handleConfirmUpload}
+        handleCancelUpload={handleCancelUpload}
+        remoteProgress={remoteProgress}
+        uploadProgress={uploadProgress}
+        uploadComplete={uploadComplete}
+        formatSize={formatSize}
+        downloadUrl={downloadUrl}
+        setDownloadUrl={setDownloadUrl}
+        downloading={downloading}
+        handleStartDownload={handleStartDownload}
+        handleCancelDownload={handleCancelDownload}
+        isAdmin={isAdmin}
+        setShowDownloadConfig={setShowDownloadConfig}
+        duplicateVersion={duplicateVersion}
+        handleUseExisting={handleUseExisting}
+        handleOverwriteDownload={handleOverwriteDownload}
+        setDuplicateVersion={setDuplicateVersion}
+        downloadProgress={downloadProgress}
+        selectedHistoryPackage={selectedHistoryPackage}
+        historyPackages={historyPackages}
+        handleSelectHistoryPackage={handleSelectHistoryPackage}
+        handleDeletePackage={handleDeletePackage}
+      />
 
-                {/* 当前消息 */}
-                <div style={styles.upgradeMessage}>{executeMessage}</div>
-
-                <div style={styles.upgradeWarning}>
-                  ⚠️ 请勿关闭页面或刷新，否则可能导致升级失败
-                </div>
-              </>
-            ) : executeResult === 'success' ? (
-              // 成功
-              <>
-                <div style={styles.upgradeSuccessIcon}>✓</div>
-                <div style={{ ...styles.upgradeTitle, color: '#34C759' }}>升级成功</div>
-                <div style={styles.upgradeMessage}>设备已成功完成升级</div>
-                <div style={styles.upgradeDoneHint}>
-                  请确认设备已正常启动后，再点击关闭
-                </div>
-                <button onClick={handleCloseUpgradeResult} style={styles.upgradeConfirmBtn}>
-                  关闭
-                </button>
-              </>
-            ) : (
-              // 失败
-              <>
-                <div style={styles.upgradeErrorIcon}>✕</div>
-                <div style={{ ...styles.upgradeTitle, color: '#FF3B30' }}>升级失败</div>
-                <div style={styles.upgradeErrorBox}>{executeError}</div>
-                <button onClick={handleCloseUpgradeResult} style={styles.upgradeConfirmBtn}>
-                  关闭
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Step 1: Environment */}
-      {renderStep1()}
-
-      {/* Step 2: WAR Package */}
-      {renderStep2()}
-
-      {/* Step 3: Upgrade Mode */}
-      {renderStep3()}
-
+      <UpgradeModeStep
+        styles={styles}
+        upgradeMode={upgradeMode}
+        setUpgradeMode={setUpgradeMode}
+        packageFileInputRef={packageFileInputRef}
+        handlePackageFileSelect={handlePackageFileSelect}
+        packageFile={packageFile}
+        handlePackageUpload={handlePackageUpload}
+        packageUploading={packageUploading}
+        packageUploadProgress={packageUploadProgress}
+        loadUpgradePackages={loadUpgradePackages}
+        loadingPackages={loadingPackages}
+        upgradePackages={upgradePackages}
+        selectedPackage={selectedPackage}
+        setSelectedPackage={setSelectedPackage}
+      />
       {/* Execute Button */}
       <div style={styles.executeSection}>
         <button
@@ -1963,7 +1202,7 @@ const styles = {
     flexShrink: 0,
   },
 
-  // Step Indicators (简化)
+  // Step Indicators
   stepIndicators: {
     display: 'flex',
     alignItems: 'center',
@@ -1999,7 +1238,7 @@ const styles = {
     margin: '0 8px',
   },
 
-  // Step Card (简化)
+  // Step Card
   stepCard: {
     backgroundColor: '#F9F9F9',
     borderRadius: '8px',
@@ -2297,7 +1536,7 @@ const styles = {
     overflowWrap: 'break-word',
   },
 
-  // Mode Selector (简化)
+  // Mode Selector
   modeSelector: {
     display: 'flex',
     gap: '6px',
@@ -2363,7 +1602,7 @@ const styles = {
     color: '#86868B',
   },
 
-  // MD5 Card (简化)
+  // MD5 Card
   md5Card: {
     padding: '10px',
     backgroundColor: '#fff',
@@ -2416,7 +1655,7 @@ const styles = {
     color: '#0958D9',
   },
 
-  // Confirm Dialog (简化)
+  // Confirm Dialog
   confirmDialog: {
     padding: '12px',
     backgroundColor: '#FFF7E6',
@@ -2466,7 +1705,7 @@ const styles = {
     cursor: 'pointer',
   },
 
-  // Progress Card (简化)
+  // Progress Card
   progressCard: {
     padding: '10px',
     backgroundColor: '#fff',
@@ -2686,7 +1925,7 @@ const styles = {
     color: '#007AFF',
   },
 
-  // Info Card (简化)
+  // Info Card
   infoCard: {
     padding: '10px',
     backgroundColor: '#F2F2F7',
@@ -2788,7 +2027,7 @@ const styles = {
     color: '#86868B',
   },
 
-  // Execute Section (简化)
+  // Execute Section
   executeSection: {
     padding: '12px',
     backgroundColor: '#F9F9F9',

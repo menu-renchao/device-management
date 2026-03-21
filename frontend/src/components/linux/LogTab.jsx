@@ -81,9 +81,7 @@ const LogTab = ({ merchantId }) => {
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
-    ws.onopen = () => {
-      console.log('WebSocket 连接已建立');
-    };
+    ws.onopen = () => {};
 
     ws.onmessage = (event) => {
       setRealtimeLogs((prev) => {
@@ -100,7 +98,6 @@ const LogTab = ({ merchantId }) => {
     };
 
     ws.onclose = () => {
-      console.log('WebSocket 连接已关闭');
       if (wsRef.current === ws) {
         wsRef.current = null;
       }
