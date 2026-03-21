@@ -1,25 +1,42 @@
 @echo off
 chcp 65001 >nul
-title POS Scanner - 前端
+title POS Scanner - Frontend
 
 echo ========================================
-echo   POS Scanner - React 前端服务
+echo   POS Scanner - React Frontend Service
 echo ========================================
 echo.
 
-:: 检查 Node 是否安装
 where node >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [错误] 未检测到 Node.js 环境，请先安装 Node.js
-    echo 下载地址: https://nodejs.org/
+    echo [ERROR] Node.js was not found. Please install Node.js first.
+    echo Download: https://nodejs.org/
     pause
     exit /b 1
 )
 
 cd /d "%~dp0frontend"
 
-echo 启动 React 前端...
-echo 地址: http://localhost:3000
+if not exist node_modules (
+    echo Installing frontend dependencies...
+    call npm install
+    if %errorlevel% neq 0 (
+        echo [ERROR] npm install failed.
+        pause
+        exit /b 1
+    )
+)
+
+echo Building frontend for production preview...
+call npm run build
+if %errorlevel% neq 0 (
+    echo [ERROR] Frontend build failed.
+    pause
+    exit /b 1
+)
+
+echo Starting frontend production preview...
+echo URL: http://localhost:3000
 echo.
 
-npm run dev
+call npm run preview:prod
