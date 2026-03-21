@@ -1,44 +1,19 @@
 import axios from 'axios';
+import {
+  clearStoredAuth,
+  createAuthAxios,
+  getStoredAccessToken,
+  getStoredUser,
+  storeAuthPayload,
+} from './authClient';
 
-const API_BASE = '/api/auth';
-const ADMIN_BASE = '/api/admin';
+const PUBLIC_AUTH_BASE = '/api/auth';
+const AUTH_BASE = '/auth';
+const ADMIN_BASE = '/admin';
 
-// 处理 401 响应的通用函数
-const handleUnauthorized = () => {
-  // 清除本地存储的认证信息
-  localStorage.removeItem('access_token');
-  localStorage.removeItem('refresh_token');
-  localStorage.removeItem('user');
-
-  // 跳转到登录页
-  window.location.href = '/login';
-};
-
-// 创建带认证的 axios 实例
-const createAuthAxios = () => {
-  const token = localStorage.getItem('access_token');
-  const authAxios = axios.create({
-    headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-  });
-
-  // 添加响应拦截器处理 401
-  authAxios.interceptors.response.use(
-    (response) => response,
-    (error) => {
-      if (error.response?.status === 401) {
-        handleUnauthorized();
-      }
-      return Promise.reject(error);
-    }
-  );
-
-  return authAxios;
-};
-
-// 认证 API
 export const authService = {
   register: async (username, password, email, name = '') => {
-    const response = await axios.post(`${API_BASE}/register`, {
+    const response = await axios.post(PUBLIC_AUTH_BASE + '/register', {
       username,
       password,
       email,
@@ -48,14 +23,12 @@ export const authService = {
   },
 
   login: async (username, password) => {
-    const response = await axios.post(`${API_BASE}/login`, {
+    const response = await axios.post(PUBLIC_AUTH_BASE + '/login', {
       username,
       password
     });
     if (response.data.success && response.data.data) {
-      localStorage.setItem('access_token', response.data.data.access_token);
-      localStorage.setItem('refresh_token', response.data.data.refresh_token);
-      localStorage.setItem('user', JSON.stringify(response.data.data.user));
+      storeAuthPayload(response.data.data);
       return { success: true, user: response.data.data.user };
     }
     return response.data;
@@ -64,23 +37,21 @@ export const authService = {
   logout: async () => {
     try {
       const authAxios = createAuthAxios();
-      await authAxios.post(`${API_BASE}/logout`);
+      await authAxios.post(AUTH_BASE + '/logout');
     } finally {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-      localStorage.removeItem('user');
+      clearStoredAuth();
     }
   },
 
   getProfile: async () => {
     const authAxios = createAuthAxios();
-    const response = await authAxios.get(`${API_BASE}/profile`);
+    const response = await authAxios.get(AUTH_BASE + '/profile');
     return response.data.data || response.data;
   },
 
   changePassword: async (oldPassword, newPassword) => {
     const authAxios = createAuthAxios();
-    const response = await authAxios.put(`${API_BASE}/password`, {
+    const response = await authAxios.put(AUTH_BASE + '/password', {
       old_password: oldPassword,
       new_password: newPassword
     });
@@ -89,25 +60,23 @@ export const authService = {
 
   updateProfile: async (data) => {
     const authAxios = createAuthAxios();
-    const response = await authAxios.put(`${API_BASE}/profile`, data);
+    const response = await authAxios.put(AUTH_BASE + '/profile', data);
     if (response.data.success && response.data.data) {
-      // 更新本地存储的用户信息
-      localStorage.setItem('user', JSON.stringify(response.data.data));
+      storeAuthPayload({ user: response.data.data });
     }
     return response.data;
   },
 
   getCurrentUser: () => {
-    const userStr = localStorage.getItem('user');
-    return userStr ? JSON.parse(userStr) : null;
+    return getStoredUser();
   },
 
   isAuthenticated: () => {
-    return !!localStorage.getItem('access_token');
+    return !!getStoredAccessToken();
   }
 };
 
-// 管理员 API
+// 缂備胶濯寸槐鏇㈠箖婵犲洤宸?API
 export const adminService = {
   getUsers: async (status = 'all') => {
     const authAxios = createAuthAxios();
@@ -141,7 +110,7 @@ export const adminService = {
     return response.data;
   },
 
-  // 设备性质管理
+  // 闁荤姳鐒﹂崕鎶剿囬鍕畱鐟滄垵顔忓┑鍫笉闁挎稑瀚崐?
   getDeviceProperties: async () => {
     const authAxios = createAuthAxios();
     const response = await authAxios.get(`${ADMIN_BASE}/device-properties`);

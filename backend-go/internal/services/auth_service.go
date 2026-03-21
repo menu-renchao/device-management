@@ -14,6 +14,7 @@ var (
 	ErrUserNotApproved   = errors.New("account not approved")
 	ErrUsernameExists    = errors.New("username already exists")
 	ErrEmailExists       = errors.New("email already registered")
+	ErrInvalidToken      = errors.New("invalid token")
 )
 
 type AuthService struct {
@@ -90,6 +91,33 @@ func (s *AuthService) Login(username, password string) (*LoginResult, error) {
 	}
 
 	// Generate tokens
+	tokenPair, err := jwt.GenerateTokenPair(user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &LoginResult{
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
+		User:         user.ToDict(),
+	}, nil
+}
+
+func (s *AuthService) Refresh(refreshToken string) (*LoginResult, error) {
+	claims, err := jwt.ValidateToken(refreshToken)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
+
+	user, err := s.userRepo.GetByID(claims.UserID)
+	if err != nil {
+		return nil, ErrUserNotFound
+	}
+
+	if user.Status != "approved" {
+		return nil, ErrUserNotApproved
+	}
+
 	tokenPair, err := jwt.GenerateTokenPair(user.ID)
 	if err != nil {
 		return nil, err

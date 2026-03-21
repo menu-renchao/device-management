@@ -171,6 +171,7 @@ func main() {
 		{
 			auth.POST("/register", authHandler.Register)
 			auth.POST("/login", authHandler.Login)
+			auth.POST("/refresh", authHandler.Refresh)
 			auth.POST("/logout", middleware.Auth(), authHandler.Logout)
 			auth.GET("/profile", middleware.Auth(), authHandler.Profile)
 			auth.PUT("/profile", middleware.Auth(), authHandler.UpdateProfile)

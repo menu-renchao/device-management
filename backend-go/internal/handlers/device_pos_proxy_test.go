@@ -9,7 +9,9 @@ import (
 	neturl "net/url"
 	"strings"
 	"testing"
+	"time"
 
+	"device-management/internal/config"
 	"device-management/internal/models"
 	"device-management/internal/services"
 
@@ -287,6 +289,12 @@ func TestPOSProxyWritesAccessLog(t *testing.T) {
 func TestPOSProxySetsProxyCookieWhenQueryTokenPresent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
+	config.AppConfig = &config.Config{
+		JWT: config.JWTConfig{
+			AccessTokenExpires: 2 * time.Hour,
+		},
+	}
+
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = w.Write([]byte("<html>ok</html>"))
@@ -317,6 +325,9 @@ func TestPOSProxySetsProxyCookieWhenQueryTokenPresent(t *testing.T) {
 			}
 			if cookie.Path != "/api/device/M123/pos-proxy/" {
 				t.Fatalf("unexpected cookie path: %s", cookie.Path)
+			}
+			if cookie.MaxAge != int((2 * time.Hour).Seconds()) {
+				t.Fatalf("unexpected cookie max age: %d", cookie.MaxAge)
 			}
 		}
 	}

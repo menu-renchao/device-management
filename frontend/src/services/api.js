@@ -1,4 +1,9 @@
 import axios from 'axios';
+import {
+  attachAuthResponseInterceptor,
+  createAuthAxios,
+  getStoredAccessToken,
+} from './authClient';
 
 const API_BASE_URL = '/api';
 
@@ -11,70 +16,18 @@ const api = axios.create({
 
 // 添加请求拦截器，自动带上 token
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token');
+  const token = getStoredAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// 处理 401 响应的通用函数
-const handleUnauthorized = () => {
-  // 避免重复跳转
-  if (window.location.pathname !== '/login') {
-    // 清除本地存储的认证信息
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user');
-
-    // 跳转到登录页
-    window.location.href = '/login';
-  }
-};
-
 // 为全局 axios 添加响应拦截器（处理文件上传等直接使用 axios 的请求）
-axios.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      handleUnauthorized();
-    }
-    return Promise.reject(error);
-  }
-);
+attachAuthResponseInterceptor(axios);
 
 // 为 api 实例添加响应拦截器
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      handleUnauthorized();
-    }
-    return Promise.reject(error);
-  }
-);
-
-// 创建带认证的 axios 实例
-const createAuthAxios = () => {
-  const token = localStorage.getItem('access_token');
-  const authAxios = axios.create({
-    baseURL: API_BASE_URL,
-    headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-  });
-
-  // 添加响应拦截器处理 401
-  authAxios.interceptors.response.use(
-    (response) => response,
-    (error) => {
-      if (error.response?.status === 401) {
-        handleUnauthorized();
-      }
-      return Promise.reject(error);
-    }
-  );
-
-  return authAxios;
-};
+attachAuthResponseInterceptor(api);
 
 export const borrowAPI = {
   submit: async ({ assetType, assetId = 0, merchantId = '', purpose = '', endTime }) => {

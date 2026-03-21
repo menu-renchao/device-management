@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"device-management/internal/config"
 	"device-management/internal/middleware"
 	"device-management/internal/models"
 	"device-management/internal/repository"
@@ -135,7 +136,7 @@ func (h *DeviceHandler) proxyPOSForMerchant(c *gin.Context, merchantID, proxyBas
 	}
 	proxyToken := strings.TrimSpace(c.Query("token"))
 	if proxyToken != "" {
-		c.SetCookie("pos_proxy_token", proxyToken, 3600, authCookiePath, "", false, true)
+		c.SetCookie("pos_proxy_token", proxyToken, proxyTokenMaxAge(), authCookiePath, "", false, true)
 	}
 	rewriteAuthToken := strings.TrimSpace(rewriteToken)
 	startedAt := time.Now()
@@ -268,6 +269,13 @@ func ensureTrailingSlash(value string) string {
 		return value
 	}
 	return value + "/"
+}
+
+func proxyTokenMaxAge() int {
+	if config.AppConfig != nil && config.AppConfig.JWT.AccessTokenExpires > 0 {
+		return int(config.AppConfig.JWT.AccessTokenExpires.Seconds())
+	}
+	return 3600
 }
 
 var htmlRootRelativeAttrPattern = regexp.MustCompile(`(href|src|action)="/([^"]*)"`)

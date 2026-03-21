@@ -38,6 +38,10 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
 type ChangePasswordRequest struct {
 	OldPassword string `json:"old_password" binding:"required"`
 	NewPassword string `json:"new_password" binding:"required"`
@@ -122,6 +126,41 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			response.Forbidden(c, "账号尚未通过审核")
 		default:
 			response.InternalError(c, "登录失败")
+		}
+		return
+	}
+
+response.Success(c, gin.H{
+		"access_token":  result.AccessToken,
+		"refresh_token": result.RefreshToken,
+		"user":          result.User,
+	})
+}
+
+func (h *AuthHandler) Refresh(c *gin.Context) {
+	var req RefreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "请求格式无效")
+		return
+	}
+
+	req.RefreshToken = strings.TrimSpace(req.RefreshToken)
+	if req.RefreshToken == "" {
+		response.BadRequest(c, "刷新令牌不能为空")
+		return
+	}
+
+	result, err := h.authService.Refresh(req.RefreshToken)
+	if err != nil {
+		switch err {
+		case services.ErrInvalidToken:
+			response.Unauthorized(c, "刷新令牌无效")
+		case services.ErrUserNotFound:
+			response.Unauthorized(c, "用户不存在")
+		case services.ErrUserNotApproved:
+			response.Forbidden(c, "账号尚未通过审核")
+		default:
+			response.InternalError(c, "刷新令牌失败")
 		}
 		return
 	}
