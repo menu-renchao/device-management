@@ -209,6 +209,7 @@ func main() {
 			device.DELETE("/:merchant_id/owner", middleware.AdminOnly(userRepo), deviceHandler.ResetOwner)
 			device.DELETE("/:merchant_id", middleware.AdminOnly(userRepo), deviceHandler.DeleteDevice)
 			device.GET("/:merchant_id/pos-access", deviceHandler.GetPOSAccess)
+			device.POST("/:merchant_id/pos-proxy-session", deviceHandler.PreparePOSProxySession)
 			device.Any("/:merchant_id/pos-proxy", deviceHandler.ProxyPOS)
 			device.Any("/:merchant_id/pos-proxy/*path", deviceHandler.ProxyPOS)
 			device.POST("/license/backup", deviceHandler.CreateLicenseBackup)

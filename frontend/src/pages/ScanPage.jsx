@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { borrowAPI, scanAPI, deviceAPI } from '../services/api';
+import { getStoredAccessToken } from '../services/authClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { adminService } from '../services/authService';
@@ -17,12 +18,17 @@ import {
 import {
   beginPOSOpenWindow,
   cleanupPOSOpenWindow,
+  DEFAULT_POS_OPEN_ENTRY,
   DEFAULT_POS_OPEN_MODE,
+  getPOSOpenEntry,
+  getPOSSecondaryOpenEntries,
   navigatePOSOpenWindow,
   POS_OPEN_MODE_DIRECT,
   POS_OPEN_MODE_PROXY,
+  readPOSOpenEntry,
   readPOSOpenMode,
-  resolvePOSOpenTarget,
+  resolvePOSOpenTargetForEntry,
+  writePOSOpenEntry,
   writePOSOpenMode,
 } from './posOpenMode.mjs';
 
@@ -86,6 +92,7 @@ const ScanPage = () => {
   const [showPropertyDropdown, setShowPropertyDropdown] = useState(false);
   const [onlyMyDevices, setOnlyMyDevices] = useState(false);
   const [posOpenMode, setPosOpenMode] = useState(DEFAULT_POS_OPEN_MODE);
+  const [recentPOSOpenEntry, setRecentPOSOpenEntry] = useState(DEFAULT_POS_OPEN_ENTRY);
 
   // 确认对话框
   const [confirmDialog, setConfirmDialog] = useState({ show: false, type: null, data: null });
@@ -181,6 +188,7 @@ const ScanPage = () => {
     const savedOnlyMyDevices = localStorage.getItem(storageKey) === '1';
     setOnlyMyDevices(savedOnlyMyDevices);
     setPosOpenMode(readPOSOpenMode(localStorage, user.id));
+    setRecentPOSOpenEntry(readPOSOpenEntry(localStorage, user.id));
     setCurrentPage(1);
     loadDevices(1, pageSize, '', [], [], savedOnlyMyDevices);
     loadFilterOptions();
@@ -405,7 +413,8 @@ const ScanPage = () => {
     setPosOpenMode(nextMode);
   };
 
-  const handleOpenDevice = async (device) => {
+  const handleOpenDevice = async (device, entryKey = DEFAULT_POS_OPEN_ENTRY) => {
+    const entry = getPOSOpenEntry(entryKey);
     const merchantId = device?.merchantId?.trim();
     if (!merchantId) {
       toast.warning('设备缺少商家ID，无法打开 POS');
@@ -429,21 +438,25 @@ const ScanPage = () => {
         return;
       }
 
-      const token = localStorage.getItem('access_token') || '';
       const targetUrl = (() => {
         try {
-          return resolvePOSOpenTarget(result.data, posOpenMode, token);
+          const proxyToken = posOpenMode === POS_OPEN_MODE_PROXY ? getStoredAccessToken() : '';
+          return resolvePOSOpenTargetForEntry(result.data, posOpenMode, entry.key, proxyToken);
         } catch (error) {
           cleanupPOSOpenWindow(openedWindow);
           throw error;
         }
       })();
+      if (entry.key !== DEFAULT_POS_OPEN_ENTRY) {
+        const nextRecentEntry = writePOSOpenEntry(localStorage, user?.id, entry.key);
+        setRecentPOSOpenEntry(nextRecentEntry);
+      }
       if (!navigatePOSOpenWindow(openedWindow, targetUrl)) {
         cleanupPOSOpenWindow(openedWindow);
         toast.warning('浏览器拦截了新窗口，请允许弹窗后重试');
       }
     } catch (error) {
-      toast.error(error.response?.data?.error || error.message || '打开 POS 失败');
+      toast.error(error.response?.data?.error || error.message || `打开 ${entry.label} 失败`);
     }
   };
 
@@ -1036,6 +1049,8 @@ const ScanPage = () => {
         <ScanTable
           devices={filteredDevices}
           onOpenDevice={handleOpenDevice}
+          posOpenEntries={getPOSSecondaryOpenEntries()}
+          recentPOSOpenEntry={recentPOSOpenEntry}
           onShowDetails={handleShowDetails}
           onEditProperty={handleEditProperty}
           onEditOccupancy={handleEditOccupancy}

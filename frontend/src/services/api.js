@@ -102,6 +102,12 @@ export const deviceAPI = {
     return response.data;
   },
 
+  preparePosProxySession: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post(`/device/${encodeURIComponent(merchantId)}/pos-proxy-session`);
+    return response.data;
+  },
+
   // 获取所有占用信息
   getOccupancies: async () => {
     const authAxios = createAuthAxios();

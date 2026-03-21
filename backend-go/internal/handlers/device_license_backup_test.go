@@ -120,6 +120,7 @@ func newDeviceHandlerWithFakeLicenseService(t *testing.T, fake *fakeLicenseServi
 func withAuthenticatedUser(handler gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Set("user_id", uint(1))
+		c.Set("auth_token", "test-auth-token")
 		handler(c)
 	}
 }

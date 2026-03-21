@@ -2,12 +2,44 @@ export const POS_OPEN_MODE_DIRECT = 'direct';
 export const POS_OPEN_MODE_PROXY = 'proxy';
 export const DEFAULT_POS_OPEN_MODE = POS_OPEN_MODE_DIRECT;
 
+export const DEFAULT_POS_OPEN_ENTRY = 'pos';
+
+export const POS_OPEN_ENTRIES = [
+  { key: 'pos', label: 'POS', path: 'kpos/front2/myhome.html', description: 'Default' },
+  { key: 'emenu', label: 'EMENU', path: 'kpos/emenu/#/', description: 'Self ordering' },
+  { key: 'kiosk', label: 'KIOSK', path: 'kpos/kiosklite#/', description: 'Kiosk' },
+  { key: 'kds', label: 'KDS', path: 'kpos/kitchen/#/tab/kitchen', description: 'Kitchen' },
+  { key: 'rds', label: 'RDS', path: 'kpos/kitchen/#/tab/runner/', description: 'Runner' },
+  { key: 'cds', label: 'CDS', path: 'kpos/dual/new/', description: 'Customer display' },
+  { key: 'waitlist', label: 'WAITLIST', path: 'kpos/waitlist/#/', description: 'Waitlist' },
+  { key: 'paging', label: 'PAGING', path: 'kpos/call', description: 'Paging' },
+  { key: 'kdsconfig', label: 'KDS CONFIG', path: 'kpos/kitchen/#/tab/config', description: 'Kitchen config' },
+];
+
+const POS_OPEN_ENTRY_MAP = new Map(POS_OPEN_ENTRIES.map((entry) => [entry.key, entry]));
+
 export function getPOSOpenModeStorageKey(userId) {
   return `scan_page_pos_open_mode_${userId || 'default'}`;
 }
 
+export function getPOSOpenEntryStorageKey(userId) {
+  return `scan_page_pos_open_entry_${userId || 'default'}`;
+}
+
 export function normalizePOSOpenMode(mode) {
   return mode === POS_OPEN_MODE_PROXY ? POS_OPEN_MODE_PROXY : DEFAULT_POS_OPEN_MODE;
+}
+
+export function normalizePOSOpenEntry(entryKey) {
+  return POS_OPEN_ENTRY_MAP.has(entryKey) ? entryKey : DEFAULT_POS_OPEN_ENTRY;
+}
+
+export function getPOSOpenEntry(entryKey) {
+  return POS_OPEN_ENTRY_MAP.get(normalizePOSOpenEntry(entryKey));
+}
+
+export function getPOSSecondaryOpenEntries() {
+  return POS_OPEN_ENTRIES.filter((entry) => entry.key !== DEFAULT_POS_OPEN_ENTRY);
 }
 
 export function readPOSOpenMode(storage, userId) {
@@ -26,6 +58,24 @@ export function writePOSOpenMode(storage, userId, mode) {
   }
 
   return normalizedMode;
+}
+
+export function readPOSOpenEntry(storage, userId) {
+  if (!storage || typeof storage.getItem !== 'function') {
+    return DEFAULT_POS_OPEN_ENTRY;
+  }
+
+  return normalizePOSOpenEntry(storage.getItem(getPOSOpenEntryStorageKey(userId)));
+}
+
+export function writePOSOpenEntry(storage, userId, entryKey) {
+  const normalizedEntry = normalizePOSOpenEntry(entryKey);
+
+  if (storage && typeof storage.setItem === 'function') {
+    storage.setItem(getPOSOpenEntryStorageKey(userId), normalizedEntry);
+  }
+
+  return normalizedEntry;
 }
 
 export function beginPOSOpenWindow(openWindow) {
@@ -77,16 +127,37 @@ export function cleanupPOSOpenWindow(popup) {
   }
 }
 
-function appendToken(url, token) {
-  if (!token) {
-    return url;
+function joinPOSOpenURL(baseUrl, entryPath) {
+  const trimmedBaseUrl = String(baseUrl || '').trim();
+  const trimmedEntryPath = String(entryPath || '').trim();
+
+  if (!trimmedBaseUrl) {
+    return '';
+  }
+  if (!trimmedEntryPath) {
+    return trimmedBaseUrl;
   }
 
-  const separator = url.includes('?') ? '&' : '?';
-  return `${url}${separator}token=${encodeURIComponent(token)}`;
+  const normalizedBase = trimmedBaseUrl.endsWith('/') ? trimmedBaseUrl : `${trimmedBaseUrl}/`;
+  const normalizedPath = trimmedEntryPath.startsWith('/') ? trimmedEntryPath.slice(1) : trimmedEntryPath;
+  return `${normalizedBase}${normalizedPath}`;
 }
 
-export function resolvePOSOpenTarget(accessInfo, mode, token = '') {
+function appendQueryParamBeforeHash(targetUrl, key, value) {
+  const trimmedUrl = String(targetUrl || '').trim();
+  if (!trimmedUrl) {
+    return '';
+  }
+
+  const hashIndex = trimmedUrl.indexOf('#');
+  const beforeHash = hashIndex >= 0 ? trimmedUrl.slice(0, hashIndex) : trimmedUrl;
+  const hashFragment = hashIndex >= 0 ? trimmedUrl.slice(hashIndex) : '';
+  const separator = beforeHash.includes('?') ? '&' : '?';
+
+  return `${beforeHash}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}${hashFragment}`;
+}
+
+export function resolvePOSOpenTarget(accessInfo, mode) {
   const normalizedMode = normalizePOSOpenMode(mode);
   const targetUrl = normalizedMode === POS_OPEN_MODE_PROXY
     ? accessInfo?.proxyUrl
@@ -96,9 +167,22 @@ export function resolvePOSOpenTarget(accessInfo, mode, token = '') {
     throw new Error(normalizedMode === POS_OPEN_MODE_PROXY ? '缺少代理访问地址' : '缺少直连访问地址');
   }
 
-  if (normalizedMode === POS_OPEN_MODE_PROXY) {
-    return appendToken(targetUrl, token);
+  return targetUrl;
+}
+
+export function resolvePOSOpenTargetForEntry(accessInfo, mode, entryKey, proxyToken = '') {
+  const baseUrl = resolvePOSOpenTarget(accessInfo, mode);
+  const entry = getPOSOpenEntry(entryKey);
+  const targetUrl = joinPOSOpenURL(baseUrl, entry?.path);
+
+  if (normalizePOSOpenMode(mode) !== POS_OPEN_MODE_PROXY) {
+    return targetUrl;
   }
 
-  return targetUrl;
+  const trimmedToken = String(proxyToken || '').trim();
+  if (!trimmedToken) {
+    throw new Error('Missing POS proxy token');
+  }
+
+  return appendQueryParamBeforeHash(targetUrl, 'token', trimmedToken);
 }

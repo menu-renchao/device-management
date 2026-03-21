@@ -138,6 +138,51 @@ func TestPOSProxyRewritesLocationAndCookiePath(t *testing.T) {
 	}
 }
 
+func TestPOSProxyRewritesForeignCookieDomainAndNestedPathForPathPrefixProxy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Set-Cookie", "licenseAuthKey=n565177kbbu2rrame7un5rk4p; Domain=192.168.0.72; Path=/kpos; HttpOnly")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	handler := newProxyHandlerPointingTo(t, upstream.URL)
+	router := gin.New()
+	router.Any("/device/:merchant_id/pos-proxy/*path", withAuthenticatedUser(handler.ProxyPOS))
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/device/M123/pos-proxy/kpos/front2/myhome.html")
+	if err != nil {
+		t.Fatalf("http.Get() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	setCookieHeaders := resp.Header.Values("Set-Cookie")
+	if len(setCookieHeaders) == 0 {
+		t.Fatalf("expected set-cookie header")
+	}
+
+	var found bool
+	for _, header := range setCookieHeaders {
+		if strings.Contains(header, "licenseAuthKey=") {
+			found = true
+			if strings.Contains(strings.ToLower(header), "domain=192.168.0.72") {
+				t.Fatalf("expected foreign domain to be removed, got %s", header)
+			}
+			if !strings.Contains(header, "Path=/api/device/M123/pos-proxy/kpos") {
+				t.Fatalf("expected nested kpos path to be prefixed, got %s", header)
+			}
+		}
+	}
+
+	if !found {
+		t.Fatalf("expected licenseAuthKey set-cookie, got %#v", setCookieHeaders)
+	}
+}
+
 func TestPOSProxyPreservesTokenInRedirectLocation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

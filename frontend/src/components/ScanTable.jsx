@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDeviceStatusPresentation, normalizeMerchantId } from './scanTableState.js';
+import { DEFAULT_POS_OPEN_ENTRY } from '../pages/posOpenMode.mjs';
 
 const ScanTable = ({
   devices = [],
   onOpenDevice,
+  posOpenEntries = [],
+  recentPOSOpenEntry = DEFAULT_POS_OPEN_ENTRY,
   onShowDetails,
   onEditProperty,
   onEditOccupancy,
@@ -20,23 +23,31 @@ const ScanTable = ({
   const navigate = useNavigate();
   const [openMenuKey, setOpenMenuKey] = useState(null);
   const [openMenuPlacement, setOpenMenuPlacement] = useState({ direction: 'down', top: 0, left: 0 });
+  const [openEntryMenuKey, setOpenEntryMenuKey] = useState(null);
+  const [openEntryMenuPlacement, setOpenEntryMenuPlacement] = useState({ direction: 'down', top: 0, left: 0 });
 
   useEffect(() => {
-    const closeMenu = () => setOpenMenuKey(null);
+    const closeMenu = () => {
+      setOpenMenuKey(null);
+      setOpenEntryMenuKey(null);
+    };
     document.addEventListener('click', closeMenu);
     return () => document.removeEventListener('click', closeMenu);
   }, []);
 
   useEffect(() => {
-    if (openMenuKey === null) return undefined;
-    const closeMenuOnViewportChange = () => setOpenMenuKey(null);
+    if (openMenuKey === null && openEntryMenuKey === null) return undefined;
+    const closeMenuOnViewportChange = () => {
+      setOpenMenuKey(null);
+      setOpenEntryMenuKey(null);
+    };
     window.addEventListener('resize', closeMenuOnViewportChange);
     window.addEventListener('scroll', closeMenuOnViewportChange, true);
     return () => {
       window.removeEventListener('resize', closeMenuOnViewportChange);
       window.removeEventListener('scroll', closeMenuOnViewportChange, true);
     };
-  }, [openMenuKey]);
+  }, [openMenuKey, openEntryMenuKey]);
 
   // 处理配置按钮点击
   const handleConfigClick = (device) => {
@@ -72,7 +83,7 @@ const ScanTable = ({
     return isAdmin || isOwner || isOccupier;
   };
 
-  const calculateMenuPlacement = (triggerEl) => {
+  const calculateMenuPlacement = (triggerEl, options = {}) => {
     if (!triggerEl) {
       return { direction: 'down', top: 0, left: 0 };
     }
@@ -81,8 +92,8 @@ const ScanTable = ({
     const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
     const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
     const safePadding = 12;
-    const estimatedMenuHeight = 340;
-    const estimatedMenuWidth = 132;
+    const estimatedMenuHeight = options.height || 340;
+    const estimatedMenuWidth = options.width || 132;
 
     const spaceAbove = Math.max(0, Math.floor(triggerRect.top - safePadding));
     const spaceBelow = Math.max(0, Math.floor(viewportHeight - triggerRect.bottom - safePadding));
@@ -116,12 +127,25 @@ const ScanTable = ({
       return;
     }
     setOpenMenuPlacement(calculateMenuPlacement(e.currentTarget));
+    setOpenEntryMenuKey(null);
     setOpenMenuKey(rowKey);
+  };
+
+  const toggleOpenEntryMenu = (e, rowKey) => {
+    e.stopPropagation();
+    if (openEntryMenuKey === rowKey) {
+      setOpenEntryMenuKey(null);
+      return;
+    }
+    setOpenEntryMenuPlacement(calculateMenuPlacement(e.currentTarget, { width: 220, height: 360 }));
+    setOpenMenuKey(null);
+    setOpenEntryMenuKey(rowKey);
   };
 
   const handleMenuAction = (e, action) => {
     e.stopPropagation();
     setOpenMenuKey(null);
+    setOpenEntryMenuKey(null);
     action();
   };
 
@@ -223,7 +247,7 @@ const ScanTable = ({
             const merchantId = normalizeMerchantId(device.merchantId);
             const hasMerchantId = merchantId !== '';
             const isOnlineDevice = device.isOnline === true;
-            const canOpen = isOnlineDevice && hasMerchantId;
+            const canOpen = isOnlineDevice && hasMerchantId && typeof onOpenDevice === 'function';
             const canShowDetails = hasMerchantId;
             const isLinuxDevice = (device.type || '').toLowerCase() === 'linux';
             const showDBConfig = supportsDBConfig(device.type);
@@ -351,15 +375,53 @@ const ScanTable = ({
               <td className="action-col-cell">
                 <div className="action-buttons" onClick={(e) => e.stopPropagation()}>
                   {canOpen && (
-                    <button
-                      className="btn btn-sm btn-primary"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onOpenDevice(device);
-                      }}
-                    >
-                      打开
-                    </button>
+                    <div className="action-open-wrap" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className="btn btn-sm btn-primary btn-open-primary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenDevice(device, DEFAULT_POS_OPEN_ENTRY);
+                        }}
+                      >
+                        打开POS
+                      </button>
+                      <button
+                        className="btn btn-sm btn-primary btn-open-trigger"
+                        onClick={(e) => toggleOpenEntryMenu(e, rowKey)}
+                        aria-expanded={openEntryMenuKey === rowKey}
+                        aria-label="选择POS入口"
+                      >
+                        ▼
+                      </button>
+
+                      {openEntryMenuKey === rowKey && (
+                        <div
+                          className={`action-dropdown action-dropdown-open-entry ${openEntryMenuPlacement.direction === 'up' ? 'up' : 'down'}`}
+                          style={{
+                            top: `${openEntryMenuPlacement.top}px`,
+                            left: `${openEntryMenuPlacement.left}px`
+                          }}
+                        >
+                          {posOpenEntries.map((entry) => {
+                            const isDefaultEntry = entry.key === DEFAULT_POS_OPEN_ENTRY;
+                            const isRecentEntry = !isDefaultEntry && recentPOSOpenEntry === entry.key;
+                            return (
+                              <button
+                                key={entry.key}
+                                className="action-menu-item action-menu-item-entry"
+                                onClick={(e) => handleMenuAction(e, () => onOpenDevice(device, entry.key))}
+                                title={`打开 ${entry.label}`}
+                              >
+                                <span className="action-menu-item-main">{entry.label}</span>
+                                <span className="action-menu-item-meta">
+                                  {isDefaultEntry ? '默认' : (isRecentEntry ? '最近使用' : entry.description)}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   {hasMoreActions && (

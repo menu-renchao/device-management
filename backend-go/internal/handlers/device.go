@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -107,6 +108,100 @@ func (h *DeviceHandler) ProxyPOS(c *gin.Context) {
 	h.proxyPOSForMerchant(c, c.Param("merchant_id"), fmt.Sprintf("/api/device/%s/pos-proxy", c.Param("merchant_id")), ensureTrailingSlash(fmt.Sprintf("/api/device/%s/pos-proxy", c.Param("merchant_id"))), strings.TrimSpace(c.Query("token")))
 }
 
+func (h *DeviceHandler) PreparePOSProxySession(c *gin.Context) {
+	if h.posAccessService == nil {
+		response.InternalError(c, "POS access service unavailable")
+		return
+	}
+
+	merchantID := strings.TrimSpace(c.Param("merchant_id"))
+	info, err := h.posAccessService.ResolveAccessInfo(merchantID)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	tokenString := middleware.GetAuthToken(c)
+	if tokenString == "" {
+		response.Unauthorized(c, "请提供认证令牌")
+		return
+	}
+
+	cookiePath, cookieDomain := resolveProxySessionCookieScope(c.Request.Host, info.ProxyURL, merchantID)
+
+	c.SetCookie(
+		"pos_proxy_token",
+		tokenString,
+		proxyTokenMaxAge(),
+		cookiePath,
+		cookieDomain,
+		false,
+		true,
+	)
+
+	response.SuccessWithMessage(c, "POS proxy session prepared", nil)
+}
+
+func resolveProxySessionCookieScope(requestHost, proxyURL, merchantID string) (string, string) {
+	defaultPath := ensureTrailingSlash(fmt.Sprintf("/api/device/%s/pos-proxy", merchantID))
+	parsedURL, err := url.Parse(strings.TrimSpace(proxyURL))
+	if err != nil || parsedURL.Host == "" {
+		return defaultPath, ""
+	}
+
+	sharedDomain := findSharedCookieDomain(requestHost, parsedURL.Host)
+	if sharedDomain == "" {
+		return defaultPath, ""
+	}
+
+	return "/", sharedDomain
+}
+
+func findSharedCookieDomain(hostA, hostB string) string {
+	normalizedHostA := normalizeCookieHost(hostA)
+	normalizedHostB := normalizeCookieHost(hostB)
+	if normalizedHostA == "" || normalizedHostB == "" {
+		return ""
+	}
+
+	partsA := strings.Split(normalizedHostA, ".")
+	partsB := strings.Split(normalizedHostB, ".")
+	commonParts := make([]string, 0)
+
+	for i, j := len(partsA)-1, len(partsB)-1; i >= 0 && j >= 0; i, j = i-1, j-1 {
+		if partsA[i] != partsB[j] {
+			break
+		}
+		commonParts = append([]string{partsA[i]}, commonParts...)
+	}
+
+	if len(commonParts) < 2 {
+		return ""
+	}
+
+	return "." + strings.Join(commonParts, ".")
+}
+
+func normalizeCookieHost(rawHost string) string {
+	trimmedHost := strings.ToLower(strings.TrimSpace(rawHost))
+	if trimmedHost == "" {
+		return ""
+	}
+
+	hostOnly := trimmedHost
+	if strings.Contains(trimmedHost, ":") {
+		if parsedURL, err := url.Parse("http://" + trimmedHost); err == nil {
+			hostOnly = parsedURL.Hostname()
+		}
+	}
+
+	if hostOnly == "" || hostOnly == "localhost" || net.ParseIP(hostOnly) != nil {
+		return ""
+	}
+
+	return hostOnly
+}
+
 func (h *DeviceHandler) ResolvePOSProxyMerchantID(host string) (string, bool) {
 	if h.posAccessService == nil {
 		return "", false
@@ -204,27 +299,56 @@ func rewriteProxyCookiePaths(header http.Header, proxyBasePath string) {
 	}
 
 	header.Del("Set-Cookie")
-	targetPath := ensureTrailingSlash(proxyBasePath)
-	stripDomain := strings.TrimSpace(proxyBasePath) == ""
 	for _, cookie := range setCookies {
-		rewritten := strings.Replace(cookie, "Path=/;", "Path="+targetPath+";", 1)
-		rewritten = strings.Replace(rewritten, "Path=/ ", "Path="+targetPath+" ", 1)
-		if strings.HasSuffix(rewritten, "Path=/") {
-			rewritten = strings.TrimSuffix(rewritten, "Path=/") + "Path=" + targetPath
-		}
-		if stripDomain {
-			parts := strings.Split(rewritten, ";")
-			filteredParts := make([]string, 0, len(parts))
-			for _, part := range parts {
-				if strings.HasPrefix(strings.ToLower(strings.TrimSpace(part)), "domain=") {
-					continue
-				}
-				filteredParts = append(filteredParts, strings.TrimSpace(part))
-			}
-			rewritten = strings.Join(filteredParts, "; ")
-		}
-		header.Add("Set-Cookie", rewritten)
+		header.Add("Set-Cookie", rewriteProxyCookieHeader(cookie, proxyBasePath))
 	}
+}
+
+func rewriteProxyCookieHeader(rawCookie, proxyBasePath string) string {
+	parts := strings.Split(rawCookie, ";")
+	if len(parts) == 0 {
+		return rawCookie
+	}
+
+	rewrittenParts := make([]string, 0, len(parts))
+	rewrittenParts = append(rewrittenParts, strings.TrimSpace(parts[0]))
+
+	for _, part := range parts[1:] {
+		trimmedPart := strings.TrimSpace(part)
+		lowerPart := strings.ToLower(trimmedPart)
+		if strings.HasPrefix(lowerPart, "domain=") {
+			continue
+		}
+
+		if strings.HasPrefix(lowerPart, "path=") {
+			pathValue := strings.TrimSpace(trimmedPart[len("path="):])
+			rewrittenParts = append(rewrittenParts, "Path="+rewriteProxyCookiePath(pathValue, proxyBasePath))
+			continue
+		}
+
+		rewrittenParts = append(rewrittenParts, trimmedPart)
+	}
+
+	return strings.Join(rewrittenParts, "; ")
+}
+
+func rewriteProxyCookiePath(cookiePath, proxyBasePath string) string {
+	trimmedCookiePath := strings.TrimSpace(cookiePath)
+	if trimmedCookiePath == "" {
+		trimmedCookiePath = "/"
+	}
+	if !strings.HasPrefix(trimmedCookiePath, "/") {
+		trimmedCookiePath = "/" + trimmedCookiePath
+	}
+
+	if strings.TrimSpace(proxyBasePath) == "" {
+		return trimmedCookiePath
+	}
+	if trimmedCookiePath == "/" {
+		return ensureTrailingSlash(proxyBasePath)
+	}
+
+	return joinProxyPath(proxyBasePath, trimmedCookiePath)
 }
 
 func rewriteProxyPathValue(rawValue, proxyBasePath, proxyToken string) string {

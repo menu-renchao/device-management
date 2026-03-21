@@ -50,6 +50,7 @@ func Auth() gin.HandlerFunc {
 
 		// Store user ID in context
 		c.Set("user_id", claims.UserID)
+		c.Set("auth_token", tokenString)
 		c.Next()
 	}
 }
@@ -95,4 +96,18 @@ func GetUserID(c *gin.Context) uint {
 		return 0
 	}
 	return userID.(uint)
+}
+
+func GetAuthToken(c *gin.Context) string {
+	token, exists := c.Get("auth_token")
+	if !exists {
+		return ""
+	}
+
+	tokenString, ok := token.(string)
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSpace(tokenString)
 }
