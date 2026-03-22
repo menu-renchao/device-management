@@ -1310,6 +1310,13 @@ body {
   flex-shrink: 0;
 }
 
+.ip-type-icon-image {
+  display: block;
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+}
+
 .ip-type-icon.windows {
   background: rgba(10, 132, 255, 0.14);
 }

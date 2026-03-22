@@ -6,6 +6,32 @@ export function normalizeMerchantId(merchantId) {
   return merchantId.trim();
 }
 
+export function getDeviceTypeIconPresentation(deviceType) {
+  const type = (deviceType || '').toLowerCase();
+
+  if (type.includes('linux')) {
+    return {
+      src: '/linux.svg',
+      alt: 'Linux',
+      fallback: '🐧',
+    };
+  }
+
+  if (type.includes('win')) {
+    return {
+      src: '/windows.svg',
+      alt: 'Windows',
+      fallback: '🪟',
+    };
+  }
+
+  return {
+    src: '',
+    alt: 'Device',
+    fallback: '🖥',
+  };
+}
+
 export function getDeviceStatusPresentation(device, offlineTimeText = '') {
   const isOnlineDevice = device?.isOnline === true;
 

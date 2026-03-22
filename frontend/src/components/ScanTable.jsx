@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDeviceStatusPresentation, normalizeMerchantId } from './scanTableState.js';
+import {
+  getDeviceStatusPresentation,
+  getDeviceTypeIconPresentation,
+  normalizeMerchantId
+} from './scanTableState.js';
 import { DEFAULT_POS_OPEN_ENTRY } from '../pages/posOpenMode.mjs';
 
 const ScanTable = ({
@@ -179,13 +183,6 @@ const ScanTable = ({
     });
   };
 
-  const getDeviceTypeIcon = (deviceType) => {
-    const type = (deviceType || '').toLowerCase();
-    if (type.includes('linux')) return '🐧';
-    if (type.includes('win')) return '🪟';
-    return '🖥';
-  };
-
   const getPurposeText = (purpose) => {
     if (purpose === null || purpose === undefined) return '';
     if (typeof purpose === 'string') return purpose.trim();
@@ -279,7 +276,7 @@ const ScanTable = ({
             const propertyText = (device.property || '').trim();
             const typeLower = (device.type || '').toLowerCase();
             const deviceTypeText = device.type || '未知类型';
-            const deviceTypeIcon = getDeviceTypeIcon(device.type);
+            const deviceTypeIcon = getDeviceTypeIconPresentation(device.type);
             const deviceTypeClass = typeLower.includes('linux') ? 'linux' : (typeLower.includes('win') ? 'windows' : 'other');
             const canViewDetails = canShowDetails && typeof onShowDetails === 'function';
             const occupancyPurposeText = getPurposeText(device.occupancy?.purpose);
@@ -304,7 +301,15 @@ const ScanTable = ({
                       className={`ip-type-icon ${deviceTypeClass}`}
                       title={`设备类型: ${deviceTypeText}`}
                     >
-                      {deviceTypeIcon}
+                      {deviceTypeIcon.src ? (
+                        <img
+                          className="ip-type-icon-image"
+                          src={deviceTypeIcon.src}
+                          alt={deviceTypeIcon.alt}
+                        />
+                      ) : (
+                        deviceTypeIcon.fallback
+                      )}
                     </span>
                     <span className={`device-status-text ${statusToneClassName}`}>{statusText}</span>
                   </div>
