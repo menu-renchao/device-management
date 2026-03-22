@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { getDeviceStatusPresentation, getDeviceTypeIconPresentation } from './scanTableState.js';
+import {
+  getDeviceActionMenuState,
+  getDeviceStatusPresentation,
+  getDeviceTypeIconPresentation
+} from './scanTableState.js';
 
 test('getDeviceTypeIconPresentation maps linux and windows to fixed svg assets', () => {
   assert.deepEqual(getDeviceTypeIconPresentation('linux'), {
@@ -81,4 +85,70 @@ test('ScanTable renders linux and windows device icons with fixed svg images', (
   assert.match(scanTableSource, /src=\{deviceTypeIcon\.src\}/);
   assert.match(scanTableSource, /deviceTypeIcon\.src \? \(/);
   assert.match(scanTableSource, /className="ip-type-icon-image"/);
+});
+
+test('getDeviceActionMenuState keeps config and backup actions visible but disabled for normal users without permission', () => {
+  const state = getDeviceActionMenuState({
+    device: {
+      merchantId: 'M123',
+      type: 'linux',
+      owner: { id: 101 },
+      occupancy: { userId: 102 },
+    },
+    currentUserId: 200,
+    isAdmin: false,
+    hasLicenseBackupHandler: true,
+    hasDatabaseBackupHandler: true,
+  });
+
+  assert.deepEqual(state.linuxConfig, {
+    visible: true,
+    disabled: true,
+    title: '无权限：仅管理员、负责人或借用人可操作',
+  });
+  assert.deepEqual(state.dbConfig, {
+    visible: true,
+    disabled: true,
+    title: '无权限：仅管理员、负责人或借用人可操作',
+  });
+  assert.deepEqual(state.licenseBackup, {
+    visible: true,
+    disabled: true,
+    title: '无权限：仅管理员、负责人或借用人可操作',
+  });
+  assert.deepEqual(state.databaseBackup, {
+    visible: true,
+    disabled: true,
+    title: '无权限：仅管理员、负责人或借用人可操作',
+  });
+});
+
+test('getDeviceActionMenuState keeps backup actions visible with missing merchant ID reason', () => {
+  const state = getDeviceActionMenuState({
+    device: {
+      merchantId: '   ',
+      type: 'windows',
+    },
+    currentUserId: 200,
+    isAdmin: false,
+    hasLicenseBackupHandler: true,
+    hasDatabaseBackupHandler: true,
+  });
+
+  assert.equal(state.linuxConfig.visible, false);
+  assert.deepEqual(state.dbConfig, {
+    visible: true,
+    disabled: true,
+    title: '缺少商家ID，无法操作',
+  });
+  assert.deepEqual(state.licenseBackup, {
+    visible: true,
+    disabled: true,
+    title: '缺少商家ID，无法操作',
+  });
+  assert.deepEqual(state.databaseBackup, {
+    visible: true,
+    disabled: true,
+    title: '缺少商家ID，无法操作',
+  });
 });

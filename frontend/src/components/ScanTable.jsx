@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  getDeviceActionMenuState,
   getDeviceStatusPresentation,
   getDeviceTypeIconPresentation,
   normalizeMerchantId
@@ -76,17 +77,6 @@ const ScanTable = ({
     }
   };
 
-  const supportsDBConfig = (deviceType) => {
-    const type = (deviceType || '').toLowerCase();
-    return type === 'linux' || type === 'windows';
-  };
-
-  const canAccessDeviceConfig = (device) => {
-    const isOwner = device.owner?.id === currentUserId;
-    const isOccupier = device.occupancy?.userId === currentUserId;
-    return isAdmin || isOwner || isOccupier;
-  };
-
   const calculateMenuPlacement = (triggerEl, options = {}) => {
     if (!triggerEl) {
       return { direction: 'down', top: 0, left: 0 };
@@ -153,11 +143,6 @@ const ScanTable = ({
     action();
   };
 
-  const getConfigDisabledReason = (device) => {
-    if (!device?.merchantId) return '缺少商家ID，无法配置';
-    if (!canAccessDeviceConfig(device)) return '无权限：仅管理员、负责人或借用人可操作';
-    return '';
-  };
   // 格式化时间显示
   const formatTime = (isoString) => {
     if (!isoString) return '';
@@ -246,17 +231,21 @@ const ScanTable = ({
             const isOnlineDevice = device.isOnline === true;
             const canOpen = isOnlineDevice && hasMerchantId && typeof onOpenDevice === 'function';
             const canShowDetails = hasMerchantId;
-            const isLinuxDevice = (device.type || '').toLowerCase() === 'linux';
-            const showDBConfig = supportsDBConfig(device.type);
-            const configDisabledReason = getConfigDisabledReason(device);
-            const canUseConfig = configDisabledReason === '';
+            const actionMenuState = getDeviceActionMenuState({
+              device,
+              currentUserId,
+              isAdmin,
+              hasLicenseBackupHandler: typeof onManageLicenseBackup === 'function',
+              hasDatabaseBackupHandler: typeof onBackupRestoreDatabase === 'function'
+            });
+            const isLinuxDevice = actionMenuState.linuxConfig.visible;
+            const showDBConfig = actionMenuState.dbConfig.visible;
             const showDelete = isAdmin && (!isOnlineDevice || !hasMerchantId);
             const canClaimDevice = hasMerchantId && !device.owner && !device.ownerId;
             const canResetOwner = isAdmin && hasMerchantId && (!!device.owner || !!device.ownerId);
             const canManageBorrow = hasMerchantId;
-            const canManageLicense = hasMerchantId && canAccessDeviceConfig(device);
-            const canManageLicenseBackup = canManageLicense && typeof onManageLicenseBackup === 'function';
-            const canBackupRestoreDatabase = canManageLicense && typeof onBackupRestoreDatabase === 'function';
+            const canManageLicenseBackup = actionMenuState.licenseBackup.visible;
+            const canBackupRestoreDatabase = actionMenuState.databaseBackup.visible;
             const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow || canManageLicenseBackup || canBackupRestoreDatabase;
             const offlineTimeText = formatLastOnlineTime(device.lastOnlineTime);
             let statusText = isOnlineDevice
@@ -459,9 +448,9 @@ const ScanTable = ({
 
                           {isLinuxDevice && (
                             <button
-                              className={`action-menu-item ${!canUseConfig ? 'disabled' : ''}`}
-                              disabled={!canUseConfig}
-                              title={configDisabledReason || 'Linux 配置管理'}
+                              className={`action-menu-item ${actionMenuState.linuxConfig.disabled ? 'disabled' : ''}`}
+                              disabled={actionMenuState.linuxConfig.disabled}
+                              title={actionMenuState.linuxConfig.title}
                               onClick={(e) => handleMenuAction(e, () => handleConfigClick(device))}
                             >
                               Linux配置
@@ -470,9 +459,9 @@ const ScanTable = ({
 
                           {showDBConfig && (
                             <button
-                              className={`action-menu-item ${!canUseConfig ? 'disabled' : ''}`}
-                              disabled={!canUseConfig}
-                              title={configDisabledReason || '数据库配置管理'}
+                              className={`action-menu-item ${actionMenuState.dbConfig.disabled ? 'disabled' : ''}`}
+                              disabled={actionMenuState.dbConfig.disabled}
+                              title={actionMenuState.dbConfig.title}
                               onClick={(e) => handleMenuAction(e, () => handleDbConfigClick(device))}
                             >
                               数据库配置
@@ -481,9 +470,10 @@ const ScanTable = ({
 
                           {canManageLicenseBackup && (
                             <button
-                              className="action-menu-item"
+                              className={`action-menu-item ${actionMenuState.licenseBackup.disabled ? 'disabled' : ''}`}
+                              disabled={actionMenuState.licenseBackup.disabled}
                               onClick={(e) => handleMenuAction(e, () => onManageLicenseBackup(device))}
-                              title="打开 License 备份与导入弹窗"
+                              title={actionMenuState.licenseBackup.title}
                             >
                               License备份/导入
                             </button>
@@ -491,9 +481,10 @@ const ScanTable = ({
 
                           {canBackupRestoreDatabase && (
                             <button
-                              className="action-menu-item"
+                              className={`action-menu-item ${actionMenuState.databaseBackup.disabled ? 'disabled' : ''}`}
+                              disabled={actionMenuState.databaseBackup.disabled}
                               onClick={(e) => handleMenuAction(e, () => onBackupRestoreDatabase(device))}
-                              title="创建备份或从服务端/本地上传恢复数据库"
+                              title={actionMenuState.databaseBackup.title}
                             >
                               数据备份/恢复
                             </button>
