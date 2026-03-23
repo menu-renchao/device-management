@@ -13,6 +13,7 @@ type Config struct {
 	Server         ServerConfig
 	JWT            JWTConfig
 	Database       DatabaseConfig
+	POSDatabase    POSDatabaseConfig
 	CORS           CORSConfig
 	Upload         UploadConfig
 	Download       DownloadConfig
@@ -21,21 +22,28 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port          string
-	Mode          string
-	RunMode       string
-	PublicBaseURL string
+	Port                 string
+	Mode                 string
+	RunMode              string
+	PublicBaseURL        string
 	POSProxyHostTemplate string
 }
 
 type JWTConfig struct {
-	SecretKey             string
-	AccessTokenExpires    time.Duration
-	RefreshTokenExpires   time.Duration
+	SecretKey           string
+	AccessTokenExpires  time.Duration
+	RefreshTokenExpires time.Duration
 }
 
 type DatabaseConfig struct {
 	Path string
+}
+
+type POSDatabaseConfig struct {
+	Port     int
+	User     string
+	Password string
+	Name     string
 }
 
 type CORSConfig struct {
@@ -85,6 +93,10 @@ func Init() error {
 	viper.SetDefault("JWT_ACCESS_TOKEN_EXPIRES", "24")
 	viper.SetDefault("JWT_REFRESH_TOKEN_EXPIRES", "720")
 	viper.SetDefault("DATABASE_PATH", "data.db")
+	viper.SetDefault("POS_DB_PORT", 22108)
+	viper.SetDefault("POS_DB_USER", "shohoku")
+	viper.SetDefault("POS_DB_PASSWORD", "N0mur@4$99!")
+	viper.SetDefault("POS_DB_NAME", "kpos")
 	viper.SetDefault("CORS_ORIGINS", "*")
 	viper.SetDefault("UPLOAD_PATH", "uploads")
 	viper.SetDefault("DOWNLOADS_DIR", "downloads")
@@ -130,10 +142,10 @@ func Init() error {
 
 	AppConfig = &Config{
 		Server: ServerConfig{
-			Port:          viper.GetString("PORT"),
-			Mode:          viper.GetString("GIN_MODE"),
-			RunMode:       viper.GetString("GIN_MODE"),
-			PublicBaseURL: strings.TrimSpace(viper.GetString("PUBLIC_BASE_URL")),
+			Port:                 viper.GetString("PORT"),
+			Mode:                 viper.GetString("GIN_MODE"),
+			RunMode:              viper.GetString("GIN_MODE"),
+			PublicBaseURL:        strings.TrimSpace(viper.GetString("PUBLIC_BASE_URL")),
 			POSProxyHostTemplate: strings.TrimSpace(viper.GetString("POS_PROXY_HOST_TEMPLATE")),
 		},
 		JWT: JWTConfig{
@@ -143,6 +155,12 @@ func Init() error {
 		},
 		Database: DatabaseConfig{
 			Path: viper.GetString("DATABASE_PATH"),
+		},
+		POSDatabase: POSDatabaseConfig{
+			Port:     viper.GetInt("POS_DB_PORT"),
+			User:     strings.TrimSpace(viper.GetString("POS_DB_USER")),
+			Password: viper.GetString("POS_DB_PASSWORD"),
+			Name:     strings.TrimSpace(viper.GetString("POS_DB_NAME")),
 		},
 		CORS: CORSConfig{
 			Origins: corsOrigins,

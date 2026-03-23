@@ -306,12 +306,19 @@ func (s *LicenseService) resolveBackupPath(merchantID, fileName string) (string,
 }
 
 func (s *LicenseService) openDB(host string) (*sql.DB, error) {
+	dbCfg := resolvePOSDBConnectionConfig(
+		licenseDBPort,
+		licenseDBUser,
+		licenseDBPassword,
+		licenseDBName,
+	)
+
 	cfg := mysql.Config{
-		User:                 licenseDBUser,
-		Passwd:               licenseDBPassword,
+		User:                 dbCfg.User,
+		Passwd:               dbCfg.Password,
 		Net:                  "tcp",
-		Addr:                 fmt.Sprintf("%s:%d", host, licenseDBPort),
-		DBName:               licenseDBName,
+		Addr:                 fmt.Sprintf("%s:%d", host, dbCfg.Port),
+		DBName:               dbCfg.Name,
 		ParseTime:            true,
 		AllowNativePasswords: true,
 		Params: map[string]string{

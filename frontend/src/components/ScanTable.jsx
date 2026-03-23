@@ -20,6 +20,7 @@ const ScanTable = ({
   onClaimDevice,
   onResetOwner,
   onManageLicenseBackup,
+  onManageMenuTransfer,
   onBackupRestoreDatabase,
   isAdmin,
   currentUserId,
@@ -236,6 +237,7 @@ const ScanTable = ({
               currentUserId,
               isAdmin,
               hasLicenseBackupHandler: typeof onManageLicenseBackup === 'function',
+              hasMenuTransferHandler: typeof onManageMenuTransfer === 'function',
               hasDatabaseBackupHandler: typeof onBackupRestoreDatabase === 'function'
             });
             const isLinuxDevice = actionMenuState.linuxConfig.visible;
@@ -245,8 +247,9 @@ const ScanTable = ({
             const canResetOwner = isAdmin && hasMerchantId && (!!device.owner || !!device.ownerId);
             const canManageBorrow = hasMerchantId;
             const canManageLicenseBackup = actionMenuState.licenseBackup.visible;
+            const canManageMenuTransfer = actionMenuState.menuTransfer.visible;
             const canBackupRestoreDatabase = actionMenuState.databaseBackup.visible;
-            const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow || canManageLicenseBackup || canBackupRestoreDatabase;
+            const hasMoreActions = isLinuxDevice || showDBConfig || showDelete || canClaimDevice || canResetOwner || canManageBorrow || canManageLicenseBackup || canManageMenuTransfer || canBackupRestoreDatabase;
             const offlineTimeText = formatLastOnlineTime(device.lastOnlineTime);
             let statusText = isOnlineDevice
               ? '在线'
@@ -476,6 +479,17 @@ const ScanTable = ({
                               title={actionMenuState.licenseBackup.title}
                             >
                               License备份/导入
+                            </button>
+                          )}
+
+                          {canManageMenuTransfer && (
+                            <button
+                              className={`action-menu-item ${actionMenuState.menuTransfer.disabled ? 'disabled' : ''}`}
+                              disabled={actionMenuState.menuTransfer.disabled}
+                              onClick={(e) => handleMenuAction(e, () => onManageMenuTransfer(device))}
+                              title={actionMenuState.menuTransfer.title}
+                            >
+                              菜单导入/导出
                             </button>
                           )}
 

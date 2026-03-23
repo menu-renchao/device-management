@@ -30,6 +30,7 @@ type DeviceHandler struct {
 	notificationService *services.NotificationService
 	licenseService      licenseBackupManager
 	dbBackupService     dbBackupManager
+	menuPackageService  menuPackageManager
 	linuxService        *services.LinuxService
 	accessService       *services.AssetAccessService
 	posAccessService    posAccessResolver
@@ -51,6 +52,7 @@ func NewDeviceHandler(
 	notificationService *services.NotificationService,
 	licenseService licenseBackupManager,
 	dbBackupService dbBackupManager,
+	menuPackageService menuPackageManager,
 	linuxService *services.LinuxService,
 	accessService *services.AssetAccessService,
 	posAccessService posAccessResolver,
@@ -62,6 +64,7 @@ func NewDeviceHandler(
 		notificationService: notificationService,
 		licenseService:      licenseService,
 		dbBackupService:     dbBackupService,
+		menuPackageService:  menuPackageService,
 		linuxService:        linuxService,
 		accessService:       accessService,
 		posAccessService:    posAccessService,

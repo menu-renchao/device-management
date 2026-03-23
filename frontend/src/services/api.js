@@ -312,6 +312,66 @@ export const deviceAPI = {
       }
     });
     return response.data;
+  },
+
+  exportMenuPackage: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/menu/export', {
+      merchant_id: merchantId
+    });
+    return response.data;
+  },
+
+  listMenuPackages: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.get(`/device/menu/packages?merchant_id=${encodeURIComponent(merchantId)}`);
+    return response.data;
+  },
+
+  listAllMenuPackages: async (merchantId) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.get(`/device/menu/packages/all?merchant_id=${encodeURIComponent(merchantId)}`);
+    return response.data;
+  },
+
+  deleteMenuPackage: async (merchantId, fileName) => {
+    const authAxios = createAuthAxios();
+    const response = await authAxios.delete(`/device/menu/packages?merchant_id=${encodeURIComponent(merchantId)}&file_name=${encodeURIComponent(fileName)}`);
+    return response.data;
+  },
+
+  downloadMenuPackageUrl: (merchantId, fileName) => {
+    const token = localStorage.getItem('access_token');
+    return `${API_BASE_URL}/device/menu/packages/download?merchant_id=${encodeURIComponent(merchantId)}&file_name=${encodeURIComponent(fileName)}&token=${token}`;
+  },
+
+  importMenuFromServer: async (merchantId, fileName, restartPosAfterImport = false, sourceMerchantId = '') => {
+    const authAxios = createAuthAxios();
+    const payload = {
+      merchant_id: merchantId,
+      file_name: fileName,
+      restart_pos_after_import: restartPosAfterImport
+    };
+    if (sourceMerchantId) {
+      payload.source_merchant_id = sourceMerchantId;
+    }
+    const response = await authAxios.post('/device/menu/import/server', payload);
+    return response.data;
+  },
+
+  importMenuFromUpload: async (merchantId, file, restartPosAfterImport = false) => {
+    const formData = new FormData();
+    formData.append('merchant_id', merchantId);
+    formData.append('file', file);
+    formData.append('restart_pos_after_import', restartPosAfterImport ? 'true' : 'false');
+
+    const authAxios = createAuthAxios();
+    const response = await authAxios.post('/device/menu/import/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    return response.data;
   }
 };
 
@@ -752,21 +812,17 @@ export const linuxAPI = {
 
 // 设备数据库配置 API
 export const dbConfigAPI = {
-  getConnection: async (merchantId) => {
+  getDefaultConnection: async (merchantId) => {
     const authAxios = createAuthAxios();
-    const response = await authAxios.get(`/db-config/connections/${encodeURIComponent(merchantId)}`);
+    const response = await authAxios.get(`/db-config/default-connection?merchant_id=${encodeURIComponent(merchantId)}`);
     return response.data;
   },
 
-  saveConnection: async (merchantId, payload) => {
+  testDefaultConnection: async (merchantId) => {
     const authAxios = createAuthAxios();
-    const response = await authAxios.put(`/db-config/connections/${encodeURIComponent(merchantId)}`, payload);
-    return response.data;
-  },
-
-  testConnection: async (merchantId, payload) => {
-    const authAxios = createAuthAxios();
-    const response = await authAxios.post(`/db-config/connections/${encodeURIComponent(merchantId)}/test`, payload);
+    const response = await authAxios.post('/db-config/test-default', {
+      merchant_id: merchantId,
+    });
     return response.data;
   },
 

@@ -40,7 +40,7 @@ func NewDBConfigHandler(
 }
 
 func (h *DBConfigHandler) GetConnection(c *gin.Context) {
-	merchantID := strings.TrimSpace(c.Param("merchantId"))
+	merchantID := strings.TrimSpace(c.Query("merchant_id"))
 	if merchantID == "" {
 		response.BadRequest(c, "merchantId 不能为空")
 		return

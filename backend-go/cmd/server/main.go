@@ -63,6 +63,9 @@ func main() {
 	if err := db.AutoMigrate(autoMigrateModels()...); err != nil {
 		logger.Fatal("Failed to migrate database", "error", err)
 	}
+	if err := db.Migrator().DropTable("device_db_connections"); err != nil {
+		logger.Fatal("Failed to drop legacy device_db_connections table", "error", err)
+	}
 
 	// Bootstrap first admin only from explicit environment configuration.
 	var adminCount int64
@@ -103,7 +106,6 @@ func main() {
 	systemConfigRepo := repository.NewSystemConfigRepository(db)
 	notificationRepo := repository.NewNotificationRepository(db)
 	warPackageRepo := repository.NewWarPackageRepository(db)
-	dbConnectionRepo := repository.NewDeviceDBConnectionRepository(db)
 	dbSQLTemplateRepo := repository.NewDBSQLTemplateRepository(db)
 	dbSQLTaskRepo := repository.NewDBSQLExecuteTaskRepository(db)
 	autoScanConfigRepo := repository.NewAutoScanConfigRepository(db)
@@ -117,9 +119,11 @@ func main() {
 	linuxService := services.NewLinuxService()
 	licenseService := services.NewLicenseService()
 	dbBackupService := services.NewDBBackupService()
+	menuPackageService := services.NewMenuPackageService()
 	warDownloadService := services.NewWarDownloadService(systemConfigRepo, warPackageRepo)
 	notificationService := services.NewNotificationService(notificationRepo)
-	dbConfigService := services.NewDBConfigService(dbConnectionRepo, dbSQLTemplateRepo, dbSQLTaskRepo)
+	posDBRuntime := services.NewPOSDBRuntime(deviceRepo)
+	dbConfigService := services.NewDBConfigService(posDBRuntime, dbSQLTemplateRepo, dbSQLTaskRepo)
 	autoScanScheduler := services.NewAutoScanScheduler(scanService, autoScanConfigRepo, scanJobLogRepo, deviceRepo, time.Minute)
 	assetAccessService := services.NewAssetAccessService(userRepo, deviceRepo, mobileRepo)
 	borrowService := services.NewBorrowService(borrowRequestRepo, deviceRepo, mobileRepo, userRepo, assetAccessService)
@@ -129,7 +133,7 @@ func main() {
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, userRepo, notificationService)
 	adminHandler := handlers.NewAdminHandler(userRepo, deviceRepo)
-	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, linuxService, assetAccessService, posAccessService, deviceWebAccessLogRepo)
+	deviceHandler := handlers.NewDeviceHandler(deviceRepo, userRepo, notificationService, licenseService, dbBackupService, menuPackageService, linuxService, assetAccessService, posAccessService, deviceWebAccessLogRepo)
 	mobileHandler := handlers.NewMobileHandler(mobileRepo, userRepo, notificationService, assetAccessService)
 	scanHandler := handlers.NewScanHandler(scanService, deviceRepo, autoScanConfigRepo, scanJobLogRepo, autoScanScheduler)
 	linuxHandler := handlers.NewLinuxHandler(linuxService, fileConfigRepo, deviceRepo, userRepo, assetAccessService)
@@ -226,6 +230,13 @@ func main() {
 			device.DELETE("/db/backups", deviceHandler.DeleteDatabaseBackup)
 			device.POST("/db/restore/server", deviceHandler.RestoreDatabaseFromServer)
 			device.POST("/db/restore/upload", deviceHandler.RestoreDatabaseFromUpload)
+			device.POST("/menu/export", deviceHandler.ExportMenuPackage)
+			device.GET("/menu/packages", deviceHandler.ListMenuPackages)
+			device.GET("/menu/packages/all", deviceHandler.ListAllMenuPackages)
+			device.GET("/menu/packages/download", deviceHandler.DownloadMenuPackage)
+			device.DELETE("/menu/packages", deviceHandler.DeleteMenuPackage)
+			device.POST("/menu/import/server", deviceHandler.ImportMenuFromServer)
+			device.POST("/menu/import/upload", deviceHandler.ImportMenuFromUpload)
 
 		}
 
@@ -354,9 +365,8 @@ func main() {
 		dbConfig := api.Group("/db-config")
 		dbConfig.Use(middleware.Auth())
 		{
-			dbConfig.GET("/connections/:merchantId", dbConfigHandler.GetConnection)
-			dbConfig.PUT("/connections/:merchantId", dbConfigHandler.UpsertConnection)
-			dbConfig.POST("/connections/:merchantId/test", dbConfigHandler.TestConnection)
+			dbConfig.GET("/default-connection", dbConfigHandler.GetDefaultConnection)
+			dbConfig.POST("/test-default", dbConfigHandler.TestDefaultConnection)
 
 			dbConfig.GET("/templates", dbConfigHandler.ListTemplates)
 			dbConfig.GET("/templates/:id", dbConfigHandler.GetTemplate)
@@ -444,7 +454,6 @@ func autoMigrateModels() []interface{} {
 		&models.AutoScanConfig{},
 		&models.ScanJobLog{},
 		&models.FileConfig{},
-		&models.DeviceDBConnection{},
 		&models.DBSQLTemplate{},
 		&models.DBSQLExecuteTask{},
 		&models.DBSQLExecuteTaskItem{},

@@ -3,22 +3,19 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { dbConfigAPI, linuxAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import ConnectionPanel from '../components/db-config/ConnectionPanel';
 import TemplateModal from '../components/db-config/TemplateModal';
 import ExecuteResultPanel from '../components/db-config/ExecuteResultPanel';
-import {
-  DEFAULT_DB_NAME,
-  DEFAULT_DB_PORT,
-  DEFAULT_DB_TYPE,
-  DEFAULT_DB_USER,
-} from './connectionDefaults';
-import {
-  createPendingDBConnectionForm,
-  mergeLoadedDBConnectionForm,
-} from './dbConnectionFormState.js';
-import { buildDBConnectionPayload } from './dbConnectionRequestState.js';
 
 const TEMPLATE_FETCH_PAGE_SIZE = 100;
+
+const DEFAULT_CONNECTION = {
+  host: '',
+  port: 22108,
+  database_name: 'kpos',
+  username: 'shohoku',
+  password_set: false,
+  db_type: 'mysql',
+};
 
 const DBConfigPage = () => {
   const { merchantId } = useParams();
@@ -30,8 +27,8 @@ const DBConfigPage = () => {
   const toast = useToast();
   const deviceIP = (device?.ip || '').trim();
 
-  const [connectionForm, setConnectionForm] = useState(() => createPendingDBConnectionForm(device?.ip || ''));
-  const [hasSavedPassword, setHasSavedPassword] = useState(false);
+  const [defaultConnection, setDefaultConnection] = useState(DEFAULT_CONNECTION);
+  const [loadingConnection, setLoadingConnection] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
 
   const [templates, setTemplates] = useState([]);
@@ -59,7 +56,7 @@ const DBConfigPage = () => {
     const isOccupier = device.occupancy?.userId === user?.id;
     const hasPermission = isAdmin() || isOwner || isOccupier;
     if (!hasPermission) {
-      toast.warning('您没有权限访问此设备的数据库配置页面，只有管理员、负责人或借用人才能访问');
+      toast.warning('您没有权限访问此页面。');
       navigate(-1);
     }
   }, [device, user, isAdmin, navigate, toast]);
@@ -74,14 +71,13 @@ const DBConfigPage = () => {
       let mergedItems = firstPageData.items || [];
 
       if (totalPages > 1) {
-        const requestList = [];
+        const requests = [];
         for (let page = 2; page <= totalPages; page += 1) {
-          requestList.push(dbConfigAPI.getTemplates(page, TEMPLATE_FETCH_PAGE_SIZE, search));
+          requests.push(dbConfigAPI.getTemplates(page, TEMPLATE_FETCH_PAGE_SIZE, search));
         }
-        const restPageResults = await Promise.all(requestList);
-        restPageResults.forEach((result) => {
-          const items = result.data?.items || [];
-          mergedItems = mergedItems.concat(items);
+        const results = await Promise.all(requests);
+        results.forEach((result) => {
+          mergedItems = mergedItems.concat(result.data?.items || []);
         });
       }
 
@@ -90,7 +86,7 @@ const DBConfigPage = () => {
       setSelectedTemplateIds((prev) => prev.filter((id) => mergedItems.some((item) => item.id === id)));
       setExpandedTemplateIds((prev) => prev.filter((id) => mergedItems.some((item) => item.id === id)));
     } catch (error) {
-      toast.error(error.response?.data?.error || '加载模板列表失败');
+      toast.error(error.response?.data?.error || '加载模板列表失败。');
     } finally {
       setLoadingTemplates(false);
     }
@@ -98,34 +94,28 @@ const DBConfigPage = () => {
 
   useEffect(() => {
     if (!merchantId) return;
-    setConnectionForm(createPendingDBConnectionForm(deviceIP));
-    setHasSavedPassword(false);
+    setDefaultConnection(DEFAULT_CONNECTION);
+    setExecuteResult(null);
   }, [merchantId, deviceIP]);
 
   useEffect(() => {
     if (!merchantId) return;
 
-    const loadConnection = async () => {
+    const loadDefaultConnection = async () => {
+      setLoadingConnection(true);
       try {
-        const result = await dbConfigAPI.getConnection(merchantId);
-        const connection = result.data?.connection;
-        if (!connection) {
-          setHasSavedPassword(false);
-          setConnectionForm((prev) => mergeLoadedDBConnectionForm(prev, null, deviceIP));
-          return;
-        }
-
-        setHasSavedPassword(Boolean(connection.password_set));
-        setConnectionForm((prev) => mergeLoadedDBConnectionForm(prev, connection, deviceIP));
+        const result = await dbConfigAPI.getDefaultConnection(merchantId);
+        const connection = result.data?.connection || result.data || null;
+        setDefaultConnection(connection || DEFAULT_CONNECTION);
       } catch (error) {
-        if (error.response?.status !== 404) {
-          console.error('Failed to load DB connection:', error);
-        }
+        toast.error(error.response?.data?.error || '加载默认连接信息失败。');
+      } finally {
+        setLoadingConnection(false);
       }
     };
 
-    loadConnection();
-  }, [merchantId, deviceIP]);
+    loadDefaultConnection();
+  }, [merchantId, toast]);
 
   useEffect(() => {
     if (!merchantId) return;
@@ -137,61 +127,18 @@ const DBConfigPage = () => {
     return templates.every((item) => selectedTemplateIds.includes(item.id));
   }, [templates, selectedTemplateIds]);
 
-  const setFormField = (field, value) => {
-    if (field === 'host') {
+  const handleTestConnection = async () => {
+    if (!merchantId) {
+      toast.warning('缺少商户 ID，无法测试默认连接。');
       return;
     }
-    setConnectionForm((prev) => ({ ...prev, [field]: value }));
-  };
 
-  const buildConnectionPayloadForRequest = () => buildDBConnectionPayload({
-    form: connectionForm,
-    deviceIP,
-    hasSavedPassword,
-  });
-
-  const validateConnection = (form) => {
-    if (!form.host.trim()) {
-      toast.warning('未获取当前设备IP，请从设备列表重新进入数据库配置页面');
-      return false;
-    }
-    if (!form.database_name.trim()) {
-      toast.warning('请输入数据库名');
-      return false;
-    }
-    if (!form.username.trim()) {
-      toast.warning('请输入用户名');
-      return false;
-    }
-    if (!form.password.trim() && !hasSavedPassword) {
-      toast.warning('请输入数据库密码');
-      return false;
-    }
-    return true;
-  };
-
-  const ensureConnectionSynced = async () => {
-    const payload = buildConnectionPayloadForRequest();
-    if (!validateConnection(payload)) {
-      return null;
-    }
-    await dbConfigAPI.saveConnection(merchantId, payload);
-    setConnectionForm(payload);
-    setHasSavedPassword(true);
-    return payload;
-  };
-
-  const handleTestConnection = async () => {
     setTestingConnection(true);
     try {
-      const payload = await ensureConnectionSynced();
-      if (!payload) {
-        return;
-      }
-      await dbConfigAPI.testConnection(merchantId, payload);
-      toast.success('连接测试成功');
+      await dbConfigAPI.testDefaultConnection(merchantId);
+      toast.success('默认连接测试成功。');
     } catch (error) {
-      toast.error(error.response?.data?.error || '连接测试失败');
+      toast.error(error.response?.data?.error || '默认连接测试失败。');
     } finally {
       setTestingConnection(false);
     }
@@ -199,7 +146,7 @@ const DBConfigPage = () => {
 
   const handleRestartPOS = async () => {
     if (!merchantId) {
-      toast.warning('未获取到商家ID，无法重启POS');
+      toast.warning('缺少商户 ID，无法重启 POS。');
       return;
     }
 
@@ -213,9 +160,9 @@ const DBConfigPage = () => {
     setRestartingPOS(true);
     try {
       const result = await linuxAPI.restartPOS(merchantId);
-      toast.success(result?.message || 'POS 重启成功');
+      toast.success(result?.message || 'POS 重启成功。');
     } catch (error) {
-      toast.error('重启 POS 失败：' + (error.response?.data?.message || error.message));
+      toast.error(`POS 重启失败：${error.response?.data?.message || error.message}`);
     } finally {
       setRestartingPOS(false);
     }
@@ -239,11 +186,7 @@ const DBConfigPage = () => {
   };
 
   const toggleSelectAll = (checked) => {
-    if (checked) {
-      setSelectedTemplateIds(templates.map((item) => item.id));
-      return;
-    }
-    setSelectedTemplateIds([]);
+    setSelectedTemplateIds(checked ? templates.map((item) => item.id) : []);
   };
 
   const toggleExpandTemplate = (templateId) => {
@@ -274,22 +217,22 @@ const DBConfigPage = () => {
     try {
       if (editingTemplate) {
         await dbConfigAPI.updateTemplate(editingTemplate.id, payload);
-        toast.success('模板更新成功');
+        toast.success('模板更新成功。');
       } else {
         await dbConfigAPI.createTemplate(payload);
-        toast.success('模板创建成功');
+        toast.success('模板创建成功。');
       }
       closeModal();
       loadTemplates(keyword);
     } catch (error) {
-      toast.error(error.response?.data?.error || '保存模板失败');
+      toast.error(error.response?.data?.error || '保存模板失败。');
     } finally {
       setSavingTemplate(false);
     }
   };
 
   const handleDeleteTemplate = async (template) => {
-    const ok = await toast.confirm(`确定要删除模板“${template.name}”吗？此操作不可恢复。`, {
+    const ok = await toast.confirm(`确定要删除模板“${template.name}”吗？`, {
       title: '删除模板',
       confirmText: '删除',
     });
@@ -297,34 +240,28 @@ const DBConfigPage = () => {
 
     try {
       await dbConfigAPI.deleteTemplate(template.id);
-      toast.success('模板删除成功');
+      toast.success('模板删除成功。');
       loadTemplates(keyword);
     } catch (error) {
-      toast.error(error.response?.data?.error || '删除模板失败');
+      toast.error(error.response?.data?.error || '删除模板失败。');
     }
   };
 
   const handleExecuteTemplates = async (templateIds = selectedTemplateIds) => {
     if (!templateIds || templateIds.length === 0) {
-      toast.warning('请先选择要执行的模板');
+      toast.warning('请先选择要执行的模板。');
       return;
     }
-    const payload = buildConnectionPayloadForRequest();
-    if (!validateConnection(payload)) {
-      return;
-    }
-    const ok = await toast.confirm(`确定要在当前设备上执行 ${templateIds.length} 个模板吗？执行策略为“逐条执行、失败继续”。`, {
-      title: '确认执行 SQL',
+
+    const ok = await toast.confirm(`确定要在当前设备上执行 ${templateIds.length} 个模板吗？`, {
+      title: '执行 SQL',
       variant: 'primary',
-      confirmText: '开始执行',
+      confirmText: '执行',
     });
     if (!ok) return;
 
     setExecuting(true);
     try {
-      await dbConfigAPI.saveConnection(merchantId, payload);
-      setConnectionForm(payload);
-
       const result = await dbConfigAPI.executeTemplates({
         merchant_id: merchantId,
         template_ids: templateIds,
@@ -335,15 +272,15 @@ const DBConfigPage = () => {
       });
       const task = result.data?.task;
       if (task?.failed_count > 0) {
-        toast.warning(`执行完成：成功 ${task.success_count}，失败 ${task.failed_count}`);
+        toast.warning(`执行完成：成功 ${task.success_count} 条，失败 ${task.failed_count} 条。`);
       } else {
-        toast.success('执行完成');
+        toast.success('执行完成。');
       }
     } catch (error) {
       const errorData = error.response?.data;
       if (errorData?.data?.risk_detected && isAdmin()) {
-        const force = await toast.confirm('检测到高风险 SQL。是否以管理员身份强制执行？', {
-          title: '高风险 SQL 提示',
+        const force = await toast.confirm('检测到高风险 SQL，是否以管理员身份强制执行？', {
+          title: '高风险 SQL',
           confirmText: '强制执行',
         });
         if (force) {
@@ -352,7 +289,7 @@ const DBConfigPage = () => {
               merchant_id: merchantId,
               template_ids: templateIds,
               force_execute: true,
-              force_reason: '管理员确认强制执行',
+              force_reason: '管理员确认强制执行。',
             });
             setExecuteResult({
               task: forceResult.data?.task,
@@ -360,18 +297,18 @@ const DBConfigPage = () => {
             });
             const task = forceResult.data?.task;
             if (task?.failed_count > 0) {
-              toast.warning(`强制执行完成：成功 ${task.success_count}，失败 ${task.failed_count}`);
+              toast.warning(`强制执行完成：成功 ${task.success_count} 条，失败 ${task.failed_count} 条。`);
             } else {
-              toast.success('强制执行完成');
+              toast.success('强制执行完成。');
             }
             return;
           } catch (forceError) {
-            toast.error(forceError.response?.data?.error || '强制执行失败');
+            toast.error(forceError.response?.data?.error || '强制执行失败。');
             return;
           }
         }
       }
-      toast.error(errorData?.error || '执行失败');
+      toast.error(errorData?.error || '执行失败。');
       if (errorData?.data?.task) {
         setExecuteResult({
           task: errorData.data.task,
@@ -383,34 +320,71 @@ const DBConfigPage = () => {
     }
   };
 
+  const connectionSummary = [
+    { label: '主机', value: defaultConnection.host || deviceIP || '未加载' },
+    { label: '端口', value: defaultConnection.port || 22108 },
+    { label: '数据库', value: defaultConnection.database_name || 'kpos' },
+    { label: '用户名', value: defaultConnection.username || 'shohoku' },
+    { label: '密码', value: defaultConnection.password_set ? '使用系统默认密码' : '未配置' },
+    { label: '类型', value: defaultConnection.db_type || 'mysql' },
+  ];
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <button onClick={() => navigate('/')} style={styles.backBtn}>← 返回</button>
+          <button onClick={() => navigate('/')} style={styles.backBtn}>返回</button>
           <div>
-            <h2 style={styles.title}>数据库配置管理</h2>
-            <div style={styles.subtitle}>商家ID: {merchantId}</div>
+            <h2 style={styles.title}>数据库配置</h2>
+            <div style={styles.subtitle}>商户 ID：{merchantId}</div>
           </div>
         </div>
       </div>
 
-      <ConnectionPanel
-        form={connectionForm}
-        hasSavedPassword={hasSavedPassword}
-        onFormChange={setFormField}
-        onTest={handleTestConnection}
-        testing={testingConnection}
-        deviceIP={deviceIP}
-        showRestartPOS={isLinuxDevice}
-        onRestartPOS={handleRestartPOS}
-        restartingPOS={restartingPOS}
-      />
+      <div style={styles.card}>
+        <div style={styles.cardHeader}>
+          <div>
+            <h3 style={styles.cardTitle}>默认 POS 数据库连接</h3>
+            <div style={styles.cardMeta}>
+              {loadingConnection ? '加载中...' : '当前仅支持系统统一默认连接，不支持按设备单独编辑。'}
+            </div>
+          </div>
+          <div style={styles.cardActions}>
+            <button
+              type="button"
+              onClick={handleTestConnection}
+              disabled={testingConnection || loadingConnection}
+              style={{ ...styles.testBtn, ...(testingConnection || loadingConnection ? styles.disabled : {}) }}
+            >
+              {testingConnection ? '测试中...' : '测试默认连接'}
+            </button>
+            {isLinuxDevice && (
+              <button
+                type="button"
+                onClick={handleRestartPOS}
+                disabled={restartingPOS}
+                style={{ ...styles.restartBtn, ...(restartingPOS ? styles.disabled : {}) }}
+              >
+                {restartingPOS ? '重启中...' : '重启 POS'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div style={styles.connectionGrid}>
+          {connectionSummary.map((item) => (
+            <div key={item.label} style={styles.connectionItem}>
+              <div style={styles.connectionLabel}>{item.label}</div>
+              <div style={styles.connectionValue}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div style={styles.card}>
         <div style={styles.tableHeader}>
           <h3 style={styles.tableTitle}>
-            SQL 模板库
+            SQL 模板
             <span style={styles.tableCount}>（共 {total} 条）</span>
           </h3>
           <div style={styles.actions}>
@@ -432,7 +406,7 @@ const DBConfigPage = () => {
               disabled={executing || selectedTemplateIds.length === 0}
               style={{ ...styles.executeBtn, ...(executing || selectedTemplateIds.length === 0 ? styles.disabled : {}) }}
             >
-              {executing ? '执行中...' : `执行选中(${selectedTemplateIds.length})`}
+              {executing ? '执行中...' : `执行选中（${selectedTemplateIds.length}）`}
             </button>
           </div>
         </div>
@@ -459,14 +433,14 @@ const DBConfigPage = () => {
                 <th style={styles.th}>备注</th>
                 <th style={styles.th}>创建人</th>
                 <th style={styles.th}>更新时间</th>
-                <th style={styles.thCenter}>SQL详情</th>
+                <th style={styles.thCenter}>详情</th>
                 <th style={styles.thCenter}>操作</th>
               </tr>
             </thead>
             <tbody>
               {loadingTemplates ? (
                 <tr>
-                  <td colSpan={8} style={styles.emptyCell}>加载中...</td>
+                  <td colSpan={8} style={styles.emptyCell}>加载模板中...</td>
                 </tr>
               ) : templates.length === 0 ? (
                 <tr>
@@ -493,12 +467,12 @@ const DBConfigPage = () => {
                           {template.need_restart ? (
                             <span style={styles.needRestartTag}>需要</span>
                           ) : (
-                            <span style={styles.noRestartTag}>不需要</span>
+                            <span style={styles.noRestartTag}>无需</span>
                           )}
                         </td>
                         <td style={styles.td}>
-                          <span style={styles.remarkText} title={template.remark || '—'}>
-                            {template.remark || '—'}
+                          <span style={styles.remarkText} title={template.remark || '-'}>
+                            {template.remark || '-'}
                           </span>
                         </td>
                         <td style={styles.td}>
@@ -508,14 +482,11 @@ const DBConfigPage = () => {
                         </td>
                         <td style={styles.td}>
                           <span style={styles.updatedAtText}>
-                            {template.updated_at ? new Date(template.updated_at).toLocaleString('zh-CN') : '—'}
+                            {template.updated_at ? new Date(template.updated_at).toLocaleString('zh-CN') : '-'}
                           </span>
                         </td>
                         <td style={styles.tdCenter}>
-                          <button
-                            onClick={() => toggleExpandTemplate(template.id)}
-                            style={styles.rowDetailBtn}
-                          >
+                          <button onClick={() => toggleExpandTemplate(template.id)} style={styles.rowDetailBtn}>
                             {isExpanded ? '收起' : '展开'}
                           </button>
                         </td>
@@ -541,7 +512,7 @@ const DBConfigPage = () => {
                         <tr style={styles.detailTr}>
                           <td colSpan={8} style={styles.detailCell}>
                             <div style={styles.sqlDetailTitle}>SQL 详情</div>
-                            <pre style={styles.sqlDetailContent}>{template.sql_content || '—'}</pre>
+                            <pre style={styles.sqlDetailContent}>{template.sql_content || '-'}</pre>
                           </td>
                         </tr>
                       )}
@@ -610,6 +581,53 @@ const styles = {
     padding: '16px',
     boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
   },
+  cardHeader: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: '12px',
+    flexWrap: 'wrap',
+    marginBottom: '14px',
+  },
+  cardTitle: {
+    margin: 0,
+    fontSize: '15px',
+    fontWeight: 600,
+    color: '#1D1D1F',
+  },
+  cardMeta: {
+    marginTop: '4px',
+    color: '#86868B',
+    fontSize: '12px',
+  },
+  cardActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    flexWrap: 'wrap',
+  },
+  connectionGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+    gap: '10px',
+  },
+  connectionItem: {
+    border: '1px solid #E5E5EA',
+    borderRadius: '10px',
+    padding: '10px 12px',
+    backgroundColor: '#FAFAFC',
+  },
+  connectionLabel: {
+    fontSize: '12px',
+    color: '#86868B',
+    marginBottom: '4px',
+  },
+  connectionValue: {
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#1D1D1F',
+    wordBreak: 'break-word',
+  },
   tableHeader: {
     display: 'flex',
     alignItems: 'center',
@@ -676,6 +694,26 @@ const styles = {
     borderRadius: '8px',
     padding: '8px 12px',
     backgroundColor: '#34C759',
+    color: '#fff',
+    fontSize: '13px',
+    cursor: 'pointer',
+    fontWeight: 500,
+  },
+  testBtn: {
+    border: 'none',
+    borderRadius: '8px',
+    padding: '8px 12px',
+    backgroundColor: '#5AC8FA',
+    color: '#fff',
+    fontSize: '13px',
+    cursor: 'pointer',
+    fontWeight: 500,
+  },
+  restartBtn: {
+    border: 'none',
+    borderRadius: '8px',
+    padding: '8px 12px',
+    backgroundColor: '#FF9500',
     color: '#fff',
     fontSize: '13px',
     cursor: 'pointer',

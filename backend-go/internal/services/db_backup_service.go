@@ -50,11 +50,18 @@ type DBBackupGroup struct {
 }
 
 func NewDBBackupService() *DBBackupService {
+	dbCfg := resolvePOSDBConnectionConfig(
+		defaultDBBackupPort,
+		defaultDBBackupUser,
+		defaultDBBackupPassword,
+		defaultDBBackupDatabase,
+	)
+
 	return &DBBackupService{
-		dbPort:     defaultDBBackupPort,
-		dbUser:     defaultDBBackupUser,
-		dbPassword: defaultDBBackupPassword,
-		dbName:     defaultDBBackupDatabase,
+		dbPort:     dbCfg.Port,
+		dbUser:     dbCfg.User,
+		dbPassword: dbCfg.Password,
+		dbName:     dbCfg.Name,
 	}
 }
 

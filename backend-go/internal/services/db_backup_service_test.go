@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"device-management/internal/config"
 )
 
 func TestNewDBBackupServiceUsesShohokuDefaults(t *testing.T) {
@@ -18,6 +20,37 @@ func TestNewDBBackupServiceUsesShohokuDefaults(t *testing.T) {
 	}
 	if service.dbName != "kpos" {
 		t.Fatalf("dbName = %q, want %q", service.dbName, "kpos")
+	}
+}
+
+func TestNewDBBackupServiceUsesConfiguredPOSDatabaseWhenAvailable(t *testing.T) {
+	previousConfig := config.AppConfig
+	t.Cleanup(func() {
+		config.AppConfig = previousConfig
+	})
+
+	config.AppConfig = &config.Config{
+		POSDatabase: config.POSDatabaseConfig{
+			Port:     3307,
+			User:     "menu_user",
+			Password: "menu_pass",
+			Name:     "menu_db",
+		},
+	}
+
+	service := NewDBBackupService()
+
+	if service.dbPort != 3307 {
+		t.Fatalf("dbPort = %d, want %d", service.dbPort, 3307)
+	}
+	if service.dbUser != "menu_user" {
+		t.Fatalf("dbUser = %q, want %q", service.dbUser, "menu_user")
+	}
+	if service.dbPassword != "menu_pass" {
+		t.Fatalf("dbPassword = %q, want %q", service.dbPassword, "menu_pass")
+	}
+	if service.dbName != "menu_db" {
+		t.Fatalf("dbName = %q, want %q", service.dbName, "menu_db")
 	}
 }
 

@@ -73,6 +73,7 @@ export function getDeviceActionMenuState({
   isAdmin,
   hasLicenseBackupHandler = false,
   hasDatabaseBackupHandler = false,
+  hasMenuTransferHandler = false,
 }) {
   const type = (device?.type || '').toLowerCase();
   const disabledReason = getDeviceManagementDisabledReason(device, currentUserId, isAdmin);
@@ -92,7 +93,12 @@ export function getDeviceActionMenuState({
     databaseBackup: createActionState(
       hasDatabaseBackupHandler,
       disabledReason,
-      '创建备份或从服务端/本地上传恢复数据库'
+      '创建备份或从服务端、本地上传恢复数据库'
+    ),
+    menuTransfer: createActionState(
+      hasMenuTransferHandler,
+      disabledReason,
+      '打开菜单导入与导出弹窗'
     ),
   };
 }

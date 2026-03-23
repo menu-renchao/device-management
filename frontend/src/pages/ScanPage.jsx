@@ -9,6 +9,7 @@ import DetailModal from '../components/DetailModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import DBBackupRestoreModal from '../components/db-backup/DBBackupRestoreModal';
 import LicenseBackupRestoreModal from '../components/license-backup/LicenseBackupRestoreModal';
+import MenuTransferModal from '../components/menu-transfer/MenuTransferModal';
 import {
   getAutoScanDisplayMode,
   getFilterButtonActiveStyle,
@@ -103,6 +104,7 @@ const ScanPage = () => {
   const [confirmDialog, setConfirmDialog] = useState({ show: false, type: null, data: null });
   const [licenseBackupModal, setLicenseBackupModal] = useState({ show: false, device: null });
   const [dbBackupModal, setDbBackupModal] = useState({ show: false, device: null });
+  const [menuTransferModal, setMenuTransferModal] = useState({ show: false, device: null });
 
   // 获取本地IP列表
   useEffect(() => {
@@ -596,6 +598,17 @@ const ScanPage = () => {
   };
 
   // 确认操作
+  const handleOpenMenuTransfer = (device) => {
+    if (!device?.merchantId) {
+      toast.warning('缺少商家ID，无法执行菜单导入/导出');
+      return;
+    }
+    setMenuTransferModal({
+      show: true,
+      device
+    });
+  };
+
   const confirmAction = async () => {
     const { type, data } = confirmDialog;
     setConfirmDialog({ show: false, type: null, data: null });
@@ -1018,6 +1031,7 @@ const ScanPage = () => {
           onClaimDevice={handleClaimDevice}
           onResetOwner={handleResetOwner}
           onManageLicenseBackup={handleOpenLicenseBackupRestore}
+          onManageMenuTransfer={handleOpenMenuTransfer}
           onBackupRestoreDatabase={handleOpenDatabaseBackupRestore}
           isAdmin={isAdmin()}
           currentUserId={user?.id}
@@ -1341,6 +1355,13 @@ const ScanPage = () => {
         isOpen={licenseBackupModal.show}
         onClose={() => setLicenseBackupModal({ show: false, device: null })}
         device={licenseBackupModal.device}
+        onCompleted={() => loadDevices(currentPage, pageSize, searchText, filterTypes, filterProperties, onlyMyDevices)}
+      />
+
+      <MenuTransferModal
+        isOpen={menuTransferModal.show}
+        onClose={() => setMenuTransferModal({ show: false, device: null })}
+        device={menuTransferModal.device}
         onCompleted={() => loadDevices(currentPage, pageSize, searchText, filterTypes, filterProperties, onlyMyDevices)}
       />
 

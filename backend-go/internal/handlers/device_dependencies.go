@@ -27,5 +27,16 @@ type dbBackupManager interface {
 	RestoreFromUploadFile(host, filePath string) error
 }
 
+type menuPackageManager interface {
+	CreatePackage(host, merchantID, version string) (*services.MenuPackageFileInfo, error)
+	ListPackages(merchantID string) ([]services.MenuPackageFileInfo, error)
+	ListPackageGroups(merchantIDs []string, excludeMerchantID string) ([]services.MenuPackageGroup, error)
+	OpenPackageFile(merchantID, fileName string) (*os.File, int64, error)
+	DeletePackage(merchantID, fileName string) error
+	ImportFromServerPackage(host, merchantID, fileName string) error
+	ImportFromUploadPackage(host, filePath string) error
+}
+
 var _ licenseBackupManager = (*services.LicenseService)(nil)
 var _ dbBackupManager = (*services.DBBackupService)(nil)
+var _ menuPackageManager = (*services.MenuPackageService)(nil)

@@ -1,23 +1,19 @@
 package handlers
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"device-management/internal/middleware"
 	"device-management/internal/models"
-	"device-management/internal/services"
 	"device-management/pkg/response"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 func (h *DeviceHandler) BackupDatabase(c *gin.Context) {
@@ -133,7 +129,7 @@ func (h *DeviceHandler) ListAllDatabaseBackups(c *gin.Context) {
 		return
 	}
 
-	sourceMerchantIDs, err := h.listAccessibleDatabaseBackupSourceMerchantIDs(user, targetMerchantID)
+	sourceMerchantIDs, err := h.listAccessibleManagedMerchantIDs(user, targetMerchantID)
 	if err != nil {
 		response.InternalError(c, "failed to list accessible backup merchants: "+err.Error())
 		return
@@ -440,71 +436,4 @@ func (h *DeviceHandler) tryRestartPOSAfterRestore(device *models.ScanResult, mer
 func parseBoolFormValue(value string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on"
-}
-
-func (h *DeviceHandler) listAccessibleDatabaseBackupSourceMerchantIDs(user *models.User, targetMerchantID string) ([]string, error) {
-	results, _, _, err := h.deviceRepo.ListScanResults(1, 1000, "", nil, nil, false, user.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	sourceMerchantIDs := make([]string, 0, len(results))
-	for _, result := range results {
-		if result.MerchantID == nil {
-			continue
-		}
-		merchantID := strings.TrimSpace(*result.MerchantID)
-		if merchantID == "" || merchantID == targetMerchantID {
-			continue
-		}
-
-		allowed, accessErr := h.canAccessDatabaseBackupMerchant(user, merchantID)
-		if accessErr != nil {
-			return nil, accessErr
-		}
-		if allowed {
-			sourceMerchantIDs = append(sourceMerchantIDs, merchantID)
-		}
-	}
-
-	sort.Strings(sourceMerchantIDs)
-	return sourceMerchantIDs, nil
-}
-
-func (h *DeviceHandler) canAccessDatabaseBackupMerchant(user *models.User, merchantID string) (bool, error) {
-	if user == nil {
-		return false, nil
-	}
-
-	if h.accessService == nil {
-		if user.Role == "admin" {
-			return true, nil
-		}
-
-		device, err := h.deviceRepo.GetScanResultByMerchantID(merchantID)
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return false, nil
-			}
-			return false, err
-		}
-		if device.OwnerID != nil && *device.OwnerID == user.ID {
-			return true, nil
-		}
-
-		occupancy, occErr := h.deviceRepo.GetOccupancyByMerchantID(merchantID)
-		if occErr == nil && occupancy != nil && occupancy.UserID == user.ID && occupancy.EndTime.After(time.Now()) {
-			return true, nil
-		}
-		if occErr != nil && !errors.Is(occErr, gorm.ErrRecordNotFound) {
-			return false, occErr
-		}
-
-		return false, nil
-	}
-
-	return h.accessService.CanAccessUser(user, services.AssetScope{
-		AssetType:  models.BorrowAssetTypePOS,
-		MerchantID: merchantID,
-	}, services.ActionAssetManage)
 }

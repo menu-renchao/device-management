@@ -6,7 +6,7 @@ import path from 'node:path';
 import {
   getDeviceActionMenuState,
   getDeviceStatusPresentation,
-  getDeviceTypeIconPresentation
+  getDeviceTypeIconPresentation,
 } from './scanTableState.js';
 
 test('getDeviceTypeIconPresentation maps linux and windows to fixed svg assets', () => {
@@ -87,6 +87,16 @@ test('ScanTable renders linux and windows device icons with fixed svg images', (
   assert.match(scanTableSource, /className="ip-type-icon-image"/);
 });
 
+test('ScanTable exposes a separate menu transfer action', () => {
+  const scanTableSource = fs.readFileSync(
+    path.join(process.cwd(), 'src', 'components', 'ScanTable.jsx'),
+    'utf8'
+  );
+
+  assert.match(scanTableSource, /onManageMenuTransfer/);
+  assert.match(scanTableSource, /菜单导入\/导出/);
+});
+
 test('getDeviceActionMenuState keeps config and backup actions visible but disabled for normal users without permission', () => {
   const state = getDeviceActionMenuState({
     device: {
@@ -139,16 +149,34 @@ test('getDeviceActionMenuState keeps backup actions visible with missing merchan
   assert.deepEqual(state.dbConfig, {
     visible: true,
     disabled: true,
-    title: '缺少商家ID，无法操作',
+    title: '缺少商家ID，无法操作'
   });
   assert.deepEqual(state.licenseBackup, {
     visible: true,
     disabled: true,
-    title: '缺少商家ID，无法操作',
+    title: '缺少商家ID，无法操作'
   });
   assert.deepEqual(state.databaseBackup, {
     visible: true,
     disabled: true,
-    title: '缺少商家ID，无法操作',
+    title: '缺少商家ID，无法操作'
+  });
+});
+
+test('getDeviceActionMenuState exposes menu transfer action when handler is available', () => {
+  const state = getDeviceActionMenuState({
+    device: {
+      merchantId: 'M123',
+      type: 'windows',
+    },
+    currentUserId: 200,
+    isAdmin: true,
+    hasMenuTransferHandler: true,
+  });
+
+  assert.deepEqual(state.menuTransfer, {
+    visible: true,
+    disabled: false,
+    title: '打开菜单导入与导出弹窗'
   });
 });
