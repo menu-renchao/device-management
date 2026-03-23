@@ -13,3 +13,4 @@ backend-go/license-backups/
 backend-go/uploads/
 frontend/dist/
 frontend/node_modules/
+/backend-go/menu-packages
