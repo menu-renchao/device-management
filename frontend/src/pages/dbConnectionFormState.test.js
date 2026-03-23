@@ -6,25 +6,23 @@ import {
   mergeLoadedDBConnectionForm,
 } from './dbConnectionFormState.js';
 
-test('createPendingDBConnectionForm leaves password empty while saved connection is loading', () => {
+test('createPendingDBConnectionForm creates form with defaults', () => {
   assert.deepEqual(createPendingDBConnectionForm('192.168.1.10'), {
     db_type: 'mysql',
     host: '192.168.1.10',
     port: 22108,
     database_name: 'kpos',
     username: 'shohoku',
-    password: '',
   });
 });
 
-test('mergeLoadedDBConnectionForm keeps a user-entered password when a saved connection is returned', () => {
+test('mergeLoadedDBConnectionForm uses connection data when available', () => {
   const currentForm = {
     db_type: 'mysql',
     host: '192.168.1.10',
     port: 22108,
     database_name: 'kpos',
     username: 'root',
-    password: 'new-secret',
   };
 
   assert.deepEqual(
@@ -34,7 +32,7 @@ test('mergeLoadedDBConnectionForm keeps a user-entered password when a saved con
       port: 3306,
       database_name: 'merchant_db',
       username: 'merchant_root',
-      password_set: true,
+      has_password: true,
     }, '192.168.1.99'),
     {
       db_type: 'mysql',
@@ -42,19 +40,17 @@ test('mergeLoadedDBConnectionForm keeps a user-entered password when a saved con
       port: 3306,
       database_name: 'merchant_db',
       username: 'merchant_root',
-      password: 'new-secret',
     }
   );
 });
 
-test('mergeLoadedDBConnectionForm falls back to the default password only when no saved connection exists', () => {
+test('mergeLoadedDBConnectionForm uses deviceIP when no connection exists', () => {
   const currentForm = {
     db_type: 'mysql',
     host: '',
     port: 22108,
     database_name: 'kpos',
     username: 'root',
-    password: '',
   };
 
   assert.deepEqual(
@@ -65,7 +61,6 @@ test('mergeLoadedDBConnectionForm falls back to the default password only when n
       port: 22108,
       database_name: 'kpos',
       username: 'root',
-      password: 'N0mur@4$99!',
     }
   );
 });

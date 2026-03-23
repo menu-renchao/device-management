@@ -14,20 +14,18 @@ import (
 	"device-management/internal/config"
 	"device-management/internal/models"
 	"device-management/internal/repository"
-	appcrypto "device-management/pkg/crypto"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 )
 
 type DBConnectionInput struct {
-	DBType           string `json:"db_type"`
-	Host             string `json:"host"`
-	Port             int    `json:"port"`
-	DatabaseName     string `json:"database_name"`
-	Username         string `json:"username"`
-	Password         string `json:"password"`
-	UseSavedPassword bool   `json:"use_saved_password"`
+	DBType       string `json:"db_type"`
+	Host         string `json:"host"`
+	Port         int    `json:"port"`
+	DatabaseName string `json:"database_name"`
+	Username     string `json:"username"`
+	Password     string `json:"password"`
 }
 
 type ExecuteTemplatesInput struct {
@@ -51,81 +49,84 @@ func (e *RiskSQLBlockedError) Error() string {
 }
 
 type DBConfigService struct {
-	connectionRepo *repository.DeviceDBConnectionRepository
-	templateRepo   *repository.DBSQLTemplateRepository
-	taskRepo       *repository.DBSQLExecuteTaskRepository
-	lockMap        sync.Map
+	deviceRepo  *repository.DeviceRepository
+	templateRepo *repository.DBSQLTemplateRepository
+	taskRepo    *repository.DBSQLExecuteTaskRepository
+	lockMap     sync.Map
 }
 
 func NewDBConfigService(
-	connectionRepo *repository.DeviceDBConnectionRepository,
+	deviceRepo *repository.DeviceRepository,
 	templateRepo *repository.DBSQLTemplateRepository,
 	taskRepo *repository.DBSQLExecuteTaskRepository,
 ) *DBConfigService {
 	return &DBConfigService{
-		connectionRepo: connectionRepo,
-		templateRepo:   templateRepo,
-		taskRepo:       taskRepo,
+		deviceRepo:   deviceRepo,
+		templateRepo: templateRepo,
+		taskRepo:     taskRepo,
 	}
 }
 
-func (s *DBConfigService) GetConnection(merchantID string) (*models.DeviceDBConnection, error) {
-	return s.connectionRepo.GetByMerchantID(merchantID)
+// ConnectionInfo represents runtime-derived connection information (without password)
+type ConnectionInfo struct {
+	DBType       string `json:"db_type"`
+	Host         string `json:"host"`
+	Port         int    `json:"port"`
+	DatabaseName string `json:"database_name"`
+	Username     string `json:"username"`
+	HasPassword  bool   `json:"has_password"`
 }
 
-func (s *DBConfigService) UpsertConnection(merchantID string, input DBConnectionInput, updatedBy uint) (*models.DeviceDBConnection, error) {
-	if strings.TrimSpace(merchantID) == "" {
-		return nil, fmt.Errorf("merchant_id 不能为空")
-	}
-	if strings.TrimSpace(input.Host) == "" || strings.TrimSpace(input.DatabaseName) == "" || strings.TrimSpace(input.Username) == "" {
-		return nil, fmt.Errorf("主机、数据库名和用户名不能为空")
-	}
-	if input.Port <= 0 {
-		input.Port = 3306
-	}
-	if input.DBType == "" {
-		input.DBType = "mysql"
-	}
-	if input.DBType != "mysql" {
-		return nil, fmt.Errorf("当前仅支持 mysql")
+// GetConnection returns runtime-derived connection info for a merchant
+func (s *DBConfigService) GetConnection(merchantID string) (*ConnectionInfo, error) {
+	if merchantID == "" {
+		return nil, errors.New("merchant_id is required")
 	}
 
-	existing, err := s.connectionRepo.GetByMerchantID(merchantID)
+	device, err := s.deviceRepo.GetScanResultByMerchantID(merchantID)
 	if err != nil {
 		return nil, err
 	}
-
-	encryptedPassword := ""
-	if strings.TrimSpace(input.Password) == "" {
-		if existing == nil {
-			return nil, fmt.Errorf("密码不能为空")
-		}
-		encryptedPassword = existing.PasswordEncrypted
-	} else {
-		encryptedPassword, err = appcrypto.EncryptPassword(input.Password, s.getCipherSecret())
-		if err != nil {
-			return nil, err
-		}
+	if device == nil {
+		return nil, errors.New("device not found")
 	}
 
-	conn := &models.DeviceDBConnection{
-		MerchantID:        merchantID,
-		DBType:            input.DBType,
-		Host:              strings.TrimSpace(input.Host),
-		Port:              input.Port,
-		DatabaseName:      strings.TrimSpace(input.DatabaseName),
-		Username:          strings.TrimSpace(input.Username),
-		PasswordEncrypted: encryptedPassword,
-		UpdatedBy:         updatedBy,
-	}
-	if err := s.connectionRepo.Upsert(conn); err != nil {
-		return nil, err
-	}
-	return s.connectionRepo.GetByMerchantID(merchantID)
+	return s.resolveConnectionFromDevice(device)
 }
 
+// resolveConnectionFromDevice resolves connection info from device using runtime config
+func (s *DBConfigService) resolveConnectionFromDevice(device *models.ScanResult) (*ConnectionInfo, error) {
+	if device == nil {
+		return nil, errors.New("device is required")
+	}
+
+	ip := device.IP
+	if ip == "" {
+		return nil, errors.New("device IP is empty")
+	}
+
+	posConfig := config.AppConfig.POSDatabase
+
+	port := 3306
+	if posConfig.Port != "" {
+		if p, err := fmt.Sscanf(posConfig.Port, "%d", &port); err == nil && p == 0 {
+			port = 3306
+		}
+	}
+
+	return &ConnectionInfo{
+		DBType:       posConfig.Type,
+		Host:         ip,
+		Port:         port,
+		DatabaseName: posConfig.Name,
+		Username:     posConfig.User,
+		HasPassword:  posConfig.Password != "",
+	}, nil
+}
+
+// TestConnection tests a POS DB connection
 func (s *DBConfigService) TestConnection(input DBConnectionInput) error {
-	if strings.TrimSpace(input.Host) == "" || strings.TrimSpace(input.DatabaseName) == "" || strings.TrimSpace(input.Username) == "" || strings.TrimSpace(input.Password) == "" {
+	if strings.TrimSpace(input.Host) == "" || strings.TrimSpace(input.DatabaseName) == "" || strings.TrimSpace(input.Username) == "" {
 		return fmt.Errorf("连接信息不完整")
 	}
 	if input.Port <= 0 {
@@ -141,56 +142,30 @@ func (s *DBConfigService) TestConnection(input DBConnectionInput) error {
 	return nil
 }
 
-func (s *DBConfigService) TestConnectionForMerchant(merchantID string, input DBConnectionInput) error {
-	if strings.TrimSpace(merchantID) == "" {
-		return fmt.Errorf("merchant_id 不能为空")
+// TestConnectionForMerchant tests connection for a merchant using runtime config
+func (s *DBConfigService) TestConnectionForMerchant(merchantID string) error {
+	if merchantID == "" {
+		return errors.New("merchant_id is required")
 	}
-	existing, err := s.connectionRepo.GetByMerchantID(merchantID)
+
+	connInfo, err := s.GetConnection(merchantID)
 	if err != nil {
 		return err
 	}
-	input, err = s.resolveTestConnectionInput(input, existing)
-	if err != nil {
-		return err
+
+	input := DBConnectionInput{
+		DBType:       connInfo.DBType,
+		Host:         connInfo.Host,
+		Port:         connInfo.Port,
+		DatabaseName: connInfo.DatabaseName,
+		Username:     connInfo.Username,
+		Password:     config.AppConfig.POSDatabase.Password,
 	}
+
 	return s.TestConnection(input)
 }
 
-func (s *DBConfigService) resolveTestConnectionInput(input DBConnectionInput, existing *models.DeviceDBConnection) (DBConnectionInput, error) {
-	if existing == nil {
-		return input, nil
-	}
-
-	if strings.TrimSpace(input.DBType) == "" {
-		input.DBType = existing.DBType
-	}
-	if strings.TrimSpace(input.Host) == "" {
-		input.Host = existing.Host
-	}
-	if input.Port <= 0 {
-		input.Port = existing.Port
-	}
-	if strings.TrimSpace(input.DatabaseName) == "" {
-		input.DatabaseName = existing.DatabaseName
-	}
-	if strings.TrimSpace(input.Username) == "" {
-		input.Username = existing.Username
-	}
-	if strings.TrimSpace(input.Password) != "" {
-		return input, nil
-	}
-	if !input.UseSavedPassword {
-		return DBConnectionInput{}, errors.New("database password is required, or set use_saved_password=true")
-	}
-
-	decrypted, err := s.decryptConnection(existing)
-	if err != nil {
-		return DBConnectionInput{}, err
-	}
-	input.Password = decrypted.Password
-	return input, nil
-}
-
+// ExecuteTemplates executes SQL templates on the POS DB
 func (s *DBConfigService) ExecuteTemplates(input ExecuteTemplatesInput) (*models.DBSQLExecuteTask, []models.DBSQLExecuteTaskItem, error) {
 	if strings.TrimSpace(input.MerchantID) == "" {
 		return nil, nil, fmt.Errorf("merchant_id 不能为空")
@@ -205,20 +180,22 @@ func (s *DBConfigService) ExecuteTemplates(input ExecuteTemplatesInput) (*models
 		return nil, nil, fmt.Errorf("强制执行时必须填写原因")
 	}
 
-	connection, err := s.connectionRepo.GetByMerchantID(input.MerchantID)
+	connInfo, err := s.GetConnection(input.MerchantID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("获取设备连接信息失败: %w", err)
 	}
-	if connection == nil {
-		return nil, nil, fmt.Errorf("设备未配置数据库连接信息")
-	}
-	if connection.DBType != "mysql" {
+
+	if connInfo.DBType != "mysql" {
 		return nil, nil, fmt.Errorf("当前仅支持 mysql")
 	}
 
-	dbInput, err := s.decryptConnection(connection)
-	if err != nil {
-		return nil, nil, err
+	dbInput := DBConnectionInput{
+		DBType:       connInfo.DBType,
+		Host:         connInfo.Host,
+		Port:         connInfo.Port,
+		DatabaseName: connInfo.DatabaseName,
+		Username:     connInfo.Username,
+		Password:     config.AppConfig.POSDatabase.Password,
 	}
 
 	templateIDs := uniqueUintIDs(input.TemplateIDs)
@@ -390,28 +367,6 @@ func (s *DBConfigService) finishTaskOnError(task *models.DBSQLExecuteTask, faile
 	)
 	finishedTask, _ := s.taskRepo.GetTaskByTaskID(task.TaskID)
 	return finishedTask, nil, err
-}
-
-func (s *DBConfigService) decryptConnection(conn *models.DeviceDBConnection) (DBConnectionInput, error) {
-	plainPassword, err := appcrypto.DecryptPassword(conn.PasswordEncrypted, s.getCipherSecret())
-	if err != nil {
-		return DBConnectionInput{}, fmt.Errorf("解密数据库密码失败: %w", err)
-	}
-	return DBConnectionInput{
-		DBType:       conn.DBType,
-		Host:         conn.Host,
-		Port:         conn.Port,
-		DatabaseName: conn.DatabaseName,
-		Username:     conn.Username,
-		Password:     plainPassword,
-	}, nil
-}
-
-func (s *DBConfigService) getCipherSecret() string {
-	if config.AppConfig != nil && strings.TrimSpace(config.AppConfig.JWT.SecretKey) != "" {
-		return config.AppConfig.JWT.SecretKey
-	}
-	return "db-config-default-secret"
 }
 
 func (s *DBConfigService) getDeviceLock(merchantID string) *sync.Mutex {

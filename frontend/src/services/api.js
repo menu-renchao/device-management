@@ -758,15 +758,9 @@ export const dbConfigAPI = {
     return response.data;
   },
 
-  saveConnection: async (merchantId, payload) => {
+  testConnection: async (merchantId) => {
     const authAxios = createAuthAxios();
-    const response = await authAxios.put(`/db-config/connections/${encodeURIComponent(merchantId)}`, payload);
-    return response.data;
-  },
-
-  testConnection: async (merchantId, payload) => {
-    const authAxios = createAuthAxios();
-    const response = await authAxios.post(`/db-config/connections/${encodeURIComponent(merchantId)}/test`, payload);
+    const response = await authAxios.post(`/db-config/connections/${encodeURIComponent(merchantId)}/test`);
     return response.data;
   },
 

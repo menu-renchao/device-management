@@ -18,6 +18,7 @@ type Config struct {
 	Download       DownloadConfig
 	Log            LogConfig
 	BootstrapAdmin BootstrapAdminConfig
+	POSDatabase    POSDatabaseConfig
 }
 
 type ServerConfig struct {
@@ -68,6 +69,14 @@ type BootstrapAdminConfig struct {
 	Name     string
 }
 
+type POSDatabaseConfig struct {
+	Type     string
+	Port     string
+	Name     string
+	User     string
+	Password string
+}
+
 var AppConfig *Config
 
 var ErrInvalidBootstrapAdminConfig = errors.New("bootstrap admin username and password must be provided together")
@@ -101,6 +110,11 @@ func Init() error {
 	viper.SetDefault("BOOTSTRAP_ADMIN_PASSWORD", "")
 	viper.SetDefault("BOOTSTRAP_ADMIN_EMAIL", "")
 	viper.SetDefault("BOOTSTRAP_ADMIN_NAME", "")
+	viper.SetDefault("POS_DB_TYPE", "mysql")
+	viper.SetDefault("POS_DB_PORT", "3306")
+	viper.SetDefault("POS_DB_NAME", "kpos")
+	viper.SetDefault("POS_DB_USER", "shohoku")
+	viper.SetDefault("POS_DB_PASSWORD", "")
 
 	if err := viper.ReadInConfig(); err != nil {
 		// If .env doesn't exist, use defaults
@@ -164,6 +178,13 @@ func Init() error {
 			Compress:   viper.GetBool("LOG_COMPRESS"),
 		},
 		BootstrapAdmin: bootstrapAdmin,
+		POSDatabase: POSDatabaseConfig{
+			Type:     viper.GetString("POS_DB_TYPE"),
+			Port:     viper.GetString("POS_DB_PORT"),
+			Name:     viper.GetString("POS_DB_NAME"),
+			User:     viper.GetString("POS_DB_USER"),
+			Password: viper.GetString("POS_DB_PASSWORD"),
+		},
 	}
 
 	return nil

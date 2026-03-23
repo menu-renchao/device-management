@@ -1,84 +1,44 @@
-import React, { useState } from 'react';
-import { getDBPasswordPlaceholder } from './connectionPanelState.js';
+import React from 'react';
 
 const ConnectionPanel = ({
   form,
-  hasSavedPassword = false,
-  onFormChange,
+  hasPassword = false,
   onTest,
   testing,
-  deviceIP,
   showRestartPOS = false,
   onRestartPOS,
   restartingPOS = false,
 }) => {
-  const [showPassword, setShowPassword] = useState(false);
-
   return (
     <div style={styles.card}>
       <div style={styles.inlineRow}>
         <h3 style={styles.title}>设备数据库连接</h3>
-        <span style={styles.meta}>
-          {deviceIP ? `IP: ${deviceIP}` : '未获取到当前设备 IP'}
-        </span>
 
         <div style={styles.inlineField}>
           <span style={styles.inlineLabel}>主机</span>
-          <input
-            type="text"
-            value={form.host}
-            onChange={(e) => onFormChange('host', e.target.value)}
-            placeholder="192.168.1.100"
-            style={{ ...styles.input, ...styles.hostInput, ...styles.readonlyInput }}
-            readOnly
-            disabled
-          />
+          <span style={styles.value}>{form.host || '-'}</span>
         </div>
 
         <div style={styles.inlineField}>
           <span style={styles.inlineLabel}>端口</span>
-          <input
-            type="number"
-            value={form.port}
-            onChange={(e) => onFormChange('port', Number(e.target.value) || 22108)}
-            style={{ ...styles.input, ...styles.portInput }}
-          />
+          <span style={styles.value}>{form.port || '-'}</span>
         </div>
 
         <div style={styles.inlineField}>
           <span style={styles.inlineLabel}>库名</span>
-          <input
-            type="text"
-            value={form.database_name}
-            onChange={(e) => onFormChange('database_name', e.target.value)}
-            placeholder="kpos"
-            style={{ ...styles.input, ...styles.databaseInput }}
-          />
+          <span style={styles.value}>{form.database_name || '-'}</span>
         </div>
 
         <div style={styles.inlineField}>
           <span style={styles.inlineLabel}>用户</span>
-          <input
-            type="text"
-            value={form.username}
-            onChange={(e) => onFormChange('username', e.target.value)}
-            placeholder="请输入数据库用户"
-            style={{ ...styles.input, ...styles.usernameInput }}
-          />
+          <span style={styles.value}>{form.username || '-'}</span>
         </div>
 
-        <div style={styles.passwordField}>
+        <div style={styles.inlineField}>
           <span style={styles.inlineLabel}>密码</span>
-          <input
-            type={showPassword ? 'text' : 'password'}
-            value={form.password}
-            onChange={(e) => onFormChange('password', e.target.value)}
-            placeholder={getDBPasswordPlaceholder(hasSavedPassword, form.password)}
-            style={{ ...styles.input, ...styles.passwordInput }}
-          />
-          <button type="button" onClick={() => setShowPassword(!showPassword)} style={styles.toggleBtn}>
-            {showPassword ? '隐藏' : '显示'}
-          </button>
+          <span style={styles.passwordStatus}>
+            {hasPassword ? '已配置' : '未配置'}
+          </span>
         </div>
 
         <button
@@ -144,47 +104,22 @@ const styles = {
     gap: '6px',
     flex: '0 0 auto',
   },
-  passwordField: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    flex: '0 0 auto',
-  },
   inlineLabel: {
     fontSize: '12px',
     color: '#86868B',
     fontWeight: 500,
     flex: '0 0 auto',
   },
-  input: {
-    border: '1px solid #D1D1D6',
-    borderRadius: '8px',
-    padding: '6px 10px',
+  value: {
     fontSize: '12px',
-    outline: 'none',
-    height: '32px',
-    boxSizing: 'border-box',
-  },
-  hostInput: { width: '170px' },
-  portInput: { width: '88px' },
-  databaseInput: { width: '120px' },
-  usernameInput: { width: '150px' },
-  passwordInput: { width: '170px' },
-  readonlyInput: {
-    backgroundColor: '#F7F7FA',
-    color: '#6C6C70',
-    cursor: 'not-allowed',
-  },
-  toggleBtn: {
-    border: '1px solid #D1D1D6',
-    backgroundColor: '#F2F2F7',
     color: '#1D1D1F',
-    borderRadius: '8px',
-    padding: '0 10px',
-    height: '32px',
+    padding: '4px 0',
+  },
+  passwordStatus: {
     fontSize: '12px',
-    cursor: 'pointer',
-    flex: '0 0 auto',
+    padding: '4px 8px',
+    borderRadius: '6px',
+    fontWeight: 500,
   },
   btn: {
     border: 'none',

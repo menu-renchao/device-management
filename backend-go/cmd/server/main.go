@@ -103,7 +103,6 @@ func main() {
 	systemConfigRepo := repository.NewSystemConfigRepository(db)
 	notificationRepo := repository.NewNotificationRepository(db)
 	warPackageRepo := repository.NewWarPackageRepository(db)
-	dbConnectionRepo := repository.NewDeviceDBConnectionRepository(db)
 	dbSQLTemplateRepo := repository.NewDBSQLTemplateRepository(db)
 	dbSQLTaskRepo := repository.NewDBSQLExecuteTaskRepository(db)
 	autoScanConfigRepo := repository.NewAutoScanConfigRepository(db)
@@ -119,7 +118,7 @@ func main() {
 	dbBackupService := services.NewDBBackupService()
 	warDownloadService := services.NewWarDownloadService(systemConfigRepo, warPackageRepo)
 	notificationService := services.NewNotificationService(notificationRepo)
-	dbConfigService := services.NewDBConfigService(dbConnectionRepo, dbSQLTemplateRepo, dbSQLTaskRepo)
+	dbConfigService := services.NewDBConfigService(deviceRepo, dbSQLTemplateRepo, dbSQLTaskRepo)
 	autoScanScheduler := services.NewAutoScanScheduler(scanService, autoScanConfigRepo, scanJobLogRepo, deviceRepo, time.Minute)
 	assetAccessService := services.NewAssetAccessService(userRepo, deviceRepo, mobileRepo)
 	borrowService := services.NewBorrowService(borrowRequestRepo, deviceRepo, mobileRepo, userRepo, assetAccessService)
@@ -355,7 +354,6 @@ func main() {
 		dbConfig.Use(middleware.Auth())
 		{
 			dbConfig.GET("/connections/:merchantId", dbConfigHandler.GetConnection)
-			dbConfig.PUT("/connections/:merchantId", dbConfigHandler.UpsertConnection)
 			dbConfig.POST("/connections/:merchantId/test", dbConfigHandler.TestConnection)
 
 			dbConfig.GET("/templates", dbConfigHandler.ListTemplates)
@@ -444,7 +442,6 @@ func autoMigrateModels() []interface{} {
 		&models.AutoScanConfig{},
 		&models.ScanJobLog{},
 		&models.FileConfig{},
-		&models.DeviceDBConnection{},
 		&models.DBSQLTemplate{},
 		&models.DBSQLExecuteTask{},
 		&models.DBSQLExecuteTaskItem{},

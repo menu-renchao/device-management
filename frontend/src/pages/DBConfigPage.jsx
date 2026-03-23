@@ -16,7 +16,6 @@ import {
   createPendingDBConnectionForm,
   mergeLoadedDBConnectionForm,
 } from './dbConnectionFormState.js';
-import { buildDBConnectionPayload } from './dbConnectionRequestState.js';
 
 const TEMPLATE_FETCH_PAGE_SIZE = 100;
 
@@ -31,7 +30,7 @@ const DBConfigPage = () => {
   const deviceIP = (device?.ip || '').trim();
 
   const [connectionForm, setConnectionForm] = useState(() => createPendingDBConnectionForm(device?.ip || ''));
-  const [hasSavedPassword, setHasSavedPassword] = useState(false);
+  const [hasPassword, setHasPassword] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
 
   const [templates, setTemplates] = useState([]);
@@ -99,7 +98,7 @@ const DBConfigPage = () => {
   useEffect(() => {
     if (!merchantId) return;
     setConnectionForm(createPendingDBConnectionForm(deviceIP));
-    setHasSavedPassword(false);
+    setHasPassword(false);
   }, [merchantId, deviceIP]);
 
   useEffect(() => {
@@ -110,12 +109,12 @@ const DBConfigPage = () => {
         const result = await dbConfigAPI.getConnection(merchantId);
         const connection = result.data?.connection;
         if (!connection) {
-          setHasSavedPassword(false);
+          setHasPassword(false);
           setConnectionForm((prev) => mergeLoadedDBConnectionForm(prev, null, deviceIP));
           return;
         }
 
-        setHasSavedPassword(Boolean(connection.password_set));
+        setHasPassword(Boolean(connection.has_password));
         setConnectionForm((prev) => mergeLoadedDBConnectionForm(prev, connection, deviceIP));
       } catch (error) {
         if (error.response?.status !== 404) {
@@ -138,57 +137,13 @@ const DBConfigPage = () => {
   }, [templates, selectedTemplateIds]);
 
   const setFormField = (field, value) => {
-    if (field === 'host') {
-      return;
-    }
-    setConnectionForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const buildConnectionPayloadForRequest = () => buildDBConnectionPayload({
-    form: connectionForm,
-    deviceIP,
-    hasSavedPassword,
-  });
-
-  const validateConnection = (form) => {
-    if (!form.host.trim()) {
-      toast.warning('未获取当前设备IP，请从设备列表重新进入数据库配置页面');
-      return false;
-    }
-    if (!form.database_name.trim()) {
-      toast.warning('请输入数据库名');
-      return false;
-    }
-    if (!form.username.trim()) {
-      toast.warning('请输入用户名');
-      return false;
-    }
-    if (!form.password.trim() && !hasSavedPassword) {
-      toast.warning('请输入数据库密码');
-      return false;
-    }
-    return true;
-  };
-
-  const ensureConnectionSynced = async () => {
-    const payload = buildConnectionPayloadForRequest();
-    if (!validateConnection(payload)) {
-      return null;
-    }
-    await dbConfigAPI.saveConnection(merchantId, payload);
-    setConnectionForm(payload);
-    setHasSavedPassword(true);
-    return payload;
+    // Connection info is now read-only from backend, no need to update form
   };
 
   const handleTestConnection = async () => {
     setTestingConnection(true);
     try {
-      const payload = await ensureConnectionSynced();
-      if (!payload) {
-        return;
-      }
-      await dbConfigAPI.testConnection(merchantId, payload);
+      await dbConfigAPI.testConnection(merchantId);
       toast.success('连接测试成功');
     } catch (error) {
       toast.error(error.response?.data?.error || '连接测试失败');
@@ -309,11 +264,7 @@ const DBConfigPage = () => {
       toast.warning('请先选择要执行的模板');
       return;
     }
-    const payload = buildConnectionPayloadForRequest();
-    if (!validateConnection(payload)) {
-      return;
-    }
-    const ok = await toast.confirm(`确定要在当前设备上执行 ${templateIds.length} 个模板吗？执行策略为“逐条执行、失败继续”。`, {
+    const ok = await toast.confirm(`确定要在当前设备上执行 ${templateIds.length} 个模板吗？执行策略为"逐条执行、失败继续"。`, {
       title: '确认执行 SQL',
       variant: 'primary',
       confirmText: '开始执行',
@@ -322,9 +273,6 @@ const DBConfigPage = () => {
 
     setExecuting(true);
     try {
-      await dbConfigAPI.saveConnection(merchantId, payload);
-      setConnectionForm(payload);
-
       const result = await dbConfigAPI.executeTemplates({
         merchant_id: merchantId,
         template_ids: templateIds,
@@ -397,11 +345,9 @@ const DBConfigPage = () => {
 
       <ConnectionPanel
         form={connectionForm}
-        hasSavedPassword={hasSavedPassword}
-        onFormChange={setFormField}
+        hasPassword={hasPassword}
         onTest={handleTestConnection}
         testing={testingConnection}
-        deviceIP={deviceIP}
         showRestartPOS={isLinuxDevice}
         onRestartPOS={handleRestartPOS}
         restartingPOS={restartingPOS}

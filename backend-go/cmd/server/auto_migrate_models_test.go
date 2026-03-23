@@ -44,3 +44,14 @@ func TestMainDoesNotInvokePOSDefaultPropertyBackfill(t *testing.T) {
 		t.Fatalf("main.go should not backfill POS default properties at runtime")
 	}
 }
+
+func TestAutoMigrateModelsExcludesDeviceDBConnection(t *testing.T) {
+	modelsToMigrate := autoMigrateModels()
+
+	for _, model := range modelsToMigrate {
+		modelType := reflect.TypeOf(model).Elem()
+		if modelType.Name() == "DeviceDBConnection" {
+			t.Fatalf("DeviceDBConnection should not participate in AutoMigrate")
+		}
+	}
+}

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"device-management/internal/config"
 	"device-management/internal/models"
-	appcrypto "device-management/pkg/crypto"
 )
 
 func TestMySQLConnectionHostsIncludesLoopbackForLocalDeviceIP(t *testing.T) {
@@ -31,67 +31,6 @@ func TestMySQLConnectionHostsKeepsRemoteHostUnchanged(t *testing.T) {
 	}
 }
 
-func TestResolveTestConnectionInputRequiresExplicitSavedPasswordOptIn(t *testing.T) {
-	t.Parallel()
-
-	service := &DBConfigService{}
-	encrypted, err := appcrypto.EncryptPassword("saved-secret", service.getCipherSecret())
-	if err != nil {
-		t.Fatalf("encrypt password: %v", err)
-	}
-
-	_, err = service.resolveTestConnectionInput(DBConnectionInput{}, &models.DeviceDBConnection{
-		MerchantID:        "M100",
-		DBType:            "mysql",
-		Host:              "192.168.0.147",
-		Port:              22108,
-		DatabaseName:      "kpos",
-		Username:          "root",
-		PasswordEncrypted: encrypted,
-	})
-	if err == nil {
-		t.Fatalf("expected error when saved password is not explicitly requested")
-	}
-	if err.Error() != "database password is required, or set use_saved_password=true" {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestResolveTestConnectionInputUsesSavedPasswordWhenExplicitlyRequested(t *testing.T) {
-	t.Parallel()
-
-	service := &DBConfigService{}
-	encrypted, err := appcrypto.EncryptPassword("saved-secret", service.getCipherSecret())
-	if err != nil {
-		t.Fatalf("encrypt password: %v", err)
-	}
-
-	resolved, err := service.resolveTestConnectionInput(DBConnectionInput{
-		UseSavedPassword: true,
-	}, &models.DeviceDBConnection{
-		MerchantID:        "M100",
-		DBType:            "mysql",
-		Host:              "192.168.0.147",
-		Port:              22108,
-		DatabaseName:      "kpos",
-		Username:          "root",
-		PasswordEncrypted: encrypted,
-	})
-	if err != nil {
-		t.Fatalf("resolve test connection input: %v", err)
-	}
-
-	if resolved.Password != "saved-secret" {
-		t.Fatalf("expected saved password to be used, got %q", resolved.Password)
-	}
-	if resolved.Host != "192.168.0.147" {
-		t.Fatalf("expected host to be filled from existing connection, got %q", resolved.Host)
-	}
-	if resolved.Username != "root" {
-		t.Fatalf("expected username to be filled from existing connection, got %q", resolved.Username)
-	}
-}
-
 func TestOpenAndPingMySQLWrapsReadableError(t *testing.T) {
 	t.Parallel()
 
@@ -108,4 +47,110 @@ func TestOpenAndPingMySQLWrapsReadableError(t *testing.T) {
 	if !strings.HasPrefix(err.Error(), "connection failed:") {
 		t.Fatalf("expected readable error prefix, got %q", err.Error())
 	}
+}
+
+func TestDBConfigServiceResolveConnectionFromDevice(t *testing.T) {
+	// Set up config
+	oldConfig := config.AppConfig
+	defer func() {
+		config.AppConfig = oldConfig
+	}()
+
+	config.AppConfig = &config.Config{
+		POSDatabase: config.POSDatabaseConfig{
+			Type:     "mysql",
+			Port:     "22108",
+			Name:     "kpos",
+			User:     "shohoku",
+			Password: "runtime-secret",
+		},
+	}
+
+	t.Run("resolves connection info from device IP", func(t *testing.T) {
+		device := &models.ScanResult{
+			IP:         "192.168.1.100",
+			MerchantID: strPtr("merchant_001"),
+		}
+
+		service := &DBConfigService{}
+		connInfo, err := service.resolveConnectionFromDevice(device)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if connInfo.Host != "192.168.1.100" {
+			t.Fatalf("Host = %q, want 192.168.1.100", connInfo.Host)
+		}
+		if connInfo.DBType != "mysql" {
+			t.Fatalf("DBType = %q, want mysql", connInfo.DBType)
+		}
+		if connInfo.Port != 22108 {
+			t.Fatalf("Port = %d, want 22108", connInfo.Port)
+		}
+		if connInfo.DatabaseName != "kpos" {
+			t.Fatalf("DatabaseName = %q, want kpos", connInfo.DatabaseName)
+		}
+		if connInfo.Username != "shohoku" {
+			t.Fatalf("Username = %q, want shohoku", connInfo.Username)
+		}
+		if !connInfo.HasPassword {
+			t.Fatal("HasPassword should be true")
+		}
+	})
+
+	t.Run("returns error when device is nil", func(t *testing.T) {
+		service := &DBConfigService{}
+		_, err := service.resolveConnectionFromDevice(nil)
+		if err == nil {
+			t.Fatal("expected error for nil device")
+		}
+	})
+
+	t.Run("returns error when device IP is empty", func(t *testing.T) {
+		device := &models.ScanResult{
+			IP:         "",
+			MerchantID: strPtr("merchant_001"),
+		}
+
+		service := &DBConfigService{}
+		_, err := service.resolveConnectionFromDevice(device)
+		if err == nil {
+			t.Fatal("expected error for empty IP")
+		}
+	})
+
+	t.Run("uses default port when not specified", func(t *testing.T) {
+		oldConfig := config.AppConfig
+		config.AppConfig = &config.Config{
+			POSDatabase: config.POSDatabaseConfig{
+				Type:     "mysql",
+				Port:     "",
+				Name:     "kpos",
+				User:     "shohoku",
+				Password: "secret",
+			},
+		}
+		defer func() {
+			config.AppConfig = oldConfig
+		}()
+
+		device := &models.ScanResult{
+			IP:         "192.168.1.100",
+			MerchantID: strPtr("merchant_001"),
+		}
+
+		service := &DBConfigService{}
+		connInfo, err := service.resolveConnectionFromDevice(device)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if connInfo.Port != 3306 {
+			t.Fatalf("Port = %d, want default 3306", connInfo.Port)
+		}
+	})
+}
+
+func strPtr(s string) *string {
+	return &s
 }

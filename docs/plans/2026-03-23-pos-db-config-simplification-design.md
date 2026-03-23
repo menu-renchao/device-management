@@ -1,266 +1,254 @@
-# POS 默认数据库连接极简化设计
+# POS DB 配置简化设计
 
 ## 1. 背景
 
-当前项目里的数据库配置模块已经偏离真实业务前提：
+当前项目的 POS 数据库连接设计存在三层不必要复杂度：
 
-- 产品设备统一使用同一套 MySQL 用户、密码、端口、库名
-- 设备之间真正变化的主要只有 `device.IP`
-- 但现有实现仍按设备保存连接信息
-- 密码使用 AES-GCM 加密入库
-- 解密密钥复用 `JWT_SECRET_KEY`
-- SQL 模板执行又强依赖设备级连接表
+- 后端按设备把连接信息存到 `device_db_connections`
+- 密码通过 `pkg/crypto/password_cipher.go` 加解密，并复用 `JWT_SECRET_KEY`
+- 前端页面允许用户输入端口、库名、用户名、密码，同时内置默认值
 
-这导致了几类无业务价值的复杂度：
+这套设计与实际业务不匹配。当前真正变化的只有设备 IP，数据库端口、库名、用户名、密码本质上是全局固定配置。继续保留“设备级存储 + 密码加解密 + 前端输入”的模型，会带来以下问题：
 
-- `device_db_connections` 表需要维护
-- 前端要维护“保存连接 / 使用已保存密码 / 测试当前填写连接”
-- 后端要维护密码加密、解密、密钥管理
-- `JWT_SECRET_KEY` 变化会导致数据库连接密码无法解密
-- 菜单导入导出、整库备份恢复、SQL 执行三条链路无法稳定共用同一套默认连接能力
+- 运行链路依赖 `device_db_connections`，结构冗余
+- JWT 密钥变化可能导致数据库密码无法解密
+- 前端存在硬编码默认密码，风险高且维护成本高
+- SQL 模板执行前还要先保存连接，交互多余
 
-本次重整目标是彻底回到真实业务模型：统一默认连接，按设备 IP 直连，移除设备级数据库连接管理。
+本次改造目标是把 POS 数据库连接收敛为统一运行时配置：
 
----
+- `host` 永远取当前设备 IP
+- `port / database / username / password` 永远取服务端 `.env`
+- 前端只展示当前生效信息，不再提供输入或保存
 
 ## 2. 目标
 
-新的数据库连接设计必须满足：
-
-- 所有 POS 设备统一使用全局默认 MySQL 配置
-- 连接目标主机由 `device.IP` 决定
-- 不再保存设备级数据库连接信息
-- 不再对数据库密码做加密入库
-- 不再让 SQL 模板执行依赖 `device_db_connections`
-- 菜单导入导出、整库备份恢复、SQL 模板执行共用一套默认 POS DB 连接构造逻辑
-
----
+- 统一通过 `.env` 明文配置 POS 数据库端口、库名、用户名、密码
+- 移除 `device_db_connections` 的运行时读写逻辑
+- 移除数据库密码加解密逻辑
+- 前端数据库连接区域改为信息展示，不再允许编辑
+- SQL 模板测试连接与执行都直接使用“当前设备 IP + `.env` 配置”
 
 ## 3. 非目标
 
-本次明确不做：
+- 不支持设备级数据库连接覆盖
+- 不保留“读旧连接表作为兼容回退”的双轨逻辑
+- 不在本次改造中自动删除历史 SQLite 表 `device_db_connections`
+- 不扩展到多数据库类型，仍只支持 MySQL
 
-- 为少数门店保留设备级数据库连接覆盖
-- 保留旧的密码加密逻辑作为兼容分支
-- 保留“读取旧连接记录”的过渡能力
-- 支持多种数据库类型，仍只支持 MySQL
-- 重构 SQL 模板体系本身
+## 4. 配置模型
 
----
-
-## 4. 新架构
-
-### 4.1 全局默认连接
-
-系统只保留以下全局配置：
+后端新增统一 POS 数据库环境变量：
 
 - `POS_DB_PORT`
+- `POS_DB_NAME`
 - `POS_DB_USER`
 - `POS_DB_PASSWORD`
-- `POS_DB_NAME`
 
-运行时连接参数统一为：
+可保留：
 
-- `host = device.IP`
+- `POS_DB_TYPE=mysql`
+
+运行时连接参数统一规则：
+
+- `host = 当前设备 IP`
 - `port = POS_DB_PORT`
-- `user = POS_DB_USER`
+- `database_name = POS_DB_NAME`
+- `username = POS_DB_USER`
 - `password = POS_DB_PASSWORD`
-- `database = POS_DB_NAME`
 
-### 4.2 统一连接解析器
+前端不再拥有默认数据库密码，也不再生成数据库连接保存请求。
 
-新增统一默认 POS DB 连接模块，例如：
+## 5. 后端设计
 
-- `backend-go/internal/services/pos_db_runtime.go`
+### 5.1 配置层
 
-职责只有两件事：
+在 `backend-go/internal/config/config.go` 中为 `Config` 增加 POS 数据库配置结构，例如：
 
-1. 根据 `merchant_id` 查询设备，获取 `device.IP`
-2. 根据全局配置生成标准 `DBConnectionInput` 或 MySQL DSN
+- `Type`
+- `Port`
+- `Name`
+- `User`
+- `Password`
 
-所有业务模块必须复用它：
+`config.Init()` 负责：
 
-- 菜单导入导出
-- 整库备份恢复
-- SQL 模板执行
+- 从 `.env` 读取 `POS_DB_*`
+- 设置合理默认值（如 `mysql` 与默认端口）
+- 让后续业务代码只依赖 `config.AppConfig.POSDatabase`
 
-禁止业务模块自行拼接主机、端口、密码来源。
+`.env.example` 需要同步补充这些字段。
 
-### 4.3 SQL 执行模块
+### 5.2 运行时连接解析
 
-SQL 模板与执行历史继续保留，但执行链路改为：
+在服务层新增统一解析能力，例如 `backend-go/internal/services/pos_db_runtime.go`。
 
-1. 前端选择模板
-2. 后端根据 `merchant_id` 找到设备
-3. 统一默认连接解析器构造连接
-4. Go 进程内直连 MySQL 执行 SQL
-5. 落执行历史与明细
+职责：
 
-SQL 执行不再需要：
+1. 根据 `merchant_id` 查询设备记录
+2. 从设备记录中取得当前设备 IP
+3. 将设备 IP 与 `config.AppConfig.POSDatabase` 组合成标准 `DBConnectionInput`
 
-- 保存设备连接
-- 读取设备连接
-- 复用已保存密码
-- 解密密码
+该能力会成为 POS 数据库访问的唯一运行时来源，避免后续再出现多处各自拼接主机、端口、用户名、密码的情况。
 
-### 4.4 菜单 / 备份模块
+### 5.3 DBConfigService 重构
 
-菜单导入导出和整库备份恢复不再有独立的“凭据来源”。
+`DBConfigService` 不再依赖 `DeviceDBConnectionRepository`。
 
-它们共享：
+重构后行为：
 
-- 同一个设备 IP 来源
-- 同一个默认端口/用户名/密码/库名来源
-- 同一个默认 POS DB 连接模块
+- `GetConnection(merchantID)` 返回基于当前设备 IP 和 `.env` 生成的只读连接信息
+- `TestConnectionForMerchant(merchantID)` 不再接收用户输入密码，不再处理 `use_saved_password`
+- `ExecuteTemplates()` 直接使用运行时解析出的连接参数访问 MySQL
 
-这样可以避免三条链路出现不同的密码逻辑与连接行为。
+需要移除：
 
----
-
-## 5. 数据模型调整
-
-### 5.1 删除设备级连接表职责
-
-现有表：
-
-- `device_db_connections`
-
-不再承担任何业务职责。
-
-建议直接删除以下字段对应的整张表：
-
-- `merchant_id`
-- `host`
-- `port`
-- `database_name`
-- `username`
-- `password_encrypted`
-
-### 5.2 删除加密逻辑
-
-删除以下逻辑：
-
-- `pkg/crypto/password_cipher.go`
-- `DBConfigService.decryptConnection`
-- `DBConfigService.getCipherSecret`
+- `UpsertConnection`
+- `resolveTestConnectionInput`
+- `decryptConnection`
+- `getCipherSecret`
 - `UseSavedPassword`
-- 任何基于 `JWT_SECRET_KEY` 的数据库连接密码解密
+- 对 `pkg/crypto/password_cipher.go` 的依赖
 
-这样可以直接消灭：
+### 5.4 Handler 与 API
 
-- `cipher: message authentication failed`
-- 数据库连接和 JWT 密钥耦合
-- 设备级密码保存与恢复
-
----
-
-## 6. 接口调整
-
-### 6.1 保留
-
-- `GET /api/db-config/templates`
-- `POST /api/db-config/execute`
-- `GET /api/db-config/history`
-- `GET /api/db-config/history/:taskId`
-- `POST /api/db-config/test-default`
-- 可选：`GET /api/db-config/default-connection`
-
-### 6.2 删除
+保留并重定义：
 
 - `GET /api/db-config/connections/:merchantId`
+  - 返回当前生效连接信息
+  - `host` 为当前设备 IP
+  - `port / database_name / username` 为服务端环境配置
+  - 不返回明文密码，可返回 `password_configured: true`
+
+- `POST /api/db-config/connections/:merchantId/test`
+  - 不依赖前端提交连接参数
+  - 直接测试当前生效配置
+
+移除：
+
 - `PUT /api/db-config/connections/:merchantId`
-- 所有设备级连接保存 / 读取接口
 
-### 6.3 新接口语义
+这样可以在尽量少改动前端 API 入口的前提下，彻底移除存储逻辑。
 
-`test-default`：
+### 5.5 数据模型与迁移
 
-- 输入：`merchant_id`
-- 行为：使用 `device.IP + POS_DB_*` 测试默认连接
+需要从运行时代码中移除：
 
-`default-connection`：
+- `backend-go/internal/models/device_db_connection.go`
+- `backend-go/internal/repository/device_db_connection_repo.go`
+- `cmd/server/main.go` 中相关仓储初始化和 `AutoMigrate` 注册
 
-- 输入：`merchant_id`
-- 输出：
-  - `host = device.IP`
-  - `port`
-  - `username`
-  - `database_name`
-  - `password_set = true`
+本次不做自动删表。原因：
 
-不返回明文密码。
+- 目标是先移除运行时依赖，降低改造风险
+- 历史表中可能仍有存量数据，自动删除属于破坏性动作
+- 后续若需要清理，可单独安排一次安全的数据迁移
 
----
+## 6. 前端设计
 
-## 7. 前端调整
+### 6.1 页面职责重定义
 
-### 7.1 DB 配置页重定义
+`DBConfigPage` 改为“数据库连接信息展示 + SQL 模板执行”页面，而不是“设备数据库连接编辑页面”。
 
-`DBConfigPage` 改成“默认连接 + SQL 执行页”，不再是“设备级连接配置页”。
+页面连接信息区域只展示：
 
-页面结构建议为：
+- 当前设备 IP
+- 当前数据库端口
+- 当前数据库名
+- 当前数据库用户名
+- 密码状态文案，例如“已由服务端环境变量配置”
 
-1. 默认连接信息卡片
-   - 当前设备 IP
-   - 默认端口
-   - 默认用户名
-   - 默认库名
-   - 密码状态：使用系统默认密码
+### 6.2 交互调整
 
-2. 默认连接测试
-   - “测试默认连接”按钮
+需要移除的前端交互：
 
-3. SQL 模板管理
-   - 保留现有模板列表、创建、编辑、删除
-
-4. SQL 执行与历史
-   - 保留现有执行结果与历史
-
-### 7.2 删除交互
-
-前端删除以下概念：
-
+- 编辑端口、库名、用户名、密码
 - 保存连接
-- 编辑主机/端口/用户名/密码
 - 使用已保存密码
-- 设备级连接表单状态
+- 前端数据库连接校验
+- 默认数据库密码硬编码
 
-这样页面会显著变简单，也更符合实际业务。
+保留的交互：
 
----
+- 测试连接
+- 执行 SQL 模板
+- 新增、编辑、删除 SQL 模板
+
+其中“测试连接”和“执行 SQL 模板”都直接调用后端，前端不再构造数据库凭据。
+
+### 6.3 组件与状态简化
+
+`ConnectionPanel` 由表单组件改为展示组件。
+
+`DBConfigPage` 中以下状态和逻辑应删除：
+
+- `hasSavedPassword`
+- `ensureConnectionSynced`
+- `validateConnection`
+- `buildConnectionPayloadForRequest`
+- 对 `saveConnection()` 的调用
+
+以下辅助文件应同步简化或删除：
+
+- `frontend/src/pages/connectionDefaults.js`
+- `frontend/src/pages/dbConnectionFormState.js`
+- `frontend/src/pages/dbConnectionRequestState.js`
+- 对应测试文件
+
+## 7. 测试设计
+
+### 7.1 后端
+
+需要新增或调整测试覆盖：
+
+- 配置读取 `POS_DB_*` 的行为
+- 运行时连接解析正确使用设备 IP
+- `DBConfigService` 在没有 `device_db_connections` 的前提下仍能测试连接和执行 SQL
+- `main.go` 的 `autoMigrateModels()` 不再包含 `DeviceDBConnection`
+- 处理设备不存在或设备 IP 为空时的错误
+
+不再保留的测试方向：
+
+- 密码加解密
+- `use_saved_password`
+- 旧连接记录回填
+
+### 7.2 前端
+
+需要覆盖：
+
+- 连接信息区域为只读展示
+- 页面不再发起保存连接请求
+- 测试连接调用不依赖用户输入
+- 执行 SQL 模板不再先同步连接
 
 ## 8. 风险与控制
 
 ### 8.1 风险
 
-1. 错误的全局默认密码会影响全部设备
-2. 现有 SQL 执行页逻辑会依赖已删除的连接接口
-3. 菜单 / 备份 / SQL 三条链路的连接行为若未统一，后续还会分叉
+- `.env` 配置错误会影响所有 POS 设备
+- 运行时代码如果仍残留对旧仓储的依赖，会导致编译或逻辑错误
+- 前端若仍保留旧状态流，可能继续发送已失效的请求结构
 
-### 8.2 控制
+### 8.2 控制措施
 
-1. 增加默认连接测试接口
-2. 所有连接统一走默认 POS DB 连接模块
-3. 重构完成后删除旧接口，避免双轨并存
-4. 通过集成测试验证：
-   - SQL 模板执行
-   - 菜单导出导入
-   - 数据库备份恢复
+- 增加配置读取与运行时解析测试
+- 通过删除旧模型、仓储和服务依赖，避免“逻辑上不用、代码里还在”的半收敛状态
+- 保留 `GET /connections/:merchantId` 与 `POST /connections/:merchantId/test`，降低接口迁移范围
+- 不自动删历史表，先完成逻辑收敛，再视需要独立清理数据
 
----
+## 9. 结论
 
-## 9. 最终结论
+本次改造后的正确模型应当是：
 
-新的正确模型不是“每台设备一份数据库配置”，而是：
+- 设备决定连接目标主机，即当前设备 IP
+- 系统决定默认数据库端口、库名、用户名、密码，即 `.env`
+- 前端只负责展示和触发操作，不负责编辑数据库凭据
 
-- 设备决定主机 IP
-- 系统决定默认用户名/密码/端口/库名
+这能直接消除当前设计中最主要的复杂来源：
 
-因此应当：
+- `device_db_connections` 的设备级存储
+- 密码加解密链路
+- 前端默认值与输入表单
 
-- 删除 `device_db_connections`
-- 删除所有数据库密码加解密逻辑
-- 删除设备级连接配置 UI 与接口
-- 将数据库执行、菜单导入导出、整库备份恢复统一到一套默认 POS DB 连接能力上
-
-这套方案最符合真实业务，也最能稳定地压低系统复杂度。
+最终结果是更符合真实业务、更容易维护、也更不容易出错的 POS 数据库连接模型。

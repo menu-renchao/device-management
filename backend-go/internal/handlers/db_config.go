@@ -63,36 +63,7 @@ func (h *DBConfigHandler) GetConnection(c *gin.Context) {
 		response.Success(c, gin.H{"connection": nil})
 		return
 	}
-	response.Success(c, gin.H{"connection": sanitizeConnection(conn)})
-}
-
-func (h *DBConfigHandler) UpsertConnection(c *gin.Context) {
-	merchantID := strings.TrimSpace(c.Param("merchantId"))
-	if merchantID == "" {
-		response.BadRequest(c, "merchantId 不能为空")
-		return
-	}
-
-	user, ok := h.getCurrentUser(c)
-	if !ok {
-		return
-	}
-	if !h.authorizeDeviceAction(c, merchantID, user, services.ActionDBWrite) {
-		return
-	}
-
-	var req services.DBConnectionInput
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "请求格式无效")
-		return
-	}
-
-	conn, err := h.dbConfigService.UpsertConnection(merchantID, req, user.ID)
-	if err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-	response.SuccessWithMessage(c, "连接信息保存成功", gin.H{"connection": sanitizeConnection(conn)})
+	response.Success(c, gin.H{"connection": conn})
 }
 
 func (h *DBConfigHandler) TestConnection(c *gin.Context) {
@@ -110,15 +81,7 @@ func (h *DBConfigHandler) TestConnection(c *gin.Context) {
 		return
 	}
 
-	var req services.DBConnectionInput
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "请求格式无效")
-		return
-	}
-	if req.DBType == "" {
-		req.DBType = "mysql"
-	}
-	if err := h.dbConfigService.TestConnectionForMerchant(merchantID, req); err != nil {
+	if err := h.dbConfigService.TestConnectionForMerchant(merchantID); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -571,22 +534,6 @@ func (h *DBConfigHandler) authorizeDeviceAction(c *gin.Context, merchantID strin
 		return false
 	}
 	return true
-}
-
-func sanitizeConnection(conn *models.DeviceDBConnection) gin.H {
-	return gin.H{
-		"id":            conn.ID,
-		"merchant_id":   conn.MerchantID,
-		"db_type":       conn.DBType,
-		"host":          conn.Host,
-		"port":          conn.Port,
-		"database_name": conn.DatabaseName,
-		"username":      conn.Username,
-		"password_set":  conn.PasswordEncrypted != "",
-		"updated_by":    conn.UpdatedBy,
-		"created_at":    conn.CreatedAt,
-		"updated_at":    conn.UpdatedAt,
-	}
 }
 
 func collectTemplateUserIDs(templates []models.DBSQLTemplate) []uint {

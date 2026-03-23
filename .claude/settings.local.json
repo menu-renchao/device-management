@@ -82,7 +82,9 @@
       "Bash(start http://192.168.0.72:22080/kpos/front2/myhome.html)",
       "mcp__playwright__browser_close",
       "Bash(pushd \"D:/menusifu/device_management/backend-go\")",
-      "Bash(git push)"
+      "Bash(git push)",
+      "Bash(go test:*)",
+      "Bash(npm test:*)"
     ]
   }
 }

@@ -2,283 +2,333 @@
 
 > **For Codex:** REQUIRED SUB-SKILL: Use executing-plans to implement this plan task-by-task.
 
-**Goal:** Remove per-device database connection storage and encryption, and unify all POS MySQL access around `device.IP + POS_DB_*` global defaults.
+**Goal:** Replace per-device stored POS database credentials with one `.env`-driven runtime configuration, using the current device IP as the only dynamic host value.
 
-**Architecture:** Introduce one shared runtime resolver for POS DB connectivity, refactor SQL template execution to use it directly, then remove the old connection table, APIs, and frontend form state. Menu import/export and database backup/restore should continue converging on the same resolver.
+**Architecture:** The backend will expose one read-only connection view and one test endpoint backed by `device.IP + POS_DB_*`, while SQL template execution uses the same resolver directly. The frontend will stop collecting database credentials and instead render the effective connection summary returned by the backend.
 
 **Tech Stack:** Go Gin, GORM, SQLite metadata DB, MySQL driver, React 18, Vite.
 
 ---
 
-### Task 1: Add shared default POS DB runtime resolver
+### Task 1: Add POS DB environment config
 
 **Files:**
-- Create: `backend-go/internal/services/pos_db_runtime.go`
-- Test: `backend-go/internal/services/pos_db_runtime_test.go`
+- Modify: `backend-go/internal/config/config.go`
+- Modify: `backend-go/internal/config/config_test.go`
+- Modify: `.env.example`
 
 **Step 1: Write the failing test**
 
-Add tests for:
-- resolving `device.IP` from `merchant_id`
-- building default connection input from `POS_DB_*`
-- rejecting missing device IP
+Add tests in `backend-go/internal/config/config_test.go` to verify:
+- `POS_DB_TYPE` defaults to `mysql`
+- `POS_DB_PORT`, `POS_DB_NAME`, `POS_DB_USER`, `POS_DB_PASSWORD` can be loaded from env
+- the parsed config is available on `config.AppConfig`
 
 **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/services -run TestPOSDBRuntime`
-Expected: FAIL because the resolver does not exist.
+Run:
+
+```bash
+go test ./internal/config -run TestInitLoadsPOSDatabaseConfig -count=1
+```
+
+Expected: FAIL because the POS DB config fields do not exist yet.
 
 **Step 3: Write minimal implementation**
 
-Implement a runtime resolver that:
-- depends on `DeviceRepository`
-- reads `config.AppConfig.POSDatabase`
-- returns a connection input using `device.IP`
+Update `backend-go/internal/config/config.go` to:
+- add a `POSDatabaseConfig` section on `Config`
+- register defaults for `POS_DB_TYPE`, `POS_DB_PORT`, `POS_DB_NAME`, `POS_DB_USER`, `POS_DB_PASSWORD`
+- populate `AppConfig.POSDatabase`
+
+Update `.env.example` to document the new variables.
 
 **Step 4: Run test to verify it passes**
 
-Run: `go test ./internal/services -run TestPOSDBRuntime`
+Run:
+
+```bash
+go test ./internal/config -run TestInitLoadsPOSDatabaseConfig -count=1
+```
+
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add backend-go/internal/config/config.go backend-go/internal/config/config_test.go .env.example
+git commit -m "refactor: add pos db env configuration"
+```
+
+### Task 2: Add runtime resolver for current device IP plus env defaults
+
+**Files:**
+- Create: `backend-go/internal/services/pos_db_runtime.go`
+- Create: `backend-go/internal/services/pos_db_runtime_test.go`
+
+**Step 1: Write the failing test**
+
+Add tests covering:
+- resolving runtime connection data from `merchant_id`
+- using the current device IP as `host`
+- returning an error when the device is missing
+- returning an error when the device IP is empty
+
+**Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+go test ./internal/services -run TestPOSDBRuntime -count=1
+```
+
+Expected: FAIL because the runtime resolver does not exist.
+
+**Step 3: Write minimal implementation**
+
+Create `backend-go/internal/services/pos_db_runtime.go` with a resolver that:
+- depends on `DeviceRepository`
+- reads `config.AppConfig.POSDatabase`
+- builds a `DBConnectionInput` using `device.IP` as `host`
+
+**Step 4: Run test to verify it passes**
+
+Run:
+
+```bash
+go test ./internal/services -run TestPOSDBRuntime -count=1
+```
+
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
 git add backend-go/internal/services/pos_db_runtime.go backend-go/internal/services/pos_db_runtime_test.go
-git commit -m "refactor: add shared pos db runtime resolver"
+git commit -m "refactor: add pos db runtime resolver"
 ```
 
-### Task 2: Refactor DBConfigService to remove encrypted connection storage
+### Task 3: Refactor DBConfigService away from stored connections
 
 **Files:**
 - Modify: `backend-go/internal/services/db_config_service.go`
+- Modify: `backend-go/internal/services/db_config_service_test.go`
 - Delete: `backend-go/pkg/crypto/password_cipher.go`
 - Delete: `backend-go/pkg/crypto/password_cipher_test.go`
-- Test: `backend-go/internal/services/db_config_service_test.go`
 
 **Step 1: Write the failing test**
 
-Add tests covering:
-- executing templates without any `device_db_connections` record
-- test-default using device IP and global defaults
-- no decryption path required
+Add tests that verify:
+- `GetConnection` returns runtime-derived connection info without any saved row
+- `TestConnectionForMerchant` no longer needs request payload password fields
+- `ExecuteTemplates` no longer reads `device_db_connections`
 
 **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/services -run TestDBConfigService`
-Expected: FAIL because service still requires stored connection rows.
+Run:
+
+```bash
+go test ./internal/services -run TestDBConfigService -count=1
+```
+
+Expected: FAIL because the service still depends on stored encrypted connections.
 
 **Step 3: Write minimal implementation**
 
-Change service behavior to:
-- stop reading `connectionRepo` for runtime connection data
+Update `backend-go/internal/services/db_config_service.go` to:
+- remove `DeviceDBConnectionRepository` from the service
+- remove `UpsertConnection`
 - remove `UseSavedPassword`
-- remove `decryptConnection`
-- remove `getCipherSecret`
-- resolve MySQL connection from shared runtime resolver
+- remove password decrypt and cipher-secret logic
+- delegate runtime connection building to the new resolver
+
+Delete the unused crypto helper and its tests.
 
 **Step 4: Run test to verify it passes**
 
-Run: `go test ./internal/services -run TestDBConfigService`
+Run:
+
+```bash
+go test ./internal/services -run TestDBConfigService -count=1
+```
+
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add backend-go/internal/services/db_config_service.go backend-go/internal/services/db_config_service_test.go backend-go/pkg/crypto/password_cipher.go backend-go/pkg/crypto/password_cipher_test.go
-git commit -m "refactor: remove encrypted device db connections"
+git add backend-go/internal/services/db_config_service.go backend-go/internal/services/db_config_service_test.go
+git rm backend-go/pkg/crypto/password_cipher.go backend-go/pkg/crypto/password_cipher_test.go
+git commit -m "refactor: remove stored pos db connection logic"
 ```
 
-### Task 3: Remove device connection APIs and add default-connection APIs
+### Task 4: Simplify DB config handlers and routes
 
 **Files:**
 - Modify: `backend-go/internal/handlers/db_config.go`
+- Create: `backend-go/internal/handlers/db_config_test.go`
 - Modify: `backend-go/cmd/server/main.go`
-- Test: `backend-go/internal/handlers/db_config_test.go`
+- Modify: `backend-go/cmd/server/auto_migrate_models_test.go`
 
 **Step 1: Write the failing test**
 
-Add handler tests for:
-- `POST /api/db-config/test-default`
-- optional `GET /api/db-config/default-connection`
-- routes no longer serving `/connections/:merchantId`
+Add tests for:
+- `GET /api/db-config/connections/:merchantId` returning runtime-derived readonly data
+- `POST /api/db-config/connections/:merchantId/test` working without request body credentials
+- `PUT /api/db-config/connections/:merchantId` no longer being registered
+- `autoMigrateModels()` no longer including `DeviceDBConnection`
 
 **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/handlers -run TestDBConfig`
-Expected: FAIL because old routes still exist.
+Run:
+
+```bash
+go test ./internal/handlers -run TestDBConfig -count=1
+go test ./cmd/server -run TestAutoMigrateModels -count=1
+```
+
+Expected: FAIL because the old save route and old model wiring still exist.
 
 **Step 3: Write minimal implementation**
 
-Update routes and handlers:
-- remove get/save per-device connection endpoints
-- expose default connection info derived from `device.IP + POS_DB_*`
-- expose test-default endpoint
+Update the handler and server wiring to:
+- keep `GET` and `POST test` routes
+- remove `PUT /connections/:merchantId`
+- return readonly connection info with password status only
+- stop initializing the old repository and stop auto-migrating the old model
 
 **Step 4: Run test to verify it passes**
 
-Run: `go test ./internal/handlers -run TestDBConfig`
+Run:
+
+```bash
+go test ./internal/handlers -run TestDBConfig -count=1
+go test ./cmd/server -run TestAutoMigrateModels -count=1
+```
+
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add backend-go/internal/handlers/db_config.go backend-go/cmd/server/main.go backend-go/internal/handlers/db_config_test.go
-git commit -m "refactor: simplify db config api surface"
+git add backend-go/internal/handlers/db_config.go backend-go/internal/handlers/db_config_test.go backend-go/cmd/server/main.go backend-go/cmd/server/auto_migrate_models_test.go
+git commit -m "refactor: simplify pos db config endpoints"
 ```
 
-### Task 4: Simplify frontend DBConfigPage
-
-**Files:**
-- Modify: `frontend/src/pages/DBConfigPage.jsx`
-- Modify: `frontend/src/pages/dbConnectionFormState.js`
-- Modify: `frontend/src/pages/dbConnectionRequestState.js`
-- Modify: `frontend/src/services/api.js`
-- Test: `frontend/src/pages/dbConnectionFormState.test.js`
-- Test: `frontend/src/pages/dbConnectionRequestState.test.js`
-
-**Step 1: Write the failing test**
-
-Add tests asserting:
-- no editable password/username/host form is required
-- page can render default connection summary
-- request payload for execution no longer includes saved-password semantics
-
-**Step 2: Run test to verify it fails**
-
-Run: `npm test -- --runInBand`
-Expected: FAIL because state still models editable per-device connection settings.
-
-**Step 3: Write minimal implementation**
-
-Simplify the page to:
-- show device IP and default DB metadata
-- call `test-default`
-- keep template management and execution
-- remove save-connection actions and form complexity
-
-**Step 4: Run test to verify it passes**
-
-Run: `npm test -- --runInBand`
-Expected: PASS
-
-**Step 5: Commit**
-
-```bash
-git add frontend/src/pages/DBConfigPage.jsx frontend/src/pages/dbConnectionFormState.js frontend/src/pages/dbConnectionRequestState.js frontend/src/services/api.js frontend/src/pages/dbConnectionFormState.test.js frontend/src/pages/dbConnectionRequestState.test.js
-git commit -m "refactor: simplify db config page to default connection model"
-```
-
-### Task 5: Delete unused device DB connection model and repository path
+### Task 5: Remove obsolete model and repository files
 
 **Files:**
 - Delete: `backend-go/internal/models/device_db_connection.go`
 - Delete: `backend-go/internal/repository/device_db_connection_repo.go`
-- Modify: dependent constructors/usages in `backend-go/cmd/server/main.go`
-- Test: `go test ./...`
 
 **Step 1: Write the failing test**
 
-Add or update compile-level coverage so the app builds without `device_db_connections`.
+Use compile-level verification to ensure no remaining code references the obsolete model or repository.
 
 **Step 2: Run test to verify it fails**
 
-Run: `go test ./...`
-Expected: FAIL because constructors and services still reference the old repository.
+Run:
+
+```bash
+go test ./... -count=1
+```
+
+Expected: FAIL until all references to the deleted files are removed.
 
 **Step 3: Write minimal implementation**
 
-Remove repository wiring and all references to the old model/repo.
+Delete the obsolete model and repository, then update any remaining references to compile cleanly.
 
 **Step 4: Run test to verify it passes**
 
-Run: `go test ./...`
+Run:
+
+```bash
+go test ./... -count=1
+```
+
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add backend-go/cmd/server/main.go
 git rm backend-go/internal/models/device_db_connection.go backend-go/internal/repository/device_db_connection_repo.go
-git commit -m "refactor: remove device db connection storage"
+git commit -m "refactor: delete obsolete device db connection storage"
 ```
 
-### Task 6: Add database migration to drop the obsolete table
+### Task 6: Simplify frontend DB config page to display-only
 
 **Files:**
-- Modify: `backend-go/cmd/server/main.go` or migration bootstrap location
-- Create/Modify: migration helper file if the repo has one
-- Test: migration verification command
+- Modify: `frontend/src/components/db-config/ConnectionPanel.jsx`
+- Modify: `frontend/src/components/db-config/connectionPanelState.js`
+- Modify: `frontend/src/components/db-config/connectionPanelState.test.js`
+- Modify: `frontend/src/pages/DBConfigPage.jsx`
+- Modify: `frontend/src/pages/connectionDefaults.js`
+- Modify: `frontend/src/pages/connectionDefaults.test.js`
+- Modify: `frontend/src/pages/dbConnectionFormState.js`
+- Modify: `frontend/src/pages/dbConnectionFormState.test.js`
+- Modify: `frontend/src/pages/dbConnectionRequestState.js`
+- Modify: `frontend/src/pages/dbConnectionRequestState.test.js`
+- Modify: `frontend/src/services/api.js`
+- Modify: `frontend/src/services/api.test.js`
 
 **Step 1: Write the failing test**
 
-Add a migration-level test or one-off verification proving the obsolete table is dropped cleanly.
+Add tests that verify:
+- the connection panel renders readonly information instead of editable inputs
+- no frontend path calls `saveConnection`
+- testing a connection no longer sends user-entered DB credentials
+- template execution no longer synchronizes connection form state first
 
 **Step 2: Run test to verify it fails**
 
-Run the targeted migration verification.
-Expected: FAIL because table still exists.
+Run:
+
+```bash
+npm test -- --runInBand
+```
+
+Expected: FAIL because the page still models editable per-device connection state.
 
 **Step 3: Write minimal implementation**
 
-Add migration logic to drop `device_db_connections` if present.
+Update the frontend to:
+- fetch readonly connection data from `GET /db-config/connections/:merchantId`
+- keep the test endpoint call
+- remove the save endpoint call
+- remove password input, saved-password semantics, and hardcoded DB password defaults
+- render a password status label rather than a password field
+
+Simplify or retire helper modules so they match the new display-only flow.
 
 **Step 4: Run test to verify it passes**
 
-Run migration verification again.
+Run:
+
+```bash
+npm test -- --runInBand
+```
+
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add <migration files>
-git commit -m "chore: drop obsolete device db connections table"
+git add frontend/src/components/db-config/ConnectionPanel.jsx frontend/src/components/db-config/connectionPanelState.js frontend/src/components/db-config/connectionPanelState.test.js frontend/src/pages/DBConfigPage.jsx frontend/src/pages/connectionDefaults.js frontend/src/pages/connectionDefaults.test.js frontend/src/pages/dbConnectionFormState.js frontend/src/pages/dbConnectionFormState.test.js frontend/src/pages/dbConnectionRequestState.js frontend/src/pages/dbConnectionRequestState.test.js frontend/src/services/api.js frontend/src/services/api.test.js
+git commit -m "refactor: make db config page display only"
 ```
 
-### Task 7: Unify menu and backup modules on the same resolver
-
-**Files:**
-- Modify: `backend-go/internal/services/menu_package_service.go`
-- Modify: `backend-go/internal/services/db_backup_service.go`
-- Modify: `backend-go/internal/services/license_service.go`
-- Test: `backend-go/internal/services/..._test.go`
-
-**Step 1: Write the failing test**
-
-Add tests asserting all POS DB modules resolve host from device IP and credentials from the same shared resolver/config source.
-
-**Step 2: Run test to verify it fails**
-
-Run: `go test ./internal/services -count=1`
-Expected: FAIL because modules still construct connections independently.
-
-**Step 3: Write minimal implementation**
-
-Refactor service constructors or helper paths so all three modules consume one shared default POS DB resolution strategy.
-
-**Step 4: Run test to verify it passes**
-
-Run: `go test ./internal/services -count=1`
-Expected: PASS
-
-**Step 5: Commit**
-
-```bash
-git add backend-go/internal/services/menu_package_service.go backend-go/internal/services/db_backup_service.go backend-go/internal/services/license_service.go backend-go/internal/services/*test.go
-git commit -m "refactor: unify pos db access on shared defaults"
-```
-
-### Task 8: Final verification and documentation cleanup
+### Task 7: Final verification and doc refresh
 
 **Files:**
 - Modify: `docs/plans/2026-03-23-pos-db-config-simplification-design.md`
-- Modify: `README.md` if needed
 
 **Step 1: Run backend verification**
 
 Run:
 
 ```bash
-go test ./...
+go test ./... -count=1
 go build ./cmd/server
 ```
 
@@ -298,15 +348,15 @@ Expected: PASS
 **Step 3: Manual smoke checks**
 
 Verify:
-- open DB config page for a device
-- test default connection
-- execute one SQL template
-- menu export/import still works
-- DB backup/restore still works
+- open the DB config page for one device
+- confirm the connection section is display-only
+- run connection test successfully
+- execute one SQL template successfully
+- confirm no save-connection request is sent
 
 **Step 4: Commit**
 
 ```bash
-git add docs/plans/2026-03-23-pos-db-config-simplification-design.md README.md
-git commit -m "docs: finalize simplified pos db connection design"
+git add docs/plans/2026-03-23-pos-db-config-simplification-design.md
+git commit -m "docs: finalize pos db config simplification plan"
 ```

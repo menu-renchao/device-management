@@ -1,6 +1,5 @@
 import {
   DEFAULT_DB_NAME,
-  DEFAULT_DB_PASSWORD,
   DEFAULT_DB_PORT,
   DEFAULT_DB_TYPE,
   DEFAULT_DB_USER,
@@ -13,13 +12,11 @@ export function createPendingDBConnectionForm(host = '') {
     port: DEFAULT_DB_PORT,
     database_name: DEFAULT_DB_NAME,
     username: DEFAULT_DB_USER,
-    password: '',
   };
 }
 
 export function mergeLoadedDBConnectionForm(currentForm, connection, deviceIP = '') {
   const nextHost = (deviceIP || currentForm?.host || '').trim();
-  const hasDraftPassword = (currentForm?.password || '').trim() !== '';
 
   if (!connection) {
     return {
@@ -28,7 +25,6 @@ export function mergeLoadedDBConnectionForm(currentForm, connection, deviceIP = 
       port: currentForm?.port || DEFAULT_DB_PORT,
       database_name: currentForm?.database_name || DEFAULT_DB_NAME,
       username: currentForm?.username || DEFAULT_DB_USER,
-      password: hasDraftPassword ? currentForm.password : DEFAULT_DB_PASSWORD,
     };
   }
 
@@ -38,6 +34,5 @@ export function mergeLoadedDBConnectionForm(currentForm, connection, deviceIP = 
     port: connection.port || DEFAULT_DB_PORT,
     database_name: connection.database_name || DEFAULT_DB_NAME,
     username: connection.username || DEFAULT_DB_USER,
-    password: hasDraftPassword ? currentForm.password : '',
   };
 }
