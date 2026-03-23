@@ -609,8 +609,10 @@ body {
   border: 1px solid var(--apple-gray-5);
   flex: 1;
   min-height: 180px;
+  max-height: 320px;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
 }
 
 .db-backup-table {
